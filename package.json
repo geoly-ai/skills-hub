@@ -12,7 +12,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:matrix": "bash scripts/test-matrix.sh"
+    "test:matrix": "bash scripts/test-matrix.sh",
+    "test:fault": "FX_FULL=1 node --test test/fault-matrix.test.mjs"
   },
   "files": [
     "bin",

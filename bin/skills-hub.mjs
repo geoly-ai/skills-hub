@@ -12,5 +12,15 @@ process.emit = function (name, data, ...rest) {
   return origEmit.call(this, name, data, ...rest);
 };
 
+// 🔴 生产 CLI 里绝不允许故障注入被环境变量武装起来。
+// 注入器支持 throw / exit / SIGKILL / powerfail —— 用户环境里一个残留的
+// GEOLY_FAULT_ENABLE=1 就能让正经安装在半路被杀。先清环境，再上锁，
+// 两道都在**任何 import 之前**，因为模块求值时就可能读这些变量。
+for (const k of Object.keys(process.env)) {
+  if (k.startsWith('GEOLY_FAULT')) delete process.env[k];
+}
+const { lockdown } = await import('../src/fault-inject.mjs');
+lockdown();
+
 const { main } = await import('../src/cli.mjs');
 process.exitCode = await main(process.argv.slice(2));

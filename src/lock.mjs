@@ -19,11 +19,32 @@ export class LockBusyError extends Error {
   }
 }
 
+/**
+ * 🔴 SQLITE_BUSY 不只从 `BEGIN EXCLUSIVE` 抛出。
+ *
+ * `PRAGMA journal_mode=WAL` 与 `CREATE TABLE` **都是写操作**，在 `busy_timeout=0`
+ * 下遇到并发写者会直接抛 `database is locked`，而那发生在 `BEGIN EXCLUSIVE` **之前**。
+ * 早先只在 BEGIN 处兜 LockBusyError，于是首次并发建库时绝大多数进程拿到的是裸
+ * `Error` —— 退出码 5、持有者信息、调用方的 busy 分支**全部失效**。
+ *
+ * 实测（16 进程 × 5 轮，全新 db）：80 次里 **69 次**是裸 Error，只有 5 次是 LockBusyError。
+ * 所以判据放在这里：**只要是 BUSY/LOCKED，无论来自哪一句，都归一成 LockBusyError**。
+ */
+const isBusy = (e) =>
+  e?.errcode === 5 || e?.errcode === 6 ||                 // SQLITE_BUSY / SQLITE_LOCKED
+  /database is locked|database table is locked/i.test(e?.message ?? '');
+
 function openDb(path) {
   const db = new DatabaseSync(path);
-  db.exec('PRAGMA journal_mode=WAL');
-  db.exec('PRAGMA busy_timeout=0');          // 🔴 不等待，冲突即失败
-  db.exec('CREATE TABLE IF NOT EXISTS holder(k INTEGER PRIMARY KEY, pid INT, host TEXT, cli TEXT, at TEXT)');
+  try {
+    db.exec('PRAGMA busy_timeout=0');        // 🔴 先设：后面两句都是写，都要不等待
+    db.exec('PRAGMA journal_mode=WAL');
+    db.exec('CREATE TABLE IF NOT EXISTS holder(k INTEGER PRIMARY KEY, pid INT, host TEXT, cli TEXT, at TEXT)');
+  } catch (e) {
+    try { db.close(); } catch { /* 已经坏了 */ }
+    if (isBusy(e)) throw new LockBusyError(path, readHolder(path));
+    throw e;
+  }
   return db;
 }
 
@@ -48,8 +69,9 @@ export function acquire(path, { cli = 'skills-hub' } = {}) {
     db.exec('BEGIN EXCLUSIVE');
   } catch (e) {
     const holder = readHolder(path);
-    try { db.close(); } catch {}
-    throw new LockBusyError(path, holder);
+    try { db.close(); } catch { /* 已经坏了 */ }
+    if (isBusy(e)) throw new LockBusyError(path, holder);
+    throw e;   // 不是「被占用」就别谎称是 —— 磁盘满、db 损坏要原样报出去
   }
   // 在外层事务内写 holder，最终 COMMIT 时才对别人可见
   db.prepare('INSERT OR REPLACE INTO holder(k,pid,host,cli,at) VALUES (1,?,?,?,?)')

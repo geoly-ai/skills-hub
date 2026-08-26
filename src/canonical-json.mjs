@@ -75,23 +75,50 @@ export function toBytes(value) { return Buffer.from(stringify(value), 'utf8'); }
  * 标准 JSON.parse 会静默取最后一个 —— §3.2 要求报错。
  */
 export function parseStrict(text) {
-  const seen = [];
-  const result = JSON.parse(text, function (key, value, ctx) {
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      // reviver 无法直接看到重复 key，改用下方的独立扫描
-    }
-    return value;
-  });
+  const result = JSON.parse(text);   // 先让它做语法校验
   detectDuplicateKeys(text);
   return result;
 }
 
-/** 独立扫描原文，发现同一对象内的重复 key */
+/**
+ * 🔴 把 JSON 字符串字面量解码成实际的 key。
+ *
+ * 重复 key 的判据必须是**解码后**的值：`{"a":1,"\u0061":2}` 里两个 key
+ * 都是 `a`，是重复的，但它们的原文完全不同。早先直接比原文，于是这种写法
+ * 被静默放行、JSON.parse 取最后一个 —— 一个可以用来绕过任何「按 key 校验」的口子。
+ *
+ * ⚠️ 这与埋点那次是同一类错误：**比较未归一化的形式**。
+ * 凡是「同一个东西有多种写法」的地方，比之前先归一。
+ */
+function decodeJsonString(raw) {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== '\\') { out += raw[i]; continue; }
+    const c = raw[++i];
+    switch (c) {
+      case '"': out += '"'; break;
+      case '\\': out += '\\'; break;
+      case '/': out += '/'; break;
+      case 'b': out += '\b'; break;
+      case 'f': out += '\f'; break;
+      case 'n': out += '\n'; break;
+      case 'r': out += '\r'; break;
+      case 't': out += '\t'; break;
+      case 'u':
+        out += String.fromCharCode(parseInt(raw.slice(i + 1, i + 5), 16));
+        i += 4;
+        break;
+      default: out += c;   // JSON.parse 已经验过语法，走不到这里
+    }
+  }
+  return out;
+}
+
+/** 独立扫描原文，发现同一对象内的重复 key（按**解码后**的 key 比对） */
 export function detectDuplicateKeys(text) {
   const stack = [];
   let i = 0;
   const n = text.length;
-  let expectKey = false;
   while (i < n) {
     const c = text[i];
     if (c === '"') {
@@ -101,14 +128,14 @@ export function detectDuplicateKeys(text) {
         if (text[j] === '"') break;
         buf += text[j]; j++;
       }
-      const raw = buf;
       i = j + 1;
       // 跳过空白，看是不是 key（后面跟冒号）
       let k = i; while (k < n && /\s/.test(text[k])) k++;
       if (text[k] === ':' && stack.length && stack[stack.length - 1].type === 'obj') {
         const top = stack[stack.length - 1];
-        if (top.keys.has(raw)) throw new Error(`canonical-json: 重复 key "${raw}"`);
-        top.keys.add(raw);
+        const key = decodeJsonString(buf);
+        if (top.keys.has(key)) throw new Error(`canonical-json: 重复 key ${JSON.stringify(key)}`);
+        top.keys.add(key);
       }
       continue;
     }

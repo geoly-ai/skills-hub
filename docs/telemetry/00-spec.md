@@ -212,6 +212,20 @@ append），直接 unlink 就把它们带走了——这和 `*.staged` 被同名
 `mark` 读不到就从 0 起算——整批重发（服务端按 `eid` 去重）比漏掉晚到的安全。
 
 **通用判据**：任何要删除的文件，先问一句「它自我记账以来长过吗」。
+
+### 5.2.4 🔴 「文件在不在」永远不是判据
+
+同一类错误在这个子系统里栽过四次，四次都是拿「存在性」当「完整性/可用性」用：
+
+| 栽在哪 | 错误判据 | 后果 | 正确判据 |
+|---|---|---|---|
+| 墓碑删除 | 直接 `unlink` | 扫描后新长出来的行被带走 | 记 `mark` 偏移，删前先收割 |
+| `rmtreeFsync` | `existsSync` | broken symlink / EACCES 被当成「没有」，清理谎报完成 | `lstat` 的 errno，只有 ENOENT/ENOTDIR 才算没有 |
+| `reapTomb` | 读失败即视为无墓碑 | 收割不掉却继续 rename 覆盖 | 只有 ENOENT 算没有，其余 fail-closed |
+| `install-id` | `openSync(p,'wx')` 抢占 | **文件已建、内容未写**，抢输者读到空串 | 写满 → fsync → `link` 上名字 |
+
+**规则**：存在性只说明「有个目录项」，不说明内容完整、可读、或没被别人接着写。
+要么验内容有效性，要么让**名字只在内容完整之后才出现**（写临时文件再 `link`/`rename`）。
 5. 失败 → 什么都不动，`sending` 原样留着，下一轮接着发
 
 🔴 **不要引入中间文件。** 这一步曾经写成"rename 成 `*.staged` → 读出来 →
@@ -370,4 +384,4 @@ skills-hub telemetry flush
 | v1 | 2026-08-26 | 首版：采集白名单、install_id、开关、上报通道、威胁模型增补、消费面 |
 | v2 | 2026-08-26 | 过 Codex 评审后的三条 P0：① 把"扫路径"换成严格 schema（穷举键 + 逐字段值校验 + 拒绝非字符串），四个边界共用；② `reason` 收敛为短代码；③ 禁止重定向降级、拒绝 URL 内嵌凭据。另补 `--offline` 继承、at-least-once + `eid` 去重、跨进程上报锁、队列上限，威胁模型加 T-8…T-14 并修正 T-3 的错误结论 |
 | v3 | 2026-08-26 | 第二、三轮 Codex 复核挡下的 P0：位置游标 + 可重写队列有多个静默丢事件窗口。**删掉游标**，改为两代环（只 rename/unlink，不重写）+ 消费式 flush（按 `eid` retire）。另：`reason` 从形状约束收紧为有限代码表；`eid` 正则收到 UUIDv4；序列化改手写以规避 `toJSON` 污染。第三轮又挡下两条：stage 的中间文件 `*.staged` 会因「读后 unlink」丢掉晚到的 append、也会被同名 rename 覆盖 —— 去掉中间文件，直接 rename 成 `sending`；并给 `record` 加 `nlink` 孤儿 inode 检查。读队列改 `parseStrict`，同 `eid` 不同内容不再静默吞掉 |
-| v4 | 2026-08-26 | 第四轮复核：`nlink` 检查是 TOCTOU 的，压缩窗口而非闭合 —— `retire` 改为墓碑延迟删除，提升用原子 no-replace 的 `link`+`unlink` 而非会静默覆盖的 `rename`；残余风险写成 T-15 明确接受，NFS 约束写成 T-16。另拆出报表历史（`history.ndjson`）与上报队列，否则一配端点 `stats` 就永远是空的。第五轮放行，另收尾三条：墓碑加 `mark` 偏移以收割"记账后长出来的"部分（删任何文件前先问它长过没有）、`reapTomb` 失败即 fail-closed 不再 rename 覆盖、`install-id` 首次生成改用 `O_EXCL` 抢占。T-15 的表述改为不夸大 |
+| v4 | 2026-08-26 | 第四轮复核：`nlink` 检查是 TOCTOU 的，压缩窗口而非闭合 —— `retire` 改为墓碑延迟删除，提升用原子 no-replace 的 `link`+`unlink` 而非会静默覆盖的 `rename`；残余风险写成 T-15 明确接受，NFS 约束写成 T-16。另拆出报表历史（`history.ndjson`）与上报队列，否则一配端点 `stats` 就永远是空的。第五轮放行，另收尾三条：墓碑加 `mark` 偏移以收割"记账后长出来的"部分（删任何文件前先问它长过没有）、`reapTomb` 失败即 fail-closed 不再 rename 覆盖、`install-id` 首次生成改用「写满再 link」——`O_EXCL` 抢占看着原子，其实文件一建就存在而内容未写，抢输者读到空串（实测撑开窗口后 4 个进程 3 个中招）。T-15 的表述改为不夸大。新增 §5.2.4：「文件在不在」永远不是判据 |

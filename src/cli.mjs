@@ -33,6 +33,14 @@ export async function main(argv) {
     return 0;
   }
 
+  if (argv[0] === '--fault-probe') {
+    // 内部：验证 bin 确实清了环境并上了锁。测试要能证伪这两件事。
+    const fi = await import('./fault-inject.mjs');
+    const leaked = Object.keys(process.env).filter((k) => k.startsWith('GEOLY_FAULT'));
+    console.log(`leaked=${leaked.join(",")} locked=${fi.state().LOCKED} armed=${fi.state().ARMED} active=${fi.state().ACTIVE}`);
+    return 0;
+  }
+
   switch (argv[0]) {
     case 'stats': return cmdStats(argv.slice(1));
     case 'telemetry': return cmdTelemetry(argv.slice(1));

@@ -66,3 +66,40 @@ test('busy_timeout=0：冲突立即失败，不挂起', async () => {
   child.kill('SIGKILL');
   assert.ok(dt < 1000, `应立即失败，实际耗时 ${dt}ms`);
 });
+
+test('🔴 全新 db 上的并发争抢也要给 LockBusyError，不能漏裸 Error', async (t) => {
+  // PRAGMA journal_mode=WAL 与 CREATE TABLE 都是写操作，在 busy_timeout=0 下
+  // 遇到并发写者会在 BEGIN EXCLUSIVE **之前**抛 database is locked。
+  // 早先只在 BEGIN 处兜，实测 16 进程 × 5 轮里 80 次有 69 次拿到裸 Error，
+  // 退出码 5 与持有者信息全部失效。
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join, dirname } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const { spawn } = await import('node:child_process');
+
+  const here = dirname(fileURLToPath(import.meta.url));
+  const d = mkdtempSync(join(tmpdir(), 'lockrace-'));
+  const dbPath = join(d, 'fresh.db');
+  const barrier = join(d, 'go');
+
+  const kid = () =>
+    new Promise((res) => {
+      const c = spawn(process.execPath, [join(here, 'fixtures/lock-racer.mjs'), dbPath, barrier], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      let o = '';
+      c.stdout.on('data', (x) => (o += x));
+      c.once('exit', () => res(o.trim()));
+    });
+
+  const all = Promise.all(Array.from({ length: 12 }, kid));
+  await new Promise((r) => setTimeout(r, 800));
+  writeFileSync(barrier, 'go');
+  const results = await all;
+
+  const bare = results.filter((r) => r.startsWith('Error|'));
+  assert.deepEqual(bare, [], `不该出现裸 Error：${bare.slice(0, 3)}`);
+  assert.ok(results.some((r) => r === 'HELD'), '应有进程拿到锁');
+  assert.ok(results.some((r) => r.startsWith('LockBusyError|')), '争抢者应拿到 LockBusyError');
+});

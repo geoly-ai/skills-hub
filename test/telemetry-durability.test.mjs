@@ -390,22 +390,38 @@ test('mark 丢失时整批重发而不是漏掉晚到的', async () => {
   assert.equal(got.length, 1, 'mark 没了就从 0 起算 —— 宁可重复，不可漏');
 });
 
-test('🔴 并发首次生成 install-id：所有进程拿到同一个', async () => {
+test('🔴 并发首次生成 install-id：所有进程拿到同一个合法 UUID', async () => {
+  // ⚠️ 这条测试的第一版太弱：bug 明明在，隔离跑 12 轮却全绿，只在全量并行下
+  // 偶发红一次。加 barrier 让所有进程卡在同一刻再冲，才稳定压到那个窗口。
+  //
+  // 要防的 bug：早先 installId 用 `openSync(p,'wx')` 抢占，看着原子，其实
+  // **文件一建就存在、内容还没写**，抢输的一方读到空串。实测撑开窗口后
+  // 4 个进程里 3 个拿到 ""。所以下面既断言「只有一个值」，也断言「值是合法 UUID」——
+  // 只断言前者的话，全都拿到 "" 也会通过。
+  const { writeFileSync } = await import('node:fs');
   const d = iso();
-  const kids = await Promise.all(
-    Array.from({ length: 8 }, () =>
-      new Promise((res, rej) => {
-        const c = spawn(process.execPath, ['-e', "import('./src/telemetry.mjs').then(m=>process.stdout.write(m.installId()))"], {
-          cwd: join(here, '..'),
-          stdio: ['ignore', 'pipe', 'inherit'],
-          env: { ...process.env, GEOLY_STATE_DIR: d },
-        });
-        let o = '';
-        c.stdout.on('data', (x) => (o += x));
-        c.once('exit', (code) => (code === 0 ? res(o.trim()) : rej(new Error(`exit ${code}`))));
-      })),
-  );
-  assert.equal(new Set(kids).size, 1, `八个进程应拿到同一个 id，实际 ${new Set(kids).size} 个不同`);
+  const barrier = join(d, 'go');
+
+  const kid = () =>
+    new Promise((res, rej) => {
+      const c = spawn(process.execPath, [join(here, 'fixtures/installid-racer.mjs'), barrier], {
+        stdio: ['ignore', 'pipe', 'inherit'],
+        env: { ...process.env, GEOLY_STATE_DIR: d },
+      });
+      let o = '';
+      c.stdout.on('data', (x) => (o += x));
+      c.once('exit', (code) => (code === 0 ? res(o.trim()) : rej(new Error(`exit ${code}`))));
+    });
+
+  const all = Promise.all(Array.from({ length: 24 }, kid));
+  await new Promise((r) => setTimeout(r, 700));
+  writeFileSync(barrier, 'go');
+  const ids = await all;
+
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  const bad = ids.filter((x) => !uuid.test(x));
+  assert.deepEqual(bad, [], `有进程拿到了非法值（空串=竞态）：${JSON.stringify(bad.slice(0, 3))}`);
+  assert.equal(new Set(ids).size, 1, `24 个进程应拿到同一个 id，实际 ${new Set(ids).size} 个不同`);
 });
 
 test('🔴 旧墓碑收割不掉时不发这一轮，绝不覆盖它', async () => {

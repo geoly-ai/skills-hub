@@ -4,7 +4,7 @@
 //   · 事件先落本地，上报是**独立**动作；关掉上报不影响本地统计
 //   · install_id 是随机 UUID，与账号/机器名/用户名**无任何映射**
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, mkdirSync, openSync, closeSync, statSync, unlinkSync, renameSync, fstatSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, mkdirSync, openSync, closeSync, statSync, unlinkSync, renameSync, fstatSync, linkSync, fsyncSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform, arch } from 'node:os';
 import { writeAtomic, fsyncParentAfter } from './atomic-fs.mjs';
@@ -39,20 +39,51 @@ export function uploadEnabled() {
 /** 随机 install_id，只存本地；与身份无映射 */
 export function installId() {
   const p = idPath();
-  if (existsSync(p)) return readFileSync(p, 'utf8').trim();
+  const readValid = () => {
+    try {
+      const v = readFileSync(p, 'utf8').trim();
+      return RE_UUID.test(v) ? v : null;
+    } catch { return null; }
+  };
+
+  const existing = readValid();
+  if (existing) return existing;
+
   mkdirSync(join(stateDir(), 'telemetry'), { recursive: true });
-  // 🔴 两个进程同时首次生成会各写一个 UUID，后写的覆盖先写的 —— 于是先跑完的
-  // 那些事件带着一个从此不再出现的 install_id，时间线被割成两段。
-  // 用 wx（O_CREAT|O_EXCL）抢占：抢输的读回赢家写的那一个。
-  const id = randomUUID();
-  try {
-    const fd = openSync(p, 'wx', 0o644);
-    try { appendFileSync(fd, id + '\n'); } finally { closeSync(fd); }
-    return id;
-  } catch {
-    // 别人抢先了（EEXIST），或者写不了 —— 能读回就用读回的
-    try { return readFileSync(p, 'utf8').trim(); } catch { return id; }
+
+  // 🔴 **先写满，再让名字出现。**
+  //
+  // 早先这里是 `openSync(p, 'wx')` 然后往 fd 里写 —— 看着像原子抢占，其实不是：
+  // `wx` 一成功文件就存在了，但**内容还没写**。抢输的进程走 EEXIST 分支去读，
+  // 读到的是空串。实测（在 open 与 write 之间插 0.4s）：4 个进程里 3 个拿到 ""。
+  //
+  // ⚠️ 又是「存在 ≠ 完整」。今天已经在墓碑、rmtree、这里各栽一次：
+  // **判据永远不能是「文件在不在」，要么是内容有效性，要么是只在完整后才出现的名字。**
+  //
+  // 所以：内容写进临时文件 → fsync → `link` 到正式名（原子 no-replace，
+  // 目标已存在就 EEXIST）→ 删临时文件。名字一出现，内容就一定是全的。
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const id = randomUUID();
+    const tmp = `${p}.${process.pid}.${attempt}.tmp`;
+    try {
+      const fd = openSync(tmp, 'w', 0o644);
+      try { appendFileSync(fd, id + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
+      try {
+        linkSync(tmp, p);          // 抢到了
+        return id;
+      } catch {
+        const winner = readValid(); // 别人抢先，且此刻内容必然是完整的
+        if (winner) return winner;
+      }
+    } catch {
+      const winner = readValid();
+      if (winner) return winner;
+    } finally {
+      try { unlinkSync(tmp); } catch { /* 没建成 */ }
+    }
   }
+  // 反复抢不到又读不出有效值：不落盘，本次用一个临时身份，不要让埋点拖垮主命令
+  return randomUUID();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

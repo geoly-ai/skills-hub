@@ -48,3 +48,15 @@ test('parseStrict 拒绝重复 key', () => {
 test('重复 key 检测不被字符串里的引号骗到', () => {
   assert.doesNotThrow(() => parseStrict('{"a":"x\\":1,\\"a","b":2}'));
 });
+
+test('🔴 重复 key 按解码后的值判 —— 转义写法不能绕过', () => {
+  // {"a":1,"a":2} 两个 key 解码后都是 a。早先比的是原文，于是这种写法
+  // 被静默放行、JSON.parse 取最后一个 —— 可以绕过任何「按 key 校验」的逻辑。
+  assert.throws(() => parseStrict('{"a":1,"\\u0061":2}'), /重复 key/);
+  assert.throws(() => parseStrict('{"\\u0061":1,"a":2}'), /重复 key/);
+  assert.throws(() => parseStrict('{"a\\/b":1,"a/b":2}'), /重复 key/);
+  assert.throws(() => parseStrict('{"a\\nb":1,"a\\u000ab":2}'), /重复 key/);
+  // 不重复的照样通过
+  assert.deepEqual(parseStrict('{"a":1,"b":2}'), { a: 1, b: 2 });
+  assert.deepEqual(parseStrict('{"x":{"a":1},"y":{"a":2}}'), { x: { a: 1 }, y: { a: 2 } });
+});
