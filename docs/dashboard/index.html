@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>skills-hub 埋点面板</title>
+<style>
+  /* 完整浅色 token 定义在裸 :root，深色只重定义 token —— 不要把颜色的唯一定义写进媒体查询 */
+  :root {
+    --ink: #14171c;
+    --ink-dim: #5c6472;
+    --ink-faint: #8b93a1;
+    --ground: #f7f7f5;
+    --card: #ffffff;
+    --rule: #e3e4e0;
+    --accent: #1f6f5c;
+    --accent-soft: #e8f1ee;
+    --warn: #b4531b;
+    --bad: #a32c2c;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e8e9e6;
+      --ink-dim: #a0a7b2;
+      --ink-faint: #6e7783;
+      --ground: #14161a;
+      --card: #1c1f24;
+      --rule: #2d3138;
+      --accent: #5fbfa4;
+      --accent-soft: #1d2f2a;
+      --warn: #d98a52;
+      --bad: #e0736f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e9e6; --ink-dim: #a0a7b2; --ink-faint: #6e7783;
+    --ground: #14161a; --card: #1c1f24; --rule: #2d3138;
+    --accent: #5fbfa4; --accent-soft: #1d2f2a; --warn: #d98a52; --bad: #e0736f;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.5rem 5rem;
+    background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+
+  header h1 { margin: 0; font-size: 1.4rem; letter-spacing: -0.01em; }
+  header p { margin: 0.3rem 0 0; color: var(--ink-dim); font-size: 0.9rem; }
+  .privacy {
+    margin-top: 0.9rem; padding: 0.7rem 0.9rem; border-left: 2px solid var(--accent);
+    background: var(--accent-soft); color: var(--ink-dim); font-size: 0.83rem; border-radius: 0 4px 4px 0;
+  }
+
+  .loader {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem;
+    padding: 1rem; border: 1px dashed var(--rule); border-radius: 8px; background: var(--card);
+  }
+  .loader.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .loader code { font-family: var(--mono); font-size: 0.82rem; color: var(--accent); }
+  .loader input[type=file] { font: inherit; font-size: 0.85rem; color: var(--ink-dim); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.9rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 0.9rem 1rem;
+  }
+  .card .label { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
+  .card .value {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 1.6rem; line-height: 1.2; margin-top: 0.25rem;
+  }
+  .card .value.bad { color: var(--bad); }
+
+  section h2 {
+    margin: 0 0 0.6rem; font-size: 0.78rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 600;
+  }
+  .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th, td { padding: 0.55rem 0.9rem; text-align: left; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  th { font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.key { font-family: var(--mono); font-size: 0.83rem; }
+
+  /* 成功率条：形状本身就编码状态，不只靠数字 */
+  .bar { display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
+  .bar .track { flex: 1; height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--accent); }
+  .bar .fill.warn { background: var(--warn); }
+  .bar .fill.bad { background: var(--bad); }
+  .bar .pct { font-family: var(--mono); font-size: 0.78rem; color: var(--ink-dim); min-width: 3.2rem; text-align: right; }
+
+  .empty { color: var(--ink-dim); font-size: 0.9rem; }
+  footer { color: var(--ink-faint); font-size: 0.8rem; border-top: 1px solid var(--rule); padding-top: 1rem; }
+  footer code { font-family: var(--mono); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>skills-hub 埋点面板</h1>
+    <p>聚合全在浏览器里算。除了读同目录的 <code>data.json</code>，这个页面不访问任何外部地址。</p>
+    <div class="privacy">
+      <strong>事件里有且仅有这些字段：</strong>
+      <code>at</code>（秒级时间）、<code>eid</code>/<code>install_id</code>（随机 UUID）、
+      <code>cli</code>/<code>node</code>/<code>os</code>/<code>arch</code>（版本与平台）、
+      <code>kind</code>（操作）、<code>result</code>（结果）、<code>artifact</code>/<code>version</code>（制品坐标）、
+      <code>client</code>（claude/cursor/codex/agents）、<code>scope</code>（global/project）、
+      <code>ms</code>（耗时）、<code>reason</code>（我们自己的短代码）。
+      <br>
+      <strong>没有</strong>路径、目录清单、文件内容、用户名、邮箱、命令行原文、异常栈。
+      <code>install_id</code> 是本机随机 UUID，与账号无映射，删掉即换身份。
+    </div>
+  </header>
+
+  <div class="loader" id="loader">
+    <span>把 <code>skills-hub stats --export data.json</code> 导出的文件拖进来，或</span>
+    <input type="file" id="file" accept="application/json,.json">
+    <span id="src"></span>
+  </div>
+
+  <div id="content" hidden>
+    <div class="cards" id="cards"></div>
+    <section style="margin-top:2rem"><h2>按制品</h2><div class="scroll"><table id="t-artifact"></table></div></section>
+    <section style="margin-top:2rem"><h2>按客户端</h2><div class="scroll"><table id="t-client"></table></div></section>
+    <section style="margin-top:2rem"><h2>按操作</h2><div class="scroll"><table id="t-kind"></table></div></section>
+  </div>
+  <p class="empty" id="empty">还没有数据。</p>
+
+  <footer>
+    关掉埋点：<code>GEOLY_TELEMETRY=0</code>　只留本地：<code>GEOLY_TELEMETRY_UPLOAD=0</code>
+    规格见 <code>docs/telemetry/00-spec.md</code>
+  </footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function aggregate(events) {
+  const g = (m, k, r) => {
+    const row = m.get(k) || { key: k, n: 0, ok: 0, failed: 0 };
+    row.n++; if (r === 'ok') row.ok++; else if (r === 'failed') row.failed++;
+    m.set(k, row);
+  };
+  const byArtifact = new Map(), byClient = new Map(), byKind = new Map();
+  let ok = 0, failed = 0, msTotal = 0, msCount = 0, first = null, last = null;
+  for (const e of events) {
+    if (!first || e.at < first) first = e.at;
+    if (!last || e.at > last) last = e.at;
+    if (e.result === 'ok') ok++; else if (e.result === 'failed') failed++;
+    if (typeof e.ms === 'number') { msTotal += e.ms; msCount++; }
+    g(byKind, e.kind, e.result);
+    if (e.artifact) g(byArtifact, e.artifact, e.result);
+    if (e.client) g(byClient, e.client, e.result);
+  }
+  const sort = (m) => [...m.values()].sort((a, b) => b.n - a.n || a.key.localeCompare(b.key));
+  return {
+    total: events.length, ok, failed,
+    successRate: events.length ? ok / events.length : 0,
+    avgMs: msCount ? Math.round(msTotal / msCount) : null,
+    window: { first, last },
+    byArtifact: sort(byArtifact), byClient: sort(byClient), byKind: sort(byKind),
+  };
+}
+
+function bar(rate) {
+  const cls = rate >= 0.95 ? '' : rate >= 0.8 ? 'warn' : 'bad';
+  return `<div class="bar"><div class="track"><div class="fill ${cls}" style="width:${(rate * 100).toFixed(1)}%"></div></div>`
+    + `<span class="pct">${(rate * 100).toFixed(1)}%</span></div>`;
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function renderTable(el, rows, head) {
+  if (!rows.length) { el.innerHTML = `<tr><td class="empty">无</td></tr>`; return; }
+  el.innerHTML =
+    `<thead><tr><th>${head}</th><th class="num">次数</th><th class="num">成功</th><th class="num">失败</th><th>成功率</th></tr></thead>`
+    + '<tbody>' + rows.map((r) =>
+      `<tr><td class="key">${esc(r.key)}</td><td class="num">${r.n}</td><td class="num">${r.ok}</td>`
+      + `<td class="num">${r.failed}</td><td>${bar(r.n ? r.ok / r.n : 0)}</td></tr>`).join('') + '</tbody>';
+}
+
+function render(events, srcLabel) {
+  const a = aggregate(events);
+  $('src').textContent = srcLabel;
+  if (!a.total) { $('empty').hidden = false; $('content').hidden = true; return; }
+  $('empty').hidden = true; $('content').hidden = false;
+  const card = (label, value, bad) =>
+    `<div class="card"><div class="label">${label}</div><div class="value${bad ? ' bad' : ''}">${value}</div></div>`;
+  $('cards').innerHTML = [
+    card('事件总数', a.total),
+    card('成功率', (a.successRate * 100).toFixed(1) + '%', a.successRate < 0.8),
+    card('失败', a.failed, a.failed > 0),
+    card('平均耗时', a.avgMs === null ? '—' : a.avgMs + ' ms'),
+    card('时间窗口', (a.window.first || '').slice(0, 10) + ' → ' + (a.window.last || '').slice(0, 10)),
+  ].join('');
+  renderTable($('t-artifact'), a.byArtifact, '制品');
+  renderTable($('t-client'), a.byClient, '客户端');
+  renderTable($('t-kind'), a.byKind, '操作');
+}
+
+function ingest(text, label) {
+  let doc;
+  try { doc = JSON.parse(text); } catch (e) { $('src').textContent = '解析失败：不是合法 JSON'; return; }
+  const events = Array.isArray(doc) ? doc : doc.events;
+  if (!Array.isArray(events)) { $('src').textContent = '解析失败：缺少 events 数组'; return; }
+  render(events, `${label} · ${events.length} 条`);
+}
+
+$('file').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (f) f.text().then((t) => ingest(t, f.name));
+});
+
+const loader = $('loader');
+for (const ev of ['dragenter', 'dragover']) {
+  loader.addEventListener(ev, (e) => { e.preventDefault(); loader.classList.add('drag'); });
+}
+for (const ev of ['dragleave', 'drop']) {
+  loader.addEventListener(ev, (e) => { e.preventDefault(); loader.classList.remove('drag'); });
+}
+loader.addEventListener('drop', (e) => {
+  const f = e.dataTransfer.files[0];
+  if (f) f.text().then((t) => ingest(t, f.name));
+});
+
+// 同目录放了 data.json 就自动读；没有就退回示例数据。
+// file:// 下两者都会被 CORS 拦，那就用上面的文件选择器。
+fetch('./data.json')
+  .then((r) => (r.ok ? r.text().then((t) => ingest(t, 'data.json')) : Promise.reject()))
+  .catch(() =>
+    fetch('./data.sample.json')
+      .then((r) => (r.ok ? r.text() : Promise.reject()))
+      .then((t) => {
+        ingest(t, 'data.sample.json（示例数据，非真实埋点）');
+        $('src').style.color = 'var(--warn)';
+      })
+      .catch(() => {}));
+</script>
+</body>
+</html>
