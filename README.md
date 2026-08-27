@@ -43,8 +43,13 @@ npm run test:matrix                      # 在 Node 22.13 / 24.19 上各跑一�
 - 🔴 **已知且接受的残余风险**：[`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)
 - M0 勘误（正文已封版，冲突以勘误为准）：[`docs/m0/ERRATA.md`](docs/m0/ERRATA.md)
 
-**当前可安装的组合**：`claude` / `codex` × 全局 / 项目级。
-`cursor` 与 `agents` 未启用，理由见 gates 文档与残余风险单 R-8。
+**当前可安装的组合**：`claude` / `codex` / `agents` × 全局 / 项目级。
+
+- `agents` 是 **present-only**：只在 `.agents` 已存在时加入，**不会被创建**
+  （它是共享约定路径，读者是 codex，不是独立客户端）
+- ⚠️ `codex` 与 `agents` 同时装时，同一个 skill 会在 codex 的 catalog 里出现两次 ——
+  CLI 会告警但不拦截
+- `cursor` 未启用：本机无运行时证据，且静态读它的加载器**预判会失败**，见 R-8
 
 ## 项目级安装：先改 `.gitignore`
 

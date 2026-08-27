@@ -226,6 +226,16 @@ const ADAPTER_DEFS = [
     client: 'agents',
     dirName: '.agents',
     envHome: null,
+    // 🔴 **只在已存在时加入，永不创建**（用户 2026-08-27 拍板）。
+    //
+    // 与 claude/codex 不同：`.agents` 不是某个客户端自己的家目录，而是一条
+    // **共享约定路径**，读者是 codex。我们去创建它等于替用户发明一个他没选过的位置，
+    // 而且 codex 同时读 `.codex/skills` 与 `.agents/skills` —— 凭空建出来只会让
+    // 同一批 skill 在 catalog 里出现两次。
+    //
+    // 因此 `--create-missing` 对这一端**不适用**：目录不存在时，
+    // 默认计划里跳过；显式点名则报错（而不是静默忽略一个明确的请求）。
+    presentOnly: true,
     gates: {
       // 🔴 **这一端原先标的 `unsupported / no-reader` 是错的，已推翻。**
       //
@@ -243,8 +253,9 @@ const ADAPTER_DEFS = [
       // 同时启用 `codex` 与 `agents` 会让同一批 skill 在 catalog 里出现两次。
       // 「要不要把 .agents 纳入发车范围、以及它跟 codex 的关系怎么算」是人来拍的取舍。
       global: {
-        status: GATE_PENDING,
-        blockedOn: BLOCKED_ON_SCOPE_DECISION,
+        // 范围决策已由用户拍板（2026-08-27）：**启用，但只在 `.agents` 已存在时加入，
+        // 不存在就不建**。见下方 `presentOnly`。
+        status: GATE_PASSED,
         // 🔴 这里记的是**读者**的版本，不是某个叫 agents 的客户端的版本 —— evidence 里写死了这件事。
         clientVersion: 'codex-cli 0.147.0',
         evidence:
@@ -255,8 +266,7 @@ const ADAPTER_DEFS = [
           '该路径是运行时 join 拼出来的，固定串 grep 搜不到只能证明搜不到，证明不了没有读者',
       },
       project: {
-        status: GATE_PENDING,
-        blockedOn: BLOCKED_ON_SCOPE_DECISION,
+        status: GATE_PASSED,
         clientVersion: 'codex-cli 0.147.0',
         evidence:
           'docs/m1/00-gates.md Gate 1 逐格实测表 agents/project：读者同为 codex-cli 0.147.0，' +
@@ -390,6 +400,7 @@ function makeAdapter(def) {
     client: def.client,
     dirName: def.dirName,
     envHome: def.envHome,
+    presentOnly: def.presentOnly === true,
     configRoot,
     root,
     exists,
@@ -665,6 +676,40 @@ function describeTarget(adapter, opts, gateStatus, extra = {}) {
  *
  * `--create-missing` 只影响「目录不存在」这一条，**影响不了门**。
  */
+/**
+ * 🔴 同一个读者读了多个被选中的 root —— 装完会在 catalog 里看见重复条目。
+ *
+ * codex 同时读 `.codex/skills` 与 `.agents/skills`。两端都选中时，
+ * 同一个 skill 会**出现两次**，而用户完全看不出为什么。
+ *
+ * 这里只**告警不拦截**：`.agents` 是用户自己已经建出来的目录，
+ * 他要往里装是合理请求；但我们不能假装这件事不会发生。
+ */
+const READERS = { claude: ['claude'], codex: ['codex'], agents: ['codex'], cursor: ['cursor'] };
+
+function overlapWarnings(selected) {
+  const byReader = new Map();
+  for (const t of selected) {
+    for (const r of READERS[t.client] ?? []) {
+      if (!byReader.has(r)) byReader.set(r, []);
+      byReader.get(r).push(t.client);
+    }
+  }
+  const out = [];
+  for (const [reader, clients] of byReader) {
+    if (clients.length < 2) continue;
+    out.push({
+      kind: 'duplicate-catalog',
+      reader,
+      clients: [...clients].sort(),
+      message:
+        `${reader} 会同时读 ${clients.sort().join(' 与 ')} 的 target —— ` +
+        '同一个 skill 会在它的 catalog 里出现两次。这是这两个位置本身的重叠，不是安装出错。',
+    });
+  }
+  return out.map((w) => Object.freeze(w));
+}
+
 export function planTargets(opts = {}) {
   const {
     clients = null,
@@ -717,6 +762,14 @@ export function planTargets(opts = {}) {
     }
 
     const dirExists = state === DIR_PRESENT;
+    // 🔴 presentOnly 的端（当前只有 agents）永不创建，`--create-missing` 也不适用。
+    // 理由见该 adapter 的定义：它是共享约定路径而非客户端自己的家。
+    if (!dirExists && adapter.presentOnly) {
+      const why = `${client}/${scope} 的 ${dir} 不存在；这一端只在已存在时加入，不会被创建`;
+      if (explicit) errors.push(`${why}（这是有意的：.agents 是共享约定路径，读者是 codex）`);
+      else skipped.push({ client, scope, reason: 'present-only-absent', message: why });
+      continue;
+    }
     if (!dirExists && !createMissing) {
       const why = `${client}/${scope} 的客户端目录 ${dir} 不存在`;
       if (explicit) errors.push(`${why}（要创建请传 --create-missing ${client}）`);
@@ -736,6 +789,7 @@ export function planTargets(opts = {}) {
     wouldSelect: Object.freeze(selected),
     skipped: Object.freeze(skipped.map((s) => Object.freeze(s))),
     errors: Object.freeze(errors),
+    warnings: Object.freeze(overlapWarnings(selected)),
     explicit,
     gatesOverridden: !clean, // 给人看的；放行判据是 CLEAN_PLANS
   });

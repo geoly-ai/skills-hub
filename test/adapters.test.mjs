@@ -136,16 +136,17 @@ test('🔴 agents 的 no-reader 结论已被实测推翻 —— 不能再标 uns
   for (const scope of SCOPES) {
     const g = getAdapter('agents').gate(scope);
     assert.notEqual(g.status, GATE_UNSUPPORTED, `agents/${scope} 的 no-reader 是假阴性，不能再标不支持`);
-    assert.equal(g.status, GATE_PENDING);
-    // 证据完整（跑过客户端、有读者版本号），卡的是范围决策
-    assert.equal(g.blockedOn, BLOCKED_ON_SCOPE_DECISION);
+    // 范围决策已于 2026-08-27 拍板：启用，但只在 .agents 已存在时加入（presentOnly）
+    assert.equal(g.status, GATE_PASSED);
+    assert.equal(g.blockedOn ?? null, null, '拍板之后不该还挂着 blockedOn');
     assert.match(g.clientVersion ?? '', /^codex-cli \d+\.\d+\.\d+$/);
     // 🔴 evidence 必须写明读者是谁 —— .agents 没有自己的客户端，
     //    版本号记的是 codex 的版本，不写清楚下一个人会以为存在 agents 客户端
     assert.match(g.evidence, /读者是 codex-cli|读者同为 codex-cli/);
     assert.match(g.evidence, /推翻|假阴性|证明不了没有读者|范围决策同 global/);
-    // 还没拍板，所以仍然装不了
-    assert.equal(getAdapter('agents').supports(scope), false);
+    // 拍板之后就能装了 —— 但只在 .agents 已存在时（presentOnly，见下面的测试）
+    assert.equal(getAdapter('agents').supports(scope), true);
+    assert.equal(getAdapter('agents').presentOnly, true, 'agents 必须是 present-only');
   }
 });
 
@@ -250,11 +251,14 @@ test('🔴 unsupported 与 pending 的报错必须分得出来', () => {
     () => resolveTarget({ client: 'cursor', scope: 'global', home: '/h', allowPending: true }),
     /没有 --allow-pending 这种开关/,
   );
-  // blockedOn 要出现在报错里，用户才分得清是去跑门还是去拍板
-  assert.throws(
-    () => resolveTarget({ client: 'agents', scope: 'global', home: '/h' }),
-    /scope-decision-pending/,
-  );
+  // blockedOn 要出现在报错里，用户才分得清是去跑门还是去拍板。
+  // ⚠️ agents 已于 2026-08-27 拍板放行，真门表里已经没有 scope-decision-pending 的格子了 ——
+  //    所以这一支只能用 classifyGate 非空地验，拿真表验等于测空集。
+  const scopePending = classifyGate({
+    status: GATE_PENDING, blockedOn: BLOCKED_ON_SCOPE_DECISION, evidence: 'e',
+  });
+  assert.equal(scopePending.decision, 'deny-gate-open');
+  assert.match(scopePending.detail, /scope-decision-pending/);
 });
 
 // 🔴 合成门表：真门表里 unsupported 这一档现在**一个格子都没有**（agents 的
@@ -321,17 +325,19 @@ test('🔴 合成门表授权不了安装 —— 它的门记录不在 REAL_GATE
   assert.throws(() => resolveTarget({ client: 'alpha', scope: 'global', home: '/h' }), /未知 client/);
 });
 
-test('🔴 enabledCombos 恰好是实测通过的那四格 —— 不多不少', () => {
+test('🔴 enabledCombos 恰好是闭合了的那六格 —— 不多不少', () => {
   // 2026-08-26 逐格实测：claude 与 codex 的两个 scope 都过了。
-  // cursor 两格没有运行时证据、agents 两格等范围决策，一个都不许混进来。
+  // 2026-08-27 用户拍板启用 agents 两格（证据早已完整，卡的是范围决策）。
+  // 🔴 cursor 两格没有任何运行时证据，一格都不许混进来。
   assert.deepEqual(
     enabledCombos().map((r) => `${r.client}/${r.scope}`).sort(),
-    ['claude/global', 'claude/project', 'codex/global', 'codex/project'],
+    ['agents/global', 'agents/project', 'claude/global', 'claude/project',
+      'codex/global', 'codex/project'],
   );
   // 🔴 每一格都得带版本号：没有版本就没法在客户端升级后复测
   for (const r of enabledCombos()) assert.ok(r.clientVersion, `${r.client}/${r.scope}`);
-  // 没测过 / 没拍板的一格都不许进
-  for (const c of ['cursor', 'agents']) {
+  // 没测过的一格都不许进
+  for (const c of ['cursor']) {
     assert.ok(
       !enabledCombos().some((r) => r.client === c),
       `${c} 还没闭合，不该出现在 enabledCombos 里`,
@@ -489,22 +495,22 @@ const PASSED_CODEX = {
 };
 
 test('🔴 真门表下的默认目标：只选闭合了的那几格，没闭合的如实 skipped', () => {
-  // 2026-08-26 之后 claude/codex 两个 scope 都闭合了，所以这里**不再是空集**。
-  // 但「没闭合的照样进不来」这条不变 —— cursor 两格没有运行时证据、
-  // agents 两格等范围决策，即使它们的目录存在也只能是 skipped。
+  // claude/codex/agents 都闭合了，所以这里**不再是空集**。
+  // 但「没闭合的照样进不来」这条不变 —— cursor 两格没有运行时证据，
+  // 即使它的目录存在也只能是 skipped。
   const home = tmp();
   for (const d of ['.claude', '.codex', '.cursor', '.agents']) {
     mkdirSync(join(home, d, 'skills'), { recursive: true });
   }
   const p = planTargets({ home, env: {}, scope: 'global' });
   assert.equal(p.ok, true, '默认目标下「跳过一部分」不是失败');
-  assert.deepEqual(p.selected.map((t) => t.client).sort(), ['claude', 'codex']);
-  // 🔴 目录明明在，仍然只能被门挡在外面
+  // .agents 这次是**存在**的，所以它会被选中
+  assert.deepEqual(p.selected.map((t) => t.client).sort(), ['agents', 'claude', 'codex']);
+  // 🔴 目录明明在，cursor 仍然只能被门挡在外面
   assert.ok(p.skipped.some((s) => s.client === 'cursor' && s.reason === 'gate-pending'));
-  assert.ok(p.skipped.some((s) => s.client === 'agents' && s.reason === 'gate-pending'));
-  // skipped 的理由要能读出是缺证据还是缺决策
   assert.match(p.skipped.find((s) => s.client === 'cursor').message, /本机无法测量|本机跑不起/);
-  assert.match(p.skipped.find((s) => s.client === 'agents').message, /范围决策|读者是 codex-cli|读者同为 codex-cli/);
+  // 🔴 codex 与 agents 同时选中 → 必须告警重复条目
+  assert.ok(p.warnings.some((w) => w.kind === 'duplicate-catalog' && w.reader === 'codex'));
 });
 
 test('§2.3 默认目标：门过了但目录不存在 → skipped: missing-dir', () => {
@@ -775,4 +781,72 @@ test('🔴 生成的 pattern 在真 git 仓库里确实忽略了 .geoly，且不
   }
   // 🔴 根上的 /.geoly/ 不是我们要的 pattern（规格注明 v8 曾写错）
   assert.ok(!gitignorePatternsFor(['claude']).includes('/.geoly/'), '不得退回成根上的 /.geoly/');
+});
+
+// ── agents：启用，但只在 .agents 已存在时加入 ────────────────────────────────
+
+test('🔴 agents 已启用（两个 scope 都 passed）', () => {
+  for (const scope of ['global', 'project']) {
+    const g = getAdapter('agents').gate(scope);
+    assert.equal(g.status, GATE_PASSED, `agents/${scope}`);
+    assert.equal(g.blockedOn ?? null, null);
+    // evidence 必须写明读者是 codex —— .agents 没有自己的客户端
+    assert.match(g.evidence, /读者(是|同为) codex/);
+  }
+});
+
+test('🔴 .agents 存在就加入，不存在就不加入 —— 且永不创建', async () => {
+  const { mkdtempSync, mkdirSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  // 情形 1：.agents 不存在 —— 默认计划里跳过
+  const h1 = mkdtempSync(join(tmpdir(), 'ag1-'));
+  mkdirSync(join(h1, '.codex', 'skills'), { recursive: true });
+  const p1 = planTargets({ home: h1, scope: 'global', env: {} });
+  assert.ok(!p1.selected.some((t) => t.client === 'agents'), '不存在时不该被选中');
+  assert.ok(p1.skipped.some((s) => s.client === 'agents' && s.reason === 'present-only-absent'));
+
+  // 🔴 --create-missing 也不许把它建出来
+  const p2 = planTargets({ home: h1, scope: 'global', env: {}, createMissing: true });
+  assert.ok(!p2.selected.some((t) => t.client === 'agents'), 'create-missing 也不该选中它');
+  assert.equal(existsSync(join(h1, '.agents')), false, '🔴 绝不能凭空建出 .agents');
+
+  // 情形 2：.agents 已存在 —— 加入
+  const h2 = mkdtempSync(join(tmpdir(), 'ag2-'));
+  mkdirSync(join(h2, '.agents', 'skills'), { recursive: true });
+  const p3 = planTargets({ home: h2, scope: 'global', env: {} });
+  assert.ok(p3.selected.some((t) => t.client === 'agents'), '存在时必须被选中');
+});
+
+test('🔴 显式点名 agents 而目录不存在 → 报错，不静默忽略', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const h = mkdtempSync(join(tmpdir(), 'ag3-'));
+  const p = planTargets({ clients: ['agents'], home: h, scope: 'global', env: {} });
+  assert.equal(p.ok, false, '显式请求装不了就必须整批不执行');
+  assert.deepEqual(p.selected, [], '失败时 selected 必须为空');
+  assert.match(p.errors.join('\n'), /只在已存在时加入|不会被创建/);
+});
+
+test('🔴 codex 与 agents 同时选中要告警：同一 skill 会在 catalog 里出现两次', async () => {
+  const { mkdtempSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const h = mkdtempSync(join(tmpdir(), 'ag4-'));
+  for (const d of ['.codex/skills', '.agents/skills']) mkdirSync(join(h, d), { recursive: true });
+
+  const p = planTargets({ home: h, scope: 'global', env: {} });
+  const w = p.warnings.find((x) => x.kind === 'duplicate-catalog');
+  assert.ok(w, '两端都选中时必须告警');
+  assert.equal(w.reader, 'codex');
+  assert.deepEqual(w.clients, ['agents', 'codex']);
+  // 告警不拦截：用户自己建了 .agents，往里装是合理请求
+  assert.equal(p.ok, true);
+
+  // 只装 codex 一端时不该告警（不能变成噪音）
+  const h2 = mkdtempSync(join(tmpdir(), 'ag5-'));
+  mkdirSync(join(h2, '.codex', 'skills'), { recursive: true });
+  assert.deepEqual(planTargets({ home: h2, scope: 'global', env: {} }).warnings, []);
 });
