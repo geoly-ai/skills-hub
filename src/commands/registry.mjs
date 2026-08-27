@@ -1,0 +1,123 @@
+// registry 读取层 —— 02-registry.md §6 的**取字节**那一半。
+//
+// 🔴 **M1 只有缓存适配器，没有网络客户端。** 两个理由，都不是「还没写」：
+//
+//   ① `snapshot.resolveCurrent()` 是**同步**函数，它要求 `fetchTimestamp()` /
+//      `fetchSnapshot(N)` 同步返回 `{ bytes, bundle }`。内建 `fetch` 返回 Promise，
+//      接不进去。把内核改成 async 是**内核 API 变更**，不在本块的文件边界内。
+//   ② 真实 registry 端点在 M1 还不存在。造一个假的出网路径，只会让
+//      「`--offline` 有没有被绕过」这个问题**看起来**被回答了。
+//
+//    因此：**本模块一个字节都不出网**，`--offline` 与否走的是同一条码。
+//    缓存未命中就是退出码 6，文案里如实说明是「M1 没有网络客户端」还是「离线未命中」。
+//    这条缺口写进交付汇报。
+//
+// 缓存布局（内容寻址，摘要即身份）：
+//   <cacheDir>/timestamp.json            + timestamp.sigstore.json
+//   <cacheDir>/snapshots/<N>.json        + <N>.sigstore.json
+//   <cacheDir>/assets/<sha256 的 hex>    ← 🔴 按摘要命名：查得到就说明摘要对得上
+//
+// 🔴 命中缓存**也必须**走完同样的验签（02-registry.md §9.2）：
+//    本模块只负责**取字节**，一次校验都不做 —— 校验全在 `snapshot.resolveCurrent()`
+//    与 `artifact.withVerifiedArtifact()` 里。把校验放进取字节层会诱使人写
+//    「缓存命中就跳过」。
+
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { NetworkError, UsageError } from '../exit-codes.mjs';
+import { parseStrict } from '../canonical-json.mjs';
+
+/** 11-wire-contract.md §2：单个 JSON 文档 ≤ 8 MiB，**解析前先查文件大小**。 */
+const MAX_JSON_BYTES = 8 * 1024 * 1024;
+
+function readCapped(path, what) {
+  const st = statSync(path);
+  if (st.size > MAX_JSON_BYTES) {
+    // 🔴 这**不是** NetworkError：文件明明在，只是超了 §2 的 8 MiB 上限。
+    //    报成 6 的后果很具体 —— `list` / `check` 的降级判据是「退出码 6 才可降级」，
+    //    于是一份超限（很可能被做过手脚）的本地缓存会被当成「网络取不到」而**静默放行**
+    //    （Codex 第三轮 P0-4）。它属于 §6 第 1 条的「解析失败」。
+    throw new UsageError(
+      `${what} 超过 8 MiB（${st.size} 字节），拒绝解析（11-wire-contract.md §2：解析前先查文件大小）`,
+      { telemetryReason: 'unknown' },
+    );
+  }
+  return readFileSync(path);
+}
+
+function miss(what, path, offline) {
+  throw new NetworkError(
+    offline
+      ? `${what} 未命中缓存（--offline）：${path}\n`
+        + '  离线模式只用缓存；先在联网状态下取一次，或去掉 --offline。'
+      : `${what} 未命中缓存：${path}\n`
+        + '  ⚠️ M1 的 CLI **没有网络客户端**（见 src/commands/registry.mjs 顶部注释）——\n'
+        + '  这一条不是「网络失败」，是「本地缓存里没有，而本版本还取不了」。',
+    { telemetryReason: offline ? 'offline' : 'not-found' },
+  );
+}
+
+/**
+ * @param {object} o
+ * @param {string} o.cacheDir
+ * @param {boolean} o.offline
+ * @returns registry 读取器。所有方法**同步**，以便直接喂给 `resolveCurrent()`。
+ */
+export function createCacheRegistry({ cacheDir, offline = false }) {
+  const tsPath = join(cacheDir, 'timestamp.json');
+  const tsBundlePath = join(cacheDir, 'timestamp.sigstore.json');
+  const snapPath = (n) => join(cacheDir, 'snapshots', `${n}.json`);
+  const snapBundlePath = (n) => join(cacheDir, 'snapshots', `${n}.sigstore.json`);
+  const assetPath = (hex) => join(cacheDir, 'assets', hex);
+
+  return Object.freeze({
+    cacheDir,
+    offline,
+
+    /** §6 第 1 步的输入。🔴 同步。 */
+    fetchTimestamp() {
+      if (!existsSync(tsPath)) miss('timestamp.json', tsPath, offline);
+      if (!existsSync(tsBundlePath)) miss('timestamp 的 sigstore bundle', tsBundlePath, offline);
+      return {
+        bytes: readCapped(tsPath, 'timestamp.json'),
+        bundle: parseStrict(readCapped(tsBundlePath, 'timestamp bundle').toString('utf8')),
+      };
+    },
+
+    /** §6 第 4 步的输入，也是 §6.1 历史读取路径的输入。🔴 同步。 */
+    fetchSnapshot(n) {
+      const p = snapPath(n);
+      if (!existsSync(p)) miss(`快照 ${n}`, p, offline);
+      const bp = snapBundlePath(n);
+      if (!existsSync(bp)) miss(`快照 ${n} 的 sigstore bundle`, bp, offline);
+      return {
+        bytes: readCapped(p, `snapshot ${n}`),
+        bundle: parseStrict(readCapped(bp, `snapshot ${n} bundle`).toString('utf8')),
+      };
+    },
+
+    /** 有没有这一份 —— 只用来**报告**，不得用来跳过校验。 */
+    hasSnapshot(n) { return existsSync(snapPath(n)) && existsSync(snapBundlePath(n)); },
+
+    /**
+     * 取资产字节。🔴 按 `record.asset.sha256` 的 hex 寻址 ——
+     * 取回来之后仍然要过 `artifact.assertAssetBytes()`：
+     * 内容寻址证明的是「我们按这个名字存过」，不是「字节现在还对」。
+     */
+    fetchAsset(record) {
+      const hex = record.asset.sha256.replace(/^sha256:/, '');
+      const p = assetPath(hex);
+      if (!existsSync(p)) miss(`资产 ${record.id}（${record.asset.file}）`, p, offline);
+      const st = statSync(p);
+      if (st.size !== record.asset.size) {
+        // 大小不符是**完整性**问题，不是「取不到」—— 让它按 2 报，别混进 6
+        const e = new Error(
+          `资产 ${record.id} 的字节数是 ${st.size}，快照记录说应为 ${record.asset.size}`,
+        );
+        e.name = 'IntegrityError';
+        throw e;
+      }
+      return readFileSync(p);
+    },
+  });
+}

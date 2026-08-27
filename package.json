@@ -1,5 +1,5 @@
 {
-  "name": "@geoly/skills-hub",
+  "name": "@geoly-ai/skills-hub",
   "version": "0.0.0-m1.dev",
   "private": true,
   "description": "geoly-ai 的 skill 分发中心 —— 安装、校验、审计",
@@ -10,10 +10,25 @@
   "engines": {
     "node": ">=22.13"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geoly-ai/skills-hub.git"
+  },
+  "homepage": "https://github.com/geoly-ai/skills-hub#readme",
+  "bugs": {
+    "url": "https://github.com/geoly-ai/skills-hub/issues"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:matrix": "bash scripts/test-matrix.sh",
-    "test:fault": "FX_FULL=1 node --test test/fault-matrix.test.mjs"
+    "test:fault": "FX_FULL=1 node --test test/fault-matrix.test.mjs",
+    "test:fault:kernel": "FX_FULL=1 node --test test/kernel-fault-matrix.test.mjs",
+    "check:node-matrix": "node scripts/check-node-matrix.mjs",
+    "check:pack": "node scripts/check-pack-contents.mjs",
+    "check:identities": "node --no-warnings scripts/check-signing-identities.mjs",
+    "check:all": "npm run check:node-matrix && npm run check:identities && npm run check:pack",
+    "check:publish": "node scripts/publish-check.mjs",
+    "q12": "node scripts/q12/run.mjs"
   },
   "files": [
     "bin",

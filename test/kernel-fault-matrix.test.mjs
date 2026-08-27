@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 import { arm, disarm, observed, reset, setTrace } from '../src/fault-inject.mjs';
 import { CATALOG } from './harness/fault-points.mjs';
 import {
-  KSCENARIOS, kFreshTarget, kCleanup, snapshotTree,
+  KSCENARIOS, kFreshTarget, kCleanup, snapshotTree, KFX_ROOT,
 } from './kernel-scenarios.test.mjs';
 
 const FULL = process.env.FX_FULL === '1';
@@ -437,9 +437,9 @@ test('🔴 证伪：把 attic 里那份 tar 的内容掉包，I3 不能被字段
 });
 
 test('🔴 框架产物不留垃圾：跑一轮之后临时目录数量不增长', () => {
-  const before = readdirSync(tmpdir()).filter((n) => n.startsWith('kfx-t-')).length;
+  const before = readdirSync(KFX_ROOT).filter((n) => n.startsWith('kfx-t-')).length;
   for (let i = 0; i < 10; i++) { const t = kFreshTarget('leak'); KSCENARIOS['kernel-tx'].setup(t); kCleanup(t); }
-  const after = readdirSync(tmpdir()).filter((n) => n.startsWith('kfx-t-')).length;
+  const after = readdirSync(KFX_ROOT).filter((n) => n.startsWith('kfx-t-')).length;
   assert.ok(after <= before, `临时目录从 ${before} 涨到 ${after}`);
 });
 

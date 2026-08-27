@@ -97,3 +97,59 @@
 
 ⚠️ 一般化的教训：**「工具列出来的内容」不等于「文件里的字节」。**
 校验必须针对字节，诊断信息也要针对字节。
+
+---
+
+## E-7 · 🔴 npm 包名改为 `@geoly-ai/skills-hub`
+
+**M0 正文里写的**：`@geoly/skills-hub`（`00-decisions.md` 决策 ③A、`09-cli.md` §开头、
+`03-packs.md` §150 的 `npx` 示例、`07-threat-model.md` §94、`08-matrix-migration.md` §92）。
+
+**为什么错**：决策 ③A 拍板时**没有核实 org 实际叫什么**。实测（2026-08-27）：
+
+| 名字 | registry 状态 |
+|---|---|
+| `@geoly-ai/social-hub-cli` | **200** —— 这个 org 真实存在且在用 |
+| `@geoly/skills-hub` | 404 |
+| `@geoly-ai/skills-hub` | 404（可用） |
+
+GitHub org 是 `geoly-ai`，npm org 是 `@geoly-ai`，本机 `~/.config/geoly/npm-publish.env`
+里的发布 token 也是给 `@geoly-ai` 配的。`@geoly` 这个 scope 我们未必拥有。
+
+**以此为准**：包名是 **`@geoly-ai/skills-hub`**，bin 仍是 `skills-hub`。
+M0 正文里出现的 `@geoly/skills-hub` 一律按此读。
+
+⚠️ **这条必须在首次 `npm publish` 之前落实。** 发布之后改名只能 deprecate 旧名，
+旧名会永远留在 registry 上，而且 `npx @geoly/skills-hub` 这类文档链接会指向一个空壳。
+
+⚠️ 一般化的教训：**「我们叫什么」这种事，拍板时要去外部系统核实一次，不能凭记忆。**
+这条错在规格里躺了 45 个版本没被发现，因为整个 M0 阶段没有任何一步需要真的去连 registry。
+
+---
+
+## E-8 · 🔴 `origin_tree_digest` 必须带 `geoly-tree-v1:` 前缀
+
+**规格自相矛盾**：
+
+| 出处 | 写的形式 |
+|---|---|
+| `01-artifacts.md` / `02-registry.md` / `03-packs.md` / `04-install.md` 里的 `tree_digest` | `geoly-tree-v1:sha256:…` |
+| `treeDigest()` 的实际返回值 | `geoly-tree-v1:sha256:…` |
+| **`05-lifecycle.md:118` 的 `origin_tree_digest` 示例** | **`sha256:…`（裸）** |
+
+实现跟了错的那一边：`src/snapshot.mjs` 对该字段用 `assertAssetDigest`，只接受 `sha256:<64hex>`。
+
+**为什么前缀不能省**：系统里有**两种**树摘要算法 ——
+`geoly-tree-v1`（只算文件）与 `geoly-tx-v1`（还算目录项，含根与空目录）。
+裸 `sha256:` **分不出是哪一种**。而 `origin_tree_digest` 的用途正是拿去与
+`treeDigest()` 的输出比对（`05-lifecycle.md` §6.1 的 CI 门），
+两边形式不同就只能靠静默截前缀 —— 那正是 E-3 要消灭的「一个逻辑值多种写法」。
+
+**以此为准**：`origin_tree_digest` 的形式是 **`geoly-tree-v1:sha256:<64hex>`**。
+`05-lifecycle.md:118` 的示例是错的（同 E-1：示例与规则矛盾时以规则为准）。
+`src/snapshot.mjs` 改用树摘要校验器，不再用 `assertAssetDigest`。
+
+🔴 **不做静默兼容**：不接受裸 `sha256:` 再补前缀。宽进严出在这里等于把歧义留在系统里。
+
+⚠️ **这条卡住 matrix 导入**：不定死形式，`provenance.origin_tree_digest` 就写不出来
+（`08-matrix-migration.md` §3.1 的双摘要是导入的必填项）。

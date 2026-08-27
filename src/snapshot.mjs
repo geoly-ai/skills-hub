@@ -264,7 +264,11 @@ function validateProvenance(p, where) {
       throw new WireError('E_PROV_COMMIT', `${where}.origin_commit 必须是 40 位小写 hex，得到 ${p.origin_commit}`);
     }
     assertString(p.origin_subpath, `${where}.origin_subpath`);
-    assertAssetDigest(p.origin_tree_digest, `${where}.origin_tree_digest`);
+    // 🔴 它是**树**摘要，不是资产摘要 —— 必须带 `geoly-tree-v1:` 前缀（ERRATA E-8）。
+    // 早先用 assertAssetDigest（只接受裸 `sha256:<64hex>`），跟了 05-lifecycle.md:118
+    // 那个错示例。系统里有两种树算法（geoly-tree-v1 只算文件、geoly-tx-v1 还算目录项），
+    // 裸 sha256 分不出是哪一种；而这个值的用途正是与 treeDigest() 的输出比对。
+    assertTreeDigest(p.origin_tree_digest, `${where}.origin_tree_digest`);
     assertString(p.license_evidence, `${where}.license_evidence`);
     parseWireTime(p.imported_at, `${where}.imported_at`);
     assertUint(p.imported_by_pr, `${where}.imported_by_pr`);

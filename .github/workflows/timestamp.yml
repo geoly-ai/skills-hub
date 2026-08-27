@@ -1,0 +1,204 @@
+name: Timestamp
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🔴 **独立的 workflow 文件 = 独立的 OIDC 签名身份。这是要点，不是排版。**
+#
+#   02-registry.md §1：
+#     「v2 把 snapshot 与 timestamp 交给同一个 release.yml 身份。timestamp 签名者
+#       拥有『指向哪张已签快照』的高权限，必须**单独身份、单独最小权限**，
+#       且 CLI 分别固定两个 identity。」
+#
+#   §8：两个身份**精确比对**，不可互换 ——
+#     用 release.yml 身份签出来的 timestamp 必须被拒绝，反之亦然。
+#     （src/snapshot.mjs 的 TIMESTAMP_IDENTITY / RELEASE_IDENTITY，`===` 比较。）
+#
+#   🔴 所以**永远不要**把这个 job 挪进 release.yml 去「省一个文件」：
+#      keyless 证书的 SAN 里带的就是 workflow 文件路径。合并之后签出来的 timestamp
+#      会带上 release.yml 的身份，CLI 会（正确地）拒绝它 —— 而症状看起来像验签器有 bug。
+#
+# 🔴 同样只能从 `main` 跑：SAN 里带触发时的 ref。
+# ══════════════════════════════════════════════════════════════════════════
+
+on:
+  workflow_dispatch:
+  # ⚠️ timestamp 的有效期是 **7 天**（02-registry.md §3），所以正式运转起来之后
+  #    必须有定时刷新，否则客户端会集体 stale。
+  #
+  #    现在**故意注释掉**：仓库里还没有 registry/snapshots/，这个 job 每天都会
+  #    fail-closed 变红。一个每天报红的定时任务，两周之内就会被所有人静音 ——
+  #    到那时它就再也提醒不了任何事。
+  #
+  #    🔴 **M2 建出 registry/ 之后，取消下面两行的注释。**
+  #       在那之前，「7 天新鲜度链」这一条**尚未运转**，不要写成已闭合。
+  # schedule:
+  #   - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: timestamp
+  cancel-in-progress: false
+
+jobs:
+  # ── 签 timestamp.json，并用我们自己的验签器以 **timestamp 身份** 复验 ────
+  sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      # 🔴 没有 contents: write。把签好的东西提交回仓库是下一个 job 的事，
+      #    那个 job 不碰 OIDC。（同 release.yml 的拆法。）
+      contents: read
+    steps:
+      - name: 🔴 只允许从 main 跑
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::从 $GITHUB_REF 触发。keyless 证书的 SAN 会变成 …timestamp.yml@$GITHUB_REF，"
+            echo "::error::与 02-registry.md §8 钉死的 @refs/heads/main 不同 —— 签出来的 timestamp CLI 一定验不过。"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+
+      - run: npm ci --ignore-scripts
+
+      # 🔴 这条流水线也必须自己跑一遍身份门。
+      #    canary 与自验用的期望身份是从 src/snapshot.mjs 导入的常量 ——
+      #    常量本身写错时，签的和验的用同一个错值，整条流水线会在错身份上自洽。
+      #    打破这个自证的唯一办法，是拿 §8 正文里的字面量独立比对一次。
+      - run: node --no-warnings scripts/check-signing-identities.mjs
+
+      # 🔴 fail-closed：没有快照就没有「当前最新快照是哪一个」可以声明。
+      #    不造一个空的 timestamp 出来充数 —— 那会让 CLI 拿到一份指向不存在快照的
+      #    已签名文件，比没有 timestamp 糟得多。
+      - name: 前置：必须已经有快照
+        run: |
+          set -euo pipefail
+          if ! ls registry/snapshots/hub-*.json >/dev/null 2>&1; then
+            echo "::error::registry/snapshots/ 下没有快照 —— 没有东西可以指向。"
+            echo "::error::timestamp 的语义是「当前最新快照是哪一个」（02-registry.md §3）；"
+            echo "::error::在快照存在之前签一份 timestamp 出来，就是签一句谎话。"
+            echo "::error::registry/ 与 packer 属于 M2 的范围，这条链现在**尚未接通**。"
+            exit 1
+          fi
+          if [ ! -f registry/timestamp.json ]; then
+            echo "::error::registry/timestamp.json 不存在。本 workflow 只负责**签**它，"
+            echo "::error::生成它是 promotion 流程的事（M2）。"
+            exit 1
+          fi
+
+      - name: 装 cosign（版本钉死）
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # 🔴 不用 latest。docs/m1/01-residual-risks.md R-6：
+          #    我们的 assertTLogBodyShape() 只认 hashedrekord **0.0.1**。
+          #    Rekor v2 的 hashedRekordV002 会被直接拒（E_TLOG_BODY_VERSION）。
+          #
+          # ⚠️ **这个版本号是个待定值，不是已验证值。**
+          #    cosign 当前最新是 v3.x（2026-08-27 查），而 v3 很可能已经跟着上游
+          #    默认走 Rekor v2 —— 那正是 R-6 会咬人的地方。所以这里先钉在 v2 的
+          #    最后一档；但「v2.4.3 签出来的 bundle 我们的验签器一定收」这件事
+          #    **本机无从证明**（要真的在 GitHub Actions 上签一次才知道）。
+          #    🔴 因此第一次跑 release 必须用 `dry_run: true`：
+          #    canary 步骤会在任何不可逆动作之前把这个问题暴露出来，
+          #    然后按真实结果把这个版本号定死。
+          cosign-release: v2.4.3
+
+      - name: canary —— 签发链自检（在写任何东西之前）
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          echo "geoly skills-hub timestamp canary $GITHUB_SHA" > canary.txt
+          cosign sign-blob \
+            --new-bundle-format \
+            --rekor-url https://rekor.sigstore.dev \
+            --bundle canary.sigstore.json \
+            canary.txt
+          # 🔴 身份取 **timestamp**，不是 release。这一步同时也在证明
+          #    「这个 workflow 拿到的确实是 timestamp 那个身份」。
+          node --no-warnings scripts/release/verify-own-bundle.mjs \
+            --artifact canary.txt --bundle canary.sigstore.json --identity timestamp
+          rm -f canary.txt canary.sigstore.json
+
+      - name: 签 timestamp.json
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          cosign sign-blob \
+            --new-bundle-format \
+            --rekor-url https://rekor.sigstore.dev \
+            --bundle registry/timestamp.json.sigstore.json \
+            registry/timestamp.json
+
+      - name: 🔴 自验（必须以 timestamp 身份验过）
+        run: |
+          node --no-warnings scripts/release/verify-own-bundle.mjs \
+            --artifact registry/timestamp.json \
+            --bundle registry/timestamp.json.sigstore.json \
+            --identity timestamp
+
+      # 🔴 交叉证伪：同一份 bundle 拿 **release 身份** 去验**必须失败**。
+      #    §8 要求两个身份不可互换；只证「timestamp 身份能验过」是不够的 ——
+      #    那在「身份判定退化成恒真」的情况下也会成立。
+      # 🔴 交叉证伪：同一份 bundle 拿 **release 身份** 去验必须失败，
+      #    而且必须是**因为身份不匹配**而失败。
+      #    只判「非零退出」是不够的：文件不存在、JSON 解析炸了、验签器整个坏了，
+      #    统统也是非零 —— 那种「证伪」在最该报警的时候恰好也会通过。
+      - name: 🔴 证伪：拿 release 身份验必须以 E_IDENTITY_MISMATCH 失败
+        run: |
+          node --no-warnings scripts/release/verify-own-bundle.mjs \
+            --artifact registry/timestamp.json \
+            --bundle registry/timestamp.json.sigstore.json \
+            --identity release \
+            --expect-failure E_IDENTITY_MISMATCH
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: timestamp-signed
+          if-no-files-found: error
+          path: |
+            registry/timestamp.json
+            registry/timestamp.json.sigstore.json
+
+  # ── 把签好的 bundle 提交回仓库 ─────────────────────────────────────────
+  # 🔴 有 contents: write，但**没有 id-token**，不跑 npm ci、不跑任何第三方代码。
+  commit:
+    needs: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # ⚠️ 这个 job **确实需要**持久化凭据（它要 push）。代价照实写在这里：
+      #    checkout 会把 GITHUB_TOKEN 写进 .git/config。
+      #    缓解是把这个 job 的可执行代码面压到最小 —— 它不跑 npm ci、
+      #    不跑测试、不跑任何仓库里的 JS，只做 download-artifact + git 三条命令。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: timestamp-signed
+          path: registry
+      - name: 提交
+        run: |
+          set -euo pipefail
+          git config user.name "geoly-timestamp[bot]"
+          git config user.email "timestamp@users.noreply.github.com"
+          git add registry/timestamp.json registry/timestamp.json.sigstore.json
+          if git diff --cached --quiet; then
+            echo "::notice::没有变化，不提交"
+            exit 0
+          fi
+          git commit -m "chore(timestamp): 刷新并重新签名 timestamp.json"
+          git push origin main

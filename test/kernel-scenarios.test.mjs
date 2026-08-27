@@ -69,8 +69,16 @@ export function digestOf(files) {
   return digestCache.get(key);
 }
 
+/**
+ * 🔴 每进程一个私有沙箱根。判据**不能建立在 `tmpdir()` 这种别人也能写的命名空间上**——
+ * `kfx-t-` 这个前缀被四个测试文件共用（kernel-fault-matrix / kernel-scenarios /
+ * kernel-hardening / recover-rollback），并行跑时互相污染计数，**两个方向都会假红**：
+ * 多算了别人建的，或者自己的被别人删了。今天已经在 `fx-*` 上栽过同一次。
+ */
+export const KFX_ROOT = mkdtempSync(join(tmpdir(), `kfxroot-${process.pid}-`));
+
 export function kFreshTarget(tag) {
-  return join(mkdtempSync(join(tmpdir(), `kfx-t-${tag}-`)), 'skills');
+  return join(mkdtempSync(join(KFX_ROOT, `kfx-t-${tag}-`)), 'skills');
 }
 export function kCleanup(target) {
   if (target) rmSync(dirname(target), { recursive: true, force: true });

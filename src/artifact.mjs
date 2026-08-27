@@ -332,17 +332,24 @@ export function assertManifestBinding(record, payloadDir) {
  */
 export function verifyArtifact({ bytes, record, parent = tmpdir() }) {
   const r = verifyAndExtract({ bytes, record, parent });
-  const b = assertManifestBinding(record, r.dir);
+  // 🔴 `dispose` 必须在**任何可能抛错的步骤之前**就能用。
+  // 早先它构造在 assertManifestBinding 之后 —— 绑定失败时 r.dir 就没人收尸了，
+  // 而调用方连 dir 都拿不到（异常里没有它），想清也清不了。
+  // 与 verifyAndExtract 里那段「失败路径必须自己收尸」是同一条，我漏了这一处。
   let disposed = false;
-  return {
-    ...r,
-    ...b,
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      try { rmSync(r.dir, { recursive: true, force: true }); } catch { /* 尽力而为 */ }
-    },
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    try { rmSync(r.dir, { recursive: true, force: true }); } catch { /* 尽力而为 */ }
   };
+  let b;
+  try {
+    b = assertManifestBinding(record, r.dir);
+  } catch (err) {
+    dispose();
+    throw err;
+  }
+  return { ...r, ...b, dispose };
 }
 
 /**

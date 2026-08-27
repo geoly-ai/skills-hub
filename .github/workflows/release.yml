@@ -1,0 +1,387 @@
+name: Release
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🔴 这个 workflow 的**文件名就是签名身份的一部分**。
+#
+#   02-registry.md §8：
+#     release   身份 = https://github.com/geoly-ai/skills-hub/.github/workflows/release.yml@refs/heads/main
+#     timestamp 身份 = https://github.com/geoly-ai/skills-hub/.github/workflows/timestamp.yml@refs/heads/main
+#
+#   两个身份**不可互换**，CLI 分别精确比对（src/snapshot.mjs 的 RELEASE_IDENTITY /
+#   TIMESTAMP_IDENTITY，`===` 比较，不做前缀匹配、不做通配）。
+#   timestamp 签名者拥有「指向哪张已签快照」的高权限，所以它必须是**单独的文件、
+#   单独的最小权限**。🔴 **绝不能把 timestamp.yml 并进这里** —— 合并即等于
+#   让一个身份同时拥有两种权力，而 CLI 那一侧的区分就变成了摆设。
+#
+# 🔴 只能从 `main` 触发。keyless 证书的 SAN 里带的是**触发时的 ref**：
+#    从 tag 触发会签出 `…release.yml@refs/tags/vX`，与上面钉死的身份不同，
+#    CLI 必拒。所以 guard job 第一件事就是断言 ref。
+# ══════════════════════════════════════════════════════════════════════════
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只走到自验为止，不 publish（第一次用这个）"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ── ① 前置断言：ref、元数据、打包内容 ──────────────────────────────────
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+      version: ${{ steps.meta.outputs.version }}
+      name: ${{ steps.meta.outputs.name }}
+    steps:
+      - name: 🔴 只允许从 main 发布
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::从 $GITHUB_REF 触发。keyless 证书的 SAN 会变成 …release.yml@$GITHUB_REF，"
+            echo "::error::与 02-registry.md §8 钉死的 @refs/heads/main 不同 —— 签出来的东西 CLI 一定验不过。"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 🔴 checkout 默认会把 GITHUB_TOKEN 写进 .git/config。
+          #    这个 job 之后要跑第三方代码（npm ci），不给它留一个能推仓库的凭据。
+          persist-credentials: false
+          # E-2 的前提：attestation 里 workflowRef 钉的 sha 必须等于 sourceCommit，
+          # 而两者都取 github.sha —— 所以这里必须确实检出 github.sha 那一版。
+          ref: ${{ github.sha }}
+
+      - name: 🔴 检出的确实是 github.sha
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::error::HEAD=$head 与 GITHUB_SHA=$GITHUB_SHA 不一致 —— E-2 的绑定会断链"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+
+      - run: node scripts/check-node-matrix.mjs
+
+      - run: npm ci --ignore-scripts
+      # 🔴 发布路径上尤其要先过这一道：签名身份写错的话，
+      #    下面 publish job 里的「自验」会用同一个错值去验，照样绿。
+      - run: node --no-warnings scripts/check-signing-identities.mjs
+
+      - id: read
+        run: echo "matrix=$(jq -c . scripts/node-versions.json)" >> "$GITHUB_OUTPUT"
+
+      # 发布元数据门。这道门**只在发布路径上**跑：仓库长期是 private: true 的开发态，
+      # 放进 CI 会让主干长红，而长红的门几周内就会被人加上 continue-on-error。
+      #
+      # 🔴 但 dry_run 时它只报告、不阻断 —— 理由很具体：
+      #    dry_run 的**全部意义**是在元数据定稿之前先把签发链跑通
+      #    （尤其是 R-6 那个会自己爆炸的 cosign / Rekor 版本问题）。
+      #    如果 private: true 在这里就把 dry_run 拦死，canary 永远跑不到，
+      #    于是「先验证签发链」这条路根本不存在。
+      #    真正要发的那一次（dry_run=false）走的是上面那个硬门。
+      - name: 发布元数据门（真发布 —— 硬门）
+        if: ${{ inputs.dry_run == false }}
+        run: node scripts/publish-check.mjs
+      - name: 发布元数据门（dry_run —— 只报告，不阻断）
+        if: ${{ inputs.dry_run != false }}
+        run: |
+          node scripts/publish-check.mjs || \
+            echo "::warning::publish-check 未通过；dry_run 不阻断，真发布时它是硬门。"
+
+      # 判据是 npm pack 的**真实清单**，不是 package.json 的 files 声明。
+      # 具体防的是 src/trust-roots/ 漏出包外 —— 那等于用户机器上的验签器没根可用。
+      - run: node scripts/check-pack-contents.mjs
+
+      - id: meta
+        run: |
+          {
+            echo "version=$(jq -r .version package.json)"
+            echo "name=$(jq -r .name package.json)"
+          } >> "$GITHUB_OUTPUT"
+
+  # ── ② 全量测试（与 CI 同一份矩阵） ─────────────────────────────────────
+  # 🔴 这个 job **没有任何 write 权限**，也不碰 OIDC。
+  #    Codex 评审点：别在持有 id-token / contents:write 的 job 里跑测试 ——
+  #    测试会执行仓库里与依赖里的任意代码，那些代码不该有机会看见发布凭据。
+  test:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJSON(needs.guard.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci --ignore-scripts
+      - run: node --test test/*.test.mjs
+
+  # ── ③ 签名 + 自验 + 发布 ───────────────────────────────────────────────
+  publish:
+    needs: [guard, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: npm-publish
+    permissions:
+      # OIDC：Sigstore keyless 与 npm provenance 都靠它，没有任何长期密钥。
+      id-token: write
+      # 🔴 **不给 contents: write**。往 GitHub Release 传资产是下一个 job 的事，
+      #    那个 job 不碰 OIDC。两种权力不放在同一个 job 里。
+      contents: read
+    outputs:
+      tgz: ${{ steps.pack.outputs.tgz }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # npm trusted publishing 需要 npm ≥ 11.5.1；用最新 LTS 自带的 npm，
+          # 别用最低支持版本那一档带的旧 npm。
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci --ignore-scripts
+
+      - name: 装 cosign（版本钉死）
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # 🔴 不用 latest。docs/m1/01-residual-risks.md R-6：
+          #    我们的 assertTLogBodyShape() 只认 hashedrekord **0.0.1**。
+          #    Rekor v2 的 hashedRekordV002 会被直接拒（E_TLOG_BODY_VERSION）。
+          #
+          # ⚠️ **这个版本号是个待定值，不是已验证值。**
+          #    cosign 当前最新是 v3.x（2026-08-27 查），而 v3 很可能已经跟着上游
+          #    默认走 Rekor v2 —— 那正是 R-6 会咬人的地方。所以这里先钉在 v2 的
+          #    最后一档；但「v2.4.3 签出来的 bundle 我们的验签器一定收」这件事
+          #    **本机无从证明**（要真的在 GitHub Actions 上签一次才知道）。
+          #    🔴 因此第一次跑 release 必须用 `dry_run: true`：
+          #    canary 步骤会在任何不可逆动作之前把这个问题暴露出来，
+          #    然后按真实结果把这个版本号定死。
+          cosign-release: v2.4.3
+
+      # ── 🔴 canary：先签一个**扔掉的**小文件，用我们自己的验签器验一遍 ──
+      #
+      # 为什么必须在 publish **之前**：R-6 那条会自己爆炸。上游把 Rekor 切到 v2
+      # 的那天，签出来的 bundle 会突然验不过 —— 如果那时候已经 publish 了，
+      # 用户拿到的就是一个「发布了但验不了」的版本。
+      # 这一步把那个失败提前到**任何不可逆动作之前**。
+      - name: canary —— 签发链自检（在任何不可逆动作之前）
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          echo "geoly skills-hub release canary $GITHUB_SHA" > canary.txt
+          cosign sign-blob \
+            --new-bundle-format \
+            --rekor-url https://rekor.sigstore.dev \
+            --bundle canary.sigstore.json \
+            canary.txt
+          # 🔴 用**安装链路同一条代码路径**验：createSigstoreVerifier() +
+          #    loadBuiltinTrustedRoot()，身份取 src/snapshot.mjs 的 RELEASE_IDENTITY。
+          node --no-warnings scripts/release/verify-own-bundle.mjs \
+            --artifact canary.txt --bundle canary.sigstore.json --identity release
+          rm -f canary.txt canary.sigstore.json
+
+      # ── 打包一次，之后**只用这一份字节** ──────────────────────────────
+      # 🔴 不要「npm pack 一次、npm publish 再打一次」：那样签的 tarball 与发出去的
+      #    tarball 不保证逐字节相同，而摘要正是身份。publish 显式吃这个 .tgz。
+      - name: 打包（这份字节既拿去签，也拿去发）
+        id: pack
+        run: |
+          set -euo pipefail
+          tgz=$(npm pack --silent)
+          echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$tgz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          ls -l "$tgz"
+
+      - name: Sigstore keyless 签名（messageSignature 形态）
+        env:
+          COSIGN_YES: "true"
+          # 🔴 表达式一律先落成环境变量，**不直接插进 run 的脚本正文**。
+          #    `${{ … }}` 是在 shell 之前做文本替换的：值里带一个引号或分号，
+          #    插出来的就是另一条命令。这里的值来自 package.json，看着可控，
+          #    但「看着可控」不是判据 —— 判据是它有没有机会变成脚本。
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: |
+          set -euo pipefail
+          # --new-bundle-format 产出的是 Sigstore bundle（protobuf JSON）。
+          # 🔴 形态必须是 messageSignature：src/sigstore.mjs 的 assertMessageSignature()
+          #    明确**拒绝 dsseEnvelope** —— DSSE 的签名验的是 envelope 自己的 PAE，
+          #    与我们手上的字节没有绑定关系。sign-blob 走的正是 messageSignature。
+          cosign sign-blob \
+            --new-bundle-format \
+            --rekor-url https://rekor.sigstore.dev \
+            --bundle "$TGZ.sigstore.json" \
+            "$TGZ"
+
+      - name: 🔴 自验：我们自己的 CLI 能不能验过我们自己签的东西
+        env:
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: |
+          node --no-warnings scripts/release/verify-own-bundle.mjs \
+            --artifact "$TGZ" \
+            --bundle "$TGZ.sigstore.json" \
+            --identity release
+
+      # ── attestation（02-registry.md §1.1）───────────────────────────────
+      # 🔴 只在**快照存在**时才做。现在仓库里没有 registry/snapshots/，
+      #    所以这一步会被跳过 —— 如实跳过，不造一个假的 subject 出来凑。
+      #    attestation 绑的是**快照**的 sha256，拿 npm tarball 去冒充快照，
+      #    就是把「制品签发链已闭合」这件还没发生的事写成已发生。
+      - name: attestation（无快照则跳过）
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          if ! ls registry/snapshots/hub-*.json >/dev/null 2>&1; then
+            echo "::notice::registry/snapshots/ 不存在 —— 本轮没有快照可签，跳过 attestation。"
+            echo "::notice::制品（skill tar.gz）与快照的签发链**尚不存在**，packer 是 M2 的范围。"
+            exit 0
+          fi
+          node --no-warnings scripts/release/build-attestation.mjs \
+            --snapshot "$(ls -1 registry/snapshots/hub-*.json | sort -V | tail -1)" \
+            --source-commit "$GITHUB_SHA" \
+            --out predicate.json
+          cosign attest-blob \
+            --new-bundle-format \
+            --rekor-url https://rekor.sigstore.dev \
+            --predicate predicate.json \
+            --type https://geoly.ai/skills-hub/release/v1 \
+            --bundle attestation.sigstore.json \
+            "$(ls -1 registry/snapshots/hub-*.json | sort -V | tail -1)"
+          # 🔴 再把 **cosign 真正写出来的那份 envelope** 解析一遍。
+          #    build-attestation.mjs 的自检用的是我们自己拼的**占位** envelope，
+          #    它证明不了 cosign 最后产出的东西也满足 §1.1 的契约与 E-2 的绑定。
+          node --no-warnings scripts/release/check-attestation-bundle.mjs \
+            --bundle attestation.sigstore.json \
+            --expect-source-commit "$GITHUB_SHA"
+
+      - name: 🔴 发布（dry_run 时跳过）
+        if: ${{ inputs.dry_run == false }}
+        env:
+          # npm trusted publishing：OIDC 换 token，仓库里**没有长期密钥**。
+          # 前提是在 npmjs.com 上给这个包配好 trusted publisher（仓库 + workflow 文件名
+          # + environment 名），配置本身是人在网页上做的，YAML 保证不了。
+          #
+          # ⚠️ 如果暂时还是走 NPM_TOKEN：把下一行取消注释，并在仓库 secrets 里加 NPM_TOKEN。
+          #    provenance 仍然成立（它靠的是 id-token，不是 token 的种类），
+          #    但那就多了一个长期凭据 —— 02-registry.md §8.2 明写「无长期 token」，
+          #    所以这只应该是过渡态。
+          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: |
+          set -euo pipefail
+          # 🔴 显式把**刚才签过的那一份 .tgz** 交给 publish，
+          #    不让 npm 再打一次包（再打一次就不保证逐字节相同了）。
+          npm publish "$TGZ" --provenance --access public
+
+      - name: 回查 registry 真的在供这个版本
+        if: ${{ inputs.dry_run == false }}
+        env:
+          PKG_NAME: ${{ needs.guard.outputs.name }}
+          PKG_VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          node --no-warnings scripts/release/verify-registry.mjs \
+            --name "$PKG_NAME" --version "$PKG_VERSION"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle
+          if-no-files-found: error
+          path: |
+            *.tgz
+            *.tgz.sigstore.json
+            attestation.sigstore.json
+            registry/snapshots/hub-*.json
+
+  # ── ④ 离线引导用的资产（02-registry.md §8.2）───────────────────────────
+  # 「不接受 npm 这个信任锚的使用者，从 GitHub Release 直接取 CLI tarball 与其 bundle，
+  #   离线验签后本地安装。」—— 所以 tarball + bundle 必须挂到 Release 上。
+  #
+  # 🔴 这个 job 有 contents: write，但**没有 id-token**，也不跑测试、不跑 npm ci。
+  #    它只做一件事：把上一个 job 已经签好、已经自验过的两个文件挂上去。
+  release-assets:
+    needs: [guard, publish]
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+
+      # 🔴 摘要复核：确认要挂上去的**就是**上一个 job 签过的那份字节。
+      #    判据不该是「同一次 run 内传递的，应该没人动过」，而该是「摘要对得上」。
+      #    这一步只用 sha256sum —— 不 checkout、不跑 node，
+      #    因为这个 job 持有 contents: write，可执行代码面越小越好。
+      - name: 复核摘要
+        env:
+          TGZ: ${{ needs.publish.outputs.tgz }}
+          WANT: ${{ needs.publish.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          test -f "$TGZ" || { echo "::error::拿不到 $TGZ"; exit 1; }
+          test -f "$TGZ.sigstore.json" || { echo "::error::拿不到 $TGZ.sigstore.json"; exit 1; }
+          got=$(sha256sum "$TGZ" | cut -d" " -f1)
+          if [ "$got" != "$WANT" ]; then
+            echo "::error::摘要不符 —— 签的时候是 $WANT，现在是 $got"
+            exit 1
+          fi
+          echo "✔ 摘要一致：$got"
+
+      - name: 建 Release 并挂资产
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.guard.outputs.version }}
+          TGZ: ${{ needs.publish.outputs.tgz }}
+        run: |
+          set -euo pipefail
+          # 🔴 **不用 glob**。glob 会把目录里任何多出来的 .tgz 一并发出去，
+          #    而「多出来一个 .tgz」正是出问题时最可能的形态。
+          assets=("$TGZ" "$TGZ.sigstore.json")
+          # 快照与 attestation 现在还不存在（packer 属于 M2）。等它们存在了，
+          # §8.2 的离线资产清单要把它们一并挂上来 —— 所以这里按存在与否追加，
+          # 而不是等 M2 再回来改一次。
+          for extra in attestation.sigstore.json hub-*.json; do
+            [ -f "$extra" ] && assets+=("$extra")
+          done
+          printf '挂载资产：%s\n' "${assets[@]}"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes "npm 包与其 Sigstore bundle（离线验签路径见 README / 02-registry.md §8.2）。
+
+          ⚠️ 本轮签的是 **npm 包本身**。skill 制品（tar.gz）与快照的签发链**尚不存在** —— packer 属于 M2。" \
+            "${assets[@]}"

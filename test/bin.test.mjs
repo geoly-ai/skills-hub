@@ -44,10 +44,13 @@ test('ExperimentalWarning 被抑制（且抑制发生在任何 import 之前）'
   assert.ok(!/ExperimentalWarning/.test(out), '不该出现实验特性警告');
 });
 
-test('未知命令退出码为 2', () => {
+test('未知命令退出码为 1（用法错误）', () => {
+  // 🔴 我这条原先断言 2，而 09-cli.md §6 写的是「1 = 用法错误 / 解析失败 / 候选歧义」。
+  // 测试和当时的实现一起错的 —— 一致的错误不会互相暴露，正是这类断言最危险的地方。
+  // 命令面那块按规格实现成 1，Codex 独立复核也判「返回 1 正确，应改测试」。
   assert.throws(
     () => run(['definitely-not-a-command']),
-    (e) => e.status === 2,
+    (e) => e.status === 1,
   );
 });
 

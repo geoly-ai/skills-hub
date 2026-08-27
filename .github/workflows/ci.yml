@@ -1,0 +1,183 @@
+name: CI
+
+# 🔴 分支保护要钉的是 `ci-gate` 这一个名字（见文件末尾）。
+#    矩阵 job 的名字里带着版本值，版本清单一变，
+#    分支保护里钉的 required check 就会失效——静默地不再拦任何东西。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # 穷举崩溃注入在 PR 上就是必过门；这里的定时只是多一次「主干没被别的东西弄坏」的复查。
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Node 版本清单的唯一源 ───────────────────────────────────────────────
+  # scripts/node-versions.json 同时喂给本 workflow 与 scripts/test-matrix.sh。
+  # check-node-matrix.mjs 会扫这里的每个 workflow，发现硬编码版本号就报错——
+  # 漂移不会让任何测试变红，它只会让「22.13 上跑过」变成一句假话（R-5）。
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+      lowest: ${{ steps.read.outputs.lowest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      - name: 反漂移：版本清单只能有一个源
+        run: node scripts/check-node-matrix.mjs
+      # 🔴 把 02-registry.md §8 的两个身份钉成字面量，并核对它们指向的
+      #    workflow 文件真的存在、真的是两个不同的文件。
+      #    单元测试比的是「两个常量互不相等」，比不出「常量等于规范值」——
+      #    常量本身写错时，测试与发布流水线的自验会在一个错身份上一起自洽。
+      - name: 签名身份必须与 §8 逐字相同，且两个身份分属两个文件
+        run: npm ci --ignore-scripts && node --no-warnings scripts/check-signing-identities.mjs
+      - id: read
+        run: |
+          {
+            echo "matrix=$(jq -c . scripts/node-versions.json)"
+            echo "lowest=$(jq -r '.[0]' scripts/node-versions.json)"
+          } >> "$GITHUB_OUTPUT"
+
+  # ── 全量测试 × Node 矩阵 ────────────────────────────────────────────────
+  # 最低支持版本那一格同时在复验 docs/m1/01-residual-risks.md R-5：
+  # @sigstore/verify 声明的 engines.node 高于我们的下限，我们判定「可用」的依据
+  # 就是每次全量跑都在这一格上过。⚠️ 升级那个依赖必须重跑这一格，不能只看高版本。
+  test:
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJSON(needs.versions.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      # --ignore-scripts：本仓库没有任何必须执行的 lifecycle script，
+      # 依赖的也一样。关掉它就少一整类「装依赖顺手执行代码」的面。
+      - run: npm ci --ignore-scripts
+      - run: node --test test/*.test.mjs
+
+  # ── 🔴 穷举崩溃注入：**会拦住合并的门**，不是「跑一下看看」 ──────────────
+  #
+  # ⚠️ R-10：这里有**两套**故障矩阵，必须**都跑**：
+  #   · test/kernel-fault-matrix.test.mjs —— 驱动**真事务内核**；
+  #   · test/fault-matrix.test.mjs        —— 由 test/harness/scenarios.mjs 驱动，
+  #     而 scenarios 导入的是 **假事务**（fake-tx / fake-intents）。
+  #     CATALOG 里的 owner 已经翻成真模块名，但那只是标注——驱动矩阵的仍是假实现。
+  #
+  # 所以「跑了一套」**不等于**规格被覆盖：假事务只能证明它在自己那个模型里收敛。
+  # 两套并存本身是待办（把 scenarios.mjs 指向真内核、合并成一套），
+  # 在那之前 CI 必须同时扛住两套，否则合并的时候会发现只有一套在守。
+  #
+  # FX_FULL=1 打开**全部命中点**（默认只取每个点的首次命中）。单套约 12 分钟。
+  fault-exhaustive:
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJSON(needs.versions.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci --ignore-scripts
+      - name: 穷举崩溃注入（真内核 + 假事务，两套都必须跑完）
+        # 🔴 `set +e` 是要紧的：GitHub 的 run 默认 `bash -e`，
+        #    真内核那条一挂，后面假事务那条就**根本不会执行**——
+        #    于是「两套都跑」在最需要它的那一次静默退化成「只跑了一套」。
+        run: |
+          set +e
+          FX_FULL=1 node --test test/kernel-fault-matrix.test.mjs
+          kernel=$?
+          FX_FULL=1 node --test test/fault-matrix.test.mjs
+          fake=$?
+          echo "::notice::kernel-fault-matrix=$kernel fault-matrix(fake-tx)=$fake"
+          [ "$kernel" -eq 0 ] && [ "$fake" -eq 0 ]
+
+  # ── 打包内容门 ──────────────────────────────────────────────────────────
+  # 判据是 `npm pack` 的真实清单，不是 package.json 的 files 声明。
+  # 具体防的是：src/trust-roots/ 漏出包外 = 用户机器上的验签器没根可用。
+  pack:
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ fromJSON(needs.versions.outputs.matrix)[0] }}
+      - run: npm ci --ignore-scripts
+      - run: node scripts/check-pack-contents.mjs
+
+  # ── 🔴 聚合门：**分支保护里钉这一个** ───────────────────────────────────
+  #
+  # 为什么需要它：矩阵 job 的 check 名字里带着矩阵值（形如 `test (<版本>)`）。
+  # （这里刻意**不举具体版本号做例子** —— scripts/check-node-matrix.mjs 会把
+  #  workflow 里出现的受管版本字面量一律判为漂移，注释也不例外。这是对的：
+  #  一个只在注释里成立的例外，下次就会变成一个在 run 里成立的例外。）
+  # 把那些名字钉进分支保护，等到 node-versions.json 换一个版本号，
+  # 那条 required check 就再也不会出现——GitHub 不会报错，它只是**不再拦**。
+  # 一个名字固定、把所有 needs 结果收拢的 job 才钉得住。
+  #
+  # ⚠️ 但 workflow 本身**保证不了**「拦住合并」——那要在仓库的
+  #    Settings → Branches / Rulesets 里把 `ci-gate` 设为 required status check。
+  #    这一步只有仓库管理员能做，YAML 里写不出来。
+  ci-gate:
+    needs: [versions, test, fault-exhaustive, pack]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 所有前置 job 必须 success
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$RESULTS"
+
+          # 🔴 先查「该在的都在」，再查「在的都绿」。
+          #    只做后者的话，`needs` 少了一项（有人删了 job、或改错了名字）
+          #    会让判定在一个**更小的集合**上成立 —— 那是一道会自己缩水的门。
+          #    实测过 `to_entries[] | select(...)` 在空对象上输出为空 ⇒ 直接假绿。
+          for want in versions test fault-exhaustive pack; do
+            if ! echo "$RESULTS" | jq -e --arg k "$want" 'has($k)' >/dev/null; then
+              echo "::error::ci-gate 的 needs 里缺少 $want —— 这道门正在一个不完整的集合上判定"
+              exit 1
+            fi
+          done
+
+          # 任何一个不是 success（含 failure / cancelled / skipped）都算没过。
+          # 🔴 特别是 skipped：一个被静默跳过的门与一个不存在的门没有区别。
+          bad=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result != "success") | "\(.key)=\(.value.result)"')
+          if [ -n "$bad" ]; then
+            echo "::error::以下 job 没有 success：$bad"
+            exit 1
+          fi
+          echo "ci-gate ok"

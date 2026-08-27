@@ -1,5 +1,8 @@
 # skills-hub
 
+> npm 包名：**`@geoly-ai/skills-hub`**，bin `skills-hub`。
+> （M0 正文写的是 `@geoly/skills-hub`，那是拍板时没核实 org —— 见 [`docs/m0/ERRATA.md`](docs/m0/ERRATA.md) E-7）
+
 `geoly-ai` 的 skill 分发中心：一条命令装单个 skill、装矩阵包，
 并支持外部投稿与过审。
 

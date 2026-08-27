@@ -434,3 +434,20 @@ test('🔴 这一份测试自己不许漏隔离目录', async () => {
   assert.deepEqual(left, [], `隔离目录没清干净：${left}`);
   assert.ok(existsSync(sandbox));
 });
+
+test('🔴 manifest 绑定失败时也不能留下解包目录', async () => {
+  // dispose 原先构造在 assertManifestBinding 之后 —— 绑定一抛错，
+  // 目录就没人收，而调用方连 dir 都拿不到（异常里没有它）。
+  const { verifyArtifact } = await import('../src/artifact.mjs');
+  const { mkdtempSync, readdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  const sandbox = mkdtempSync(join(tmpdir(), 'bindleak-'));
+  // record 与载荷里的 manifest 对不上 → assertManifestBinding 必抛
+  const { gz, record } = makeArtifact();
+  const bad = { ...record, name: 'not-the-name-in-manifest' };
+  assert.throws(() => verifyArtifact({ bytes: gz, record: bad, parent: sandbox }));
+  const left = readdirSync(sandbox).filter((n) => n.startsWith('geoly-unpack-'));
+  assert.deepEqual(left, [], `绑定失败后仍留下隔离目录：${left}`);
+});
