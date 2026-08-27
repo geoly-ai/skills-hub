@@ -155,3 +155,68 @@ evidence 里写死了「预判失败」，防止有人顺手开绿。
 ⚠️ **附带发现（未测量，不计入任何一格的判定）**：cursor 还会看 `.agents/skills`，
 开启第三方扩展后还看 `.claude/skills` 与 `.codex/skills`——
 也就是说装了 cursor 的机器上，它可能扫到**其它客户端的 target**。
+
+---
+
+## R-9 · 解析与安装之间的 trust floor 接缝
+
+**攻击前提**：另一个进程在本进程「`resolveCurrent()` 推进 floor、释放 metadata 锁」
+与「提交安装事务」之间，把 floor 又推进一次。本进程仍会按旧快照装完。
+
+**缓解**：`install.commitPoint()` 在**提交点之前**（target 未动、放弃仍免费）
+调 `trust.assertFloorUnchanged()`，不符即 `E_FLOOR_MOVED` 停机。
+`floor` 参数**必须显式给**——`undefined` 直接拒绝，无 registry 出处要显式写 `floor: null`。
+**忘了传是拒绝，不是跳过。** 过了提交点不再复验：事务已被承诺，恢复只能续做或回滚
+（同 §5.8「`--from-generation` 豁免当前状态门」的取法）。
+
+**为什么不闭合**：真屏障要求在同一临界区里持 metadata 锁直到写入生效点。
+而 §5.1 的加锁全序是 `metadata → repo → target`，提交点此刻**已持 target 锁**，
+再取 metadata 锁是**反序**（规范明令禁止，会出现「双方各持一半」的死锁）；
+`src/lock.mjs` 又禁止重入。
+
+**代价**：闭合需要改 §5.1 的加锁全序，或把 floor 的权威搬进 target 锁——
+两者都会牵动**已封版**的锁协议。
+
+🔴 **明确不承诺**：这只把竞态窗口**缩小**到「提交点之后」（覆盖了整个下载 + 解包段），
+**不消除**它。**不得宣称抗并发 floor 推进已闭合。**
+
+---
+
+## R-10 · 两套故障矩阵并存，`fault-matrix` 仍在测假事务
+
+**现状**：`test/fault-matrix.test.mjs` 驱动的是 `test/harness/fake-tx.mjs` 里的**假事务**；
+真内核有另一套 `test/kernel-fault-matrix.test.mjs`。CATALOG 里的 `owner` 已翻成真模块，
+但那只是标注——**驱动矩阵的仍是假实现**。
+
+**为什么会这样**：交付时 `scenarios.mjs` 在那位子代理的只读边界内，动不了。
+它没有把 owner 写成纯真模块然后当作已经指向真内核——那会是假话。
+
+**风险**：两套并存 = 假事务与真内核可能**各自收敛到不同的模型**。
+Codex 说得很直接：「fake 矩阵证明的是假事务在它自己模型里收敛，不是规格的等价实现。」
+
+**要做的**：把 `scenarios.mjs` 指向真内核，合并成一套。这不是残余风险，是**待办**——
+放在这里只是为了不让它在两套都绿的假象里被忘掉。
+
+---
+
+## R-11 · 跨块验收挑出的 P1 接缝（未修，待办）
+
+2026-08-27 Codex 跨块验收判定「无 P0，可以提交」，同时列出五条接缝。
+其中「tar writer 接受集合大于 parser」已当场修掉（写入端改走与读取端同一条
+`assertArtifactPath`），其余四条如实留着：
+
+| 接缝 | 现象 | 为什么现在不修 |
+|---|---|---|
+| **audit event id 与 `audit-seq` 未绑定** | `mergeAuditAppend()` 不校验 allocator 来源或水位；`audit-seq=0` 时可写入 `event_id=999`，之后 allocator 仍返回 1 | CLI 还没接通 audit 面，接线时一并做 |
+| **root key / `requested_by` 图未在边界闭合** | `validateRoot()` 不校验 root key 的 grammar，`../escape` 能当 root key 被接受；`validateEntry()` 不确认 `requested_by` 指向同一 ledger 的 root | 悬挂键会在投影到 lockfile 时才被拒；要在 ledger 边界补 |
+| **lockfile 读侧比写侧宽** | `validateLockfileShape()` 接受 `all@snapshot:01` 这类别名，不校验 `target.path` 是安全相对路径 | ⚠️ **若将来直接用读侧结果物化 target 而不硬调 closure 校验，这条要升级为 P0** |
+| **completed journal 删除早于 lockfile hook** | `runCleanup()` 先清事务与 journal，最后才 `runLockfileRecalc()`。hook 抛错时 ledger 已提交、project lockfile 可能陈旧，而 recover 已无 journal 可重试 | 修法是把 recalc 前移，或持久化一个 `lockfile-sync-needed` 意图 |
+
+🔴 **共同的形状**：前三条都是「**读侧与写侧的接受集合不对称**」。
+tar 那条是同一形状，只是它当场就红了（写出来的东西自己读不回来），
+另外三条不会立刻红——它们要等到跨模块传递时才暴露。
+
+**判据**：任何一对「写入 / 读回」的边界，都要问一句
+**「写入端接受的每一个输入，读取端是不是都接受？」**
+这个性质要写成属性测试，不能靠喂几个合法样例（我那条往返测试第一版就是只喂合法输入，
+所以对 `../x` 视而不见）。

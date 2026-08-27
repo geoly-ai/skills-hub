@@ -22,7 +22,14 @@ import { platform } from 'node:os';
 const RE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
 export function isSafeSegment(seg) {
-  return typeof seg === 'string' && seg.length > 0 && RE_SEGMENT.test(seg);
+  if (typeof seg !== 'string' || seg.length === 0) return false;
+  // 🔴 `.` 与 `..` 完全符合 [A-Za-z0-9._-]+，字符集挡不住它们。
+  // 早先只在 parseSafeRelPath 里按 segment 单独挡 —— 但**单独调用
+  // isSafeSegment 的人拿不到那层保护**，而这个名字听起来像是拿得到的。
+  // 事务内核那块差点就这么把路径穿越放进去（2026-08-27 抓到）。
+  // 判据：一个叫「安全」的谓词必须自己就是安全的，不能依赖调用方再加一道。
+  if (seg === '.' || seg === '..') return false;
+  return RE_SEGMENT.test(seg);
 }
 
 /**

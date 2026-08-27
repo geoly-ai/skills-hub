@@ -13,6 +13,17 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'sfs-'));
 
 // ── 字符集 ───────────────────────────────────────────────────────────────────
 
+test('🔴 isSafeSegment 自己就要挡住 . 和 ..，不能指望调用方再加一道', () => {
+  // 这两个完全符合 [A-Za-z0-9._-]+。一个叫「安全」的谓词若对它们返回 true，
+  // 单独使用它的人就会拿到路径穿越 —— 事务内核那块差点中招。
+  assert.equal(isSafeSegment('..'), false);
+  assert.equal(isSafeSegment('.'), false);
+  // 但形如 a..b / ..b / a.. 的**文件名**是合法的，不能连坐
+  for (const ok of ['a..b', '..b', 'a..', '...']) {
+    assert.equal(isSafeSegment(ok), true, `不该误伤 ${ok}`);
+  }
+});
+
 test('ASCII-only segment（D9）', () => {
   for (const ok of ['SKILL.md', 'skill.json', 'a-b_c.1', 'X']) assert.ok(isSafeSegment(ok), ok);
   for (const bad of ['', '中文.md', 'a b', 'a/b', 'a\\b', 'café', 'а']) {

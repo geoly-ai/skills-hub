@@ -11,7 +11,7 @@
 | 阶段 | 状态 |
 |---|---|
 | **M0 · 制品与信任模型** | ✅ **已通过**（v45，2026-08-25） |
-| M1 · 只读分发（单 skill 的 resolve / install / list / check） | 🚧 进行中 —— 基础模块与埋点已落地，事务内核未接 |
+| M1 · 只读分发（单 skill 的 resolve / install / list / check） | 🚧 进行中 —— 信任链与 adapter 已就绪，事务内核在做 |
 | M2 · pack 与受控 catalog | — |
 | M3 · 投稿与审核 | — |
 | M4 · update / remove / 正式发包 | — |
@@ -35,9 +35,39 @@ npm test                                 # 60 个测试
 npm run test:matrix                      # 在 Node 22.13 / 24.19 上各跑一遍
 ```
 
-基础模块：`canonical-json`、`atomic-fs`、`tree-digest`/`tx-digest`、`lock`（`node:sqlite`
-的 `BEGIN EXCLUSIVE`，内核释放）。两道 M1 前置 gate 的实测记录见
-[`docs/m1/00-gates.md`](docs/m1/00-gates.md)。
+基础模块：`canonical-json`、`atomic-fs`、`safe-fs`、`tree-digest`/`tx-digest`、
+`lock`（`node:sqlite` 的 `BEGIN EXCLUSIVE`，内核释放）、故障注入框架、
+信任与制品链（Sigstore 验签 + 受限 tar 解包）、adapter 与 target 预检。
+
+- 两道 M1 前置 gate 的实测记录：[`docs/m1/00-gates.md`](docs/m1/00-gates.md)
+- 🔴 **已知且接受的残余风险**：[`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)
+- M0 勘误（正文已封版，冲突以勘误为准）：[`docs/m0/ERRATA.md`](docs/m0/ERRATA.md)
+
+**当前可安装的组合**：`claude` / `codex` × 全局 / 项目级。
+`cursor` 与 `agents` 未启用，理由见 gates 文档与残余风险单 R-8。
+
+## 项目级安装：先改 `.gitignore`
+
+装到项目级（`<repo>/.claude/skills` 等）时，状态目录 `.geoly/` 会落在仓库里。
+把下面几条加进 `.gitignore` —— 🔴 注意是 **adapter 派生的实际路径**，
+不是根上的 `/.geoly/`：
+
+```gitignore
+/.claude/skills/.geoly/
+/.codex/skills/.geoly/
+/.cursor/skills/.geoly/
+/.agents/skills/.geoly/
+```
+
+（`skills-hub` 会在项目级安装时提示缺哪几条；`gitignorePatternsFor()` 按启用的
+client 生成，`test/adapters.test.mjs` 用真 git 仓库验证过它确实忽略状态目录、
+且**不误伤 skill 本体**。）
+
+### ⚠️ `git clean -xfd` 会删掉整个 `.geoly/`
+
+不只是「进行中的事务状态」，**还包括本地审计历史**（live `audit` 与 `audit-archive/`）。
+清掉之后 `event_id` 序列会从头开始。这是规范承认的「放弃本地 audit」边界，
+但它**不可恢复** —— 清之前想清楚。
 
 ## 埋点与面板
 

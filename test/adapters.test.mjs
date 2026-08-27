@@ -736,3 +736,43 @@ test('🔴 $CODEX_HOME 尚未创建时，预检不该把 ENOENT 说成路径链�
   assert.equal(codex.trustedBase(o), parent);
   assert.equal(codex.layout(o).target, join(cx, 'skills'));
 });
+
+// ── .gitignore 要用真 git 验，不能只验生成的字符串 ──────────────────────────
+
+test('🔴 生成的 pattern 在真 git 仓库里确实忽略了 .geoly，且不误伤 skill 本体', async () => {
+  // 之前只断言「生成了什么字符串」。字符串对不等于 git 真的会忽略 ——
+  // gitignore 的匹配规则（前导 /、尾随 /、目录 vs 文件）有足够多的坑。
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { gitignorePatternsFor } = await import('../src/adapters/index.mjs');
+
+  const repo = mkdtempSync(join(tmpdir(), 'gi-'));
+  const git = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+  git('init', '-q');
+  writeFileSync(join(repo, '.gitignore'), gitignorePatternsFor(['claude', 'codex']).join('\n') + '\n');
+
+  // 真的把目录造出来 —— check-ignore 对目录与文件的判定不同
+  for (const p of ['.claude/skills/.geoly/tx-1/stage/demo', '.claude/skills/demo',
+    '.codex/skills/.geoly/attic/1', '.codex/skills/demo']) {
+    mkdirSync(join(repo, p), { recursive: true });
+    writeFileSync(join(repo, p, 'SKILL.md'), 'x');
+  }
+
+  const ignored = (rel) => {
+    try { git('check-ignore', '-q', rel); return true; } catch { return false; }
+  };
+
+  // 状态目录必须被忽略
+  for (const rel of ['.claude/skills/.geoly/tx-1/stage/demo/SKILL.md',
+    '.codex/skills/.geoly/attic/1/SKILL.md']) {
+    assert.equal(ignored(rel), true, `应被忽略：${rel}`);
+  }
+  // 🔴 反向：skill 本体绝不能被误伤，否则用户装的 skill 提交不上去
+  for (const rel of ['.claude/skills/demo/SKILL.md', '.codex/skills/demo/SKILL.md']) {
+    assert.equal(ignored(rel), false, `不该被忽略：${rel}`);
+  }
+  // 🔴 根上的 /.geoly/ 不是我们要的 pattern（规格注明 v8 曾写错）
+  assert.ok(!gitignorePatternsFor(['claude']).includes('/.geoly/'), '不得退回成根上的 /.geoly/');
+});
