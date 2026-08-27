@@ -1,14 +1,20 @@
 // Gate 2：Node/SQLite 锁行为实测（04-install.md §5.1）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { acquire, readHolder, LockBusyError } from '../src/lock.mjs';
 
-const T = () => mkdtempSync(join('/private' + tmpdir().replace(/^\/private/, ''), 'lock-'));
+// 🔴 用 realpathSync 而不是手拼 `/private` 前缀。
+// 原先写的是 `'/private' + tmpdir().replace(/^\/private/, '')` —— 那是把 macOS 的
+// 布局（`/tmp` 是指向 `/private/tmp` 的符号链接）硬编码进了测试。
+// Linux 上 `tmpdir()` 是 `/tmp`，拼出来就是**不存在的** `/private/tmp` → ENOENT，
+// 6 条锁测试全红。本机永远测不出来，是 CI 的 Linux runner 抓到的。
+// ⚠️ 平台差异要用可移植 API 消化，不要用「在我的机器上等价」的字符串变换。
+const T = () => mkdtempSync(join(realpathSync(tmpdir()), 'lock-'));
 const HOLDER = new URL('./fixtures/holder.mjs', import.meta.url).pathname;
 
 test('取锁后同进程重入被拒', () => {
