@@ -1,7 +1,6 @@
 {
   "name": "@geoly-ai/skills-hub",
-  "version": "0.0.0-m1.dev",
-  "private": true,
+  "version": "0.1.0",
   "description": "geoly-ai 的 skill 分发中心 —— 安装、校验、审计",
   "type": "module",
   "bin": {
@@ -18,6 +17,15 @@
   "bugs": {
     "url": "https://github.com/geoly-ai/skills-hub/issues"
   },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:matrix": "bash scripts/test-matrix.sh",
@@ -30,11 +38,6 @@
     "check:publish": "node scripts/publish-check.mjs",
     "q12": "node scripts/q12/run.mjs"
   },
-  "files": [
-    "bin",
-    "src"
-  ],
-  "license": "MIT",
   "dependencies": {
     "@sigstore/verify": "4.1.2"
   }
