@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateRawSync, gzipSync } from 'node:zlib';
-import { untarGz, parseTar, gunzipCanonical, canonicalUstarSplit, crc32, MAX_FILES } from '../src/untar.mjs';
+import { randomBytes } from 'node:crypto';
+import { untarGz, parseTar, gunzipCanonical, canonicalUstarSplit, assertArtifactPath, crc32, MAX_FILES } from '../src/untar.mjs';
 import { makeTar, makeGz, makeTarGz, tarHeader } from './fixtures/trustchain-tar.mjs';
 
 /** 跑一次，断言违规码正好是 want */
@@ -413,4 +414,333 @@ test('crc32 与 zlib 一致（夹具与实现共用它，得先证明它是对�
   const gz = gzipSync(data);
   assert.equal(crc32(data), gz.readUInt32LE(gz.length - 8));
   void deflateRawSync;
+});
+
+// ── ERRATA E-6：macOS AppleDouble 注入 ─────────────────────────────────────
+// 🔴 这些条目本来就会被 E_PATH_LEADING 挡住 —— 这里断言的是**报出了专门的码**，
+//    因为打包的人从 `tar -tvf` 根本看不到这个成员，报「segment 以 . 开头」帮不到他。
+
+test('AppleDouble 成员 ._SKILL.md 报专门的 E_APPLEDOUBLE，不是笼统的 E_PATH_LEADING', () => {
+  const e = expectViolation('E_APPLEDOUBLE', () => untarGz(makeTarGz([{ path: '._SKILL.md', data: 'x' }])));
+  assert.match(e.message, /COPYFILE_DISABLE=1/, '诊断里必须给出处方，否则等于没帮上忙');
+  assert.match(e.message, /AppleDouble/);
+});
+
+test('AppleDouble 出现在子目录里（sub/._a.md）同样报 E_APPLEDOUBLE', () => {
+  expectViolation('E_APPLEDOUBLE', () => untarGz(makeTarGz([{ path: 'sub/._a.md', data: 'x' }])));
+});
+
+test('E_APPLEDOUBLE 只针对 ._ 前缀 —— 单个 . 开头仍报 E_PATH_LEADING（不抢别人的码）', () => {
+  expectViolation('E_PATH_LEADING', () => untarGz(makeTarGz([{ path: '.hidden', data: 'x' }])));
+});
+
+// ── 唯一字节编码（ERRATA E-3 的推论）：同一逻辑条目不得有第二种合法写法 ──────
+
+test('typeflag NUL（v7 老 tar 的普通文件写法）被拒 —— ustar 下唯一规范值是 "0"', () => {
+  const h = tarHeader({ path: 'a.md', size: 0, typeflag: '\0' });
+  const e = expectViolation('E_TYPEFLAG', () => parseTar(Buffer.concat([h, Buffer.alloc(1024)])));
+  assert.match(e.message, /v7|唯一性/);
+});
+
+test('devmajor/devminor 写成全 NUL 被拒 —— canonical 是八进制零，不接受第二种写法', () => {
+  const h = tarHeader({ path: 'a.md', size: 0, over: { raw: (b) => { b.fill(0, 329, 345); } } });
+  expectViolation('E_OCTAL', () => parseTar(Buffer.concat([h, Buffer.alloc(1024)])));
+});
+
+test('chksum 写成 7 位八进制 + NUL 被拒 —— canonical 只接受 6 位 + NUL + 空格', () => {
+  const h = tarHeader({ path: 'a.md', size: 0 });
+  // 取出实现认可的校验和，改写成等价的 7 位布局：值一样，字节不一样
+  const val = parseInt(h.subarray(148, 154).toString('latin1'), 8);
+  h.write(val.toString(8).padStart(7, '0') + '\0', 148, 8, 'latin1');
+  const e = expectViolation('E_CHECKSUM', () => parseTar(Buffer.concat([h, Buffer.alloc(1024)])));
+  assert.match(e.message, /布局/);
+});
+
+test('canonical 的 chksum 布局（6 位 + NUL + 空格）仍然通过 —— 收窄没有误伤正路', () => {
+  const { entries } = untarGz(makeTarGz(OK_FILES));
+  assert.equal(entries.length, 2);
+});
+
+// ── 诊断消息里的攻击者字节必须被转义 ───────────────────────────────────────
+// 🔴 charset 检查排在 `..` / 绝对路径 / 反斜杠 / 空 segment / 深度**之后**，
+//    那几条消息拿到的是原始字节。ANSI 转义序列会被终端与日志解释。
+
+const ESC = String.fromCharCode(27);
+const BEL = String.fromCharCode(7);
+// 用码点构造，避免源文件里出现裸控制字符
+const CTRL = new RegExp('[\\u0000-\\u001f\\u007f]');
+
+const INJECTION_CASES = [
+  ['E_PATH_ABS', '/' + ESC + '[2Jwiped'],
+  ['E_PATH_BACKSLASH', 'a\\' + ESC + '[31mred'],
+  ['E_PATH_EMPTY_SEGMENT', 'a//' + ESC + '[1mX'],
+  ['E_DEPTH', Array(14).fill('a' + ESC).join('/')],
+];
+for (const [want, path] of INJECTION_CASES) {
+  test(`诊断消息不得原样吐出控制字符：${want}`, () => {
+    const e = expectViolation(want, () => parseTar(makeTar([{ path, data: 'x' }])));
+    assert.ok(!CTRL.test(e.message),
+      `消息里出现了未转义的控制字符，可被用来注入终端转义序列：${JSON.stringify(e.message)}`);
+  });
+}
+
+test('ANSI 转义注入：改终端标题的序列不会原样出现在消息里', () => {
+  const evil = '/' + ESC + ']0;PWNED' + BEL + 'x';
+  const e = expectViolation('E_PATH_ABS', () => parseTar(makeTar([{ path: evil, data: 'x' }])));
+  assert.ok(!e.message.includes(ESC), '消息里仍含裸 ESC 字节');
+  assert.ok(!e.message.includes(BEL), '消息里仍含裸 BEL 字节');
+  assert.match(e.message, /\\u001b/, '应当以 uXXXX 的形式转义后出现，而不是被整段丢掉');
+});
+
+// ── ERRATA E-3：唯一切分（真·两种都结构合法的场景） ────────────────────────
+// 🔴 原有的 E_PATH_USTAR_SPLIT 测试用的是「短路径硬塞进 prefix」——
+//    那种 alt 切分其实不是「另一个合法切分」，证明力弱。这里用一条 145 字节、
+//    **确实存在两个都满足 prefix≤155 且 name≤100 的切点**的路径。
+
+const TWO_SPLIT_PATH = 'a'.repeat(50) + '/' + 'b'.repeat(60) + '/' + 'c'.repeat(30) + '.md';
+
+test('E-3：两个切分都结构合法时，只接受 prefix 最长的那个', () => {
+  const canon = canonicalUstarSplit(TWO_SPLIT_PATH);
+  assert.equal(canon.prefix.length, 111, 'canonical 应取最长合法 prefix');
+  assert.equal(canon.name.length, 33);
+
+  // 另一个切点：prefix=50、name=94，两边都在字段容量内 —— 结构上完全合法
+  const alt = { prefix: 'a'.repeat(50), name: 'b'.repeat(60) + '/' + 'c'.repeat(30) + '.md' };
+  assert.ok(alt.prefix.length <= 155 && Buffer.byteLength(alt.name) <= 100,
+    '前提：alt 必须真的是一个结构合法的切分，否则这条测试没有证明力');
+
+  const { entries } = parseTar(makeTar([{ path: TWO_SPLIT_PATH, data: 'x' }]));
+  assert.equal(entries[0].path, TWO_SPLIT_PATH, 'canonical 切分必须能通过');
+
+  expectViolation('E_PATH_USTAR_SPLIT',
+    () => parseTar(makeTar([{ path: TWO_SPLIT_PATH, data: 'x', over: alt }])));
+});
+
+test('name 与 prefix 双双填满字段（155 + 100，无 NUL 终止）仍能正确还原路径', () => {
+  const p = 'p'.repeat(155) + '/' + 'n'.repeat(97) + '.md';
+  assert.equal(Buffer.byteLength(p), 256);
+  const { entries } = parseTar(makeTar([{ path: p, data: 'x' }]));
+  assert.equal(entries[0].path, p);
+});
+
+test('归档中段的假 EOF 之后夹带真条目被拒（E_TRAILING）', () => {
+  const dataBlk = Buffer.concat([Buffer.from('x'), Buffer.alloc(511)]);
+  const sneaky = Buffer.concat([
+    tarHeader({ path: 'a.md', size: 1 }), dataBlk,
+    Buffer.alloc(512), Buffer.alloc(512), // 假 EOF：解析器在这里停下
+    tarHeader({ path: 'z.md', size: 1 }), dataBlk, // 宽松的 reader 会继续读到它
+    Buffer.alloc(512), Buffer.alloc(512),
+  ]);
+  expectViolation('E_TRAILING', () => parseTar(sneaky));
+});
+
+// ── 🔴 Codex 第三轮：分母在 deflate **流内部**被垫大 ───────────────────────
+// 上一轮堵的是「流之后追加垃圾」。这一轮的构造在同一条合法 deflate 流里做手脚，
+// bytesWritten 照样等于 body.length，E_GZIP_TRAILER 完全看不见。
+
+/** 造 n 个零输出的 stored block：BFINAL=0、BTYPE=00、LEN=0、NLEN=0xffff */
+function emptyStoredBlocks(n) {
+  const pad = Buffer.alloc(n * 5);
+  for (let i = 0; i < n; i++) { pad[i * 5 + 3] = 0xff; pad[i * 5 + 4] = 0xff; }
+  return pad;
+}
+
+test('🔴 回归：deflate 内部塞零输出空块垫大分母，仍被 E_RATIO 挡住', () => {
+  const raw = makeTar([{ path: 'a.md', data: Buffer.alloc(2 * 1024 * 1024) }]);
+  const real = deflateRawSync(raw, { level: 9 });
+  const gz = makeGz(raw, { body: Buffer.concat([emptyStoredBlocks(1675), real]) });
+
+  // 前提：这份构造确实把观测到的压缩比压到了 200:1 以下 —— 否则测试没有证明力
+  assert.ok(raw.length / gz.length < 200,
+    `构造失效：观测压缩比仍是 ${(raw.length / gz.length).toFixed(1)}:1，没有真的绕过旧判定`);
+  assert.ok(raw.length / (real.length + 18) > 900, '前提：真实压缩比应远超 200:1');
+
+  const e = expectViolation('E_RATIO', () => gunzipCanonical(gz));
+  assert.match(e.message, /canonical 重压缩/, '必须说明分母是重压缩算出来的，不是文件自称的');
+});
+
+test('🔴 回归：空块填充也会把 body 顶出 canonical 长度上限（E_GZIP_NONCANONICAL）', () => {
+  // 用一份压缩比本来就不高的内容，把 E_RATIO 排除掉，单独考 body 长度这一关
+  const raw = makeTar([{ path: 'a.md', data: randomBytes(200 * 1024) }]);
+  const real = deflateRawSync(raw, { level: 9 });
+  const gz = makeGz(raw, { body: Buffer.concat([emptyStoredBlocks(20000), real]) });
+  expectViolation('E_GZIP_NONCANONICAL', () => gunzipCanonical(gz));
+});
+
+test('🔴 回归：XFL=2 撒谎（body 其实是 level 0）被拒（E_GZIP_NONCANONICAL）', () => {
+  const raw = makeTar([{ path: 'a.md', data: 'hello' }]);
+  const body = deflateRawSync(raw, { level: 0 });
+  const l9 = deflateRawSync(raw, { level: 9 });
+  assert.ok(body.length > l9.length * 5, '前提：level 0 与 level 9 的体积差必须足够大');
+  const e = expectViolation('E_GZIP_NONCANONICAL', () => gunzipCanonical(makeGz(raw, { body, xfl: 2 })));
+  assert.match(e.message, /level 9/);
+});
+
+
+test('正常制品不会被 canonical 长度上限误伤（level 9 原样打包）', () => {
+  const raw = makeTar([{ path: 'a.md', data: randomBytes(64 * 1024) }]);
+  const out = gunzipCanonical(makeGz(raw));
+  assert.equal(out.length, raw.length);
+});
+
+// ── 同名既是文件又是目录 ───────────────────────────────────────────────────
+
+test('同一个名字既当文件又当目录被拒（E_PATH_FILE_DIR_COLLIDE），且在落盘之前', () => {
+  const e = expectViolation('E_PATH_FILE_DIR_COLLIDE',
+    () => untarGz(makeTarGz([{ path: 'a', data: 'file' }, { path: 'a/b.md', data: 'x' }])));
+  assert.match(e.message, /目录/);
+});
+
+test('大小写折叠后的文件/目录冲突也被拒（macOS 上会互相覆盖）', () => {
+  expectViolation('E_PATH_FILE_DIR_COLLIDE',
+    () => untarGz(makeTarGz([{ path: 'A', data: 'file' }, { path: 'a/b.md', data: 'x' }])));
+});
+
+test('多层祖先都要查：a/b 是文件时 a/b/c.md 被拒', () => {
+  expectViolation('E_PATH_FILE_DIR_COLLIDE',
+    () => untarGz(makeTarGz([{ path: 'a/b', data: 'file' }, { path: 'a/b/c.md', data: 'x' }])));
+});
+
+test('前缀相同但不在 segment 边界上的不算冲突（ab.md 与 a/b.md 可以共存）', () => {
+  const { entries } = untarGz(makeTarGz([{ path: 'ab.md', data: 'x' }, { path: 'a/b.md', data: 'y' }]));
+  assert.equal(entries.length, 2, 'a 不是 ab.md 的祖先，不该误伤');
+});
+
+test('正常的同目录多文件不被误伤', () => {
+  const { entries } = untarGz(makeTarGz([
+    { path: 'a/b.md', data: 'x' }, { path: 'a/c.md', data: 'y' }, { path: 'a/d/e.md', data: 'z' },
+  ]));
+  assert.equal(entries.length, 3);
+});
+
+// ── 上限的**下侧**边界：恰好等于上限必须通过 ───────────────────────────────
+// 🔴 只测「超了被拒」是不够的：把某个 > 改成 >= 也照样绿，而那会拒掉合法制品。
+
+test('恰好 2 MiB 的单文件可以通过（MAX_FILE_BYTES 边界）', () => {
+  // 🔴 内容必须不可压缩：2 MiB 全零的真实压缩比约 990:1，会**合法地**触发 E_RATIO，
+  //    那样这条测试考的就不是 MAX_FILE_BYTES 了。
+  const { entries } = untarGz(makeTarGz([{ path: 'a.md', data: randomBytes(2 * 1024 * 1024) }]));
+  assert.equal(entries[0].data.length, 2 * 1024 * 1024);
+});
+
+test('恰好 16 MiB 总计（8 × 2 MiB）可以通过（MAX_TOTAL_BYTES 边界）', () => {
+  const files = Array.from({ length: 8 }, (_, i) => ({
+    path: `f${i}.md`, data: randomBytes(2 * 1024 * 1024), // 同上：必须不可压缩
+  }));
+  const { totals } = untarGz(makeTarGz(files));
+  assert.equal(totals.bytes, 16 * 1024 * 1024);
+  assert.equal(totals.files, 8);
+});
+
+test('恰好 12 层深度可以通过（MAX_DEPTH 边界）', () => {
+  const path = Array.from({ length: 11 }, (_, i) => `d${i}`).join('/') + '/leaf.md';
+  assert.equal(path.split('/').length, 12);
+  const { entries } = untarGz(makeTarGz([{ path, data: 'x' }]));
+  assert.equal(entries[0].path, path);
+});
+
+test('13 层深度被拒（E_DEPTH）—— 与上一条一起把边界钉死', () => {
+  const path = Array.from({ length: 12 }, (_, i) => `d${i}`).join('/') + '/leaf.md';
+  assert.equal(path.split('/').length, 13);
+  expectViolation('E_DEPTH', () => untarGz(makeTarGz([{ path, data: 'x' }])));
+});
+
+test('空 deflate 输出（0 字节 tar）一路走到 parseTar 才报 E_TRUNCATED', () => {
+  // 断言的是「gzip 层全过、由 tar 层拒绝」：重压缩、比例、CRC/ISIZE 都不该在空输出上先炸
+  expectViolation('E_TRUNCATED', () => untarGz(makeGz(Buffer.alloc(0))));
+});
+
+// ── 补齐没有测试的违规码 ───────────────────────────────────────────────────
+
+test('deflate 流本身损坏被拒（E_GZIP_DEFLATE）', () => {
+  const raw = makeTar(OK_FILES);
+  const gz = Buffer.from(makeGz(raw));
+  // 打乱 deflate body 的中段（避开 10 字节头与 8 字节尾）
+  for (let i = 12; i < gz.length - 10; i++) gz[i] ^= 0xa5;
+  const e = expectViolation('E_GZIP_DEFLATE', () => gunzipCanonical(gz));
+  assert.match(e.message, /deflate 流损坏/);
+});
+
+test('assertArtifactPath 直接拿到含 NUL 的路径时报 E_PATH_NUL', () => {
+  // 🔴 走 parseTar 到不了这里：cstrField 在 NUL 处截断，路径里不可能残留 NUL。
+  //    但 assertArtifactPath 是导出的，artifact.mjs 也直接调它做纵深防御 ——
+  //    这条判定是给「调用方给了别的来源的字符串」准备的，得证明它真的在。
+  expectViolation('E_PATH_NUL', () => assertArtifactPath('a' + String.fromCharCode(0) + 'b/c.md'));
+});
+
+// ── 目录名之间的大小写冲突 ─────────────────────────────────────────────────
+// 🔴 两条路径各自都不折叠重名，但目录在大小写不敏感的文件系统上是同一个。
+//    不判的话：同一份 asset 在 Linux 上装得上、在 macOS 上装不上。
+
+test('A/x.md 与 a/y.md 目录大小写冲突被拒（E_CASE_COLLIDE）', () => {
+  // 前提：两条完整路径折叠后并不相同，所以旧的整条路径折叠判定抓不到它
+  assert.notEqual('A/x.md'.toLowerCase(), 'a/y.md'.toLowerCase());
+  const e = expectViolation('E_CASE_COLLIDE',
+    () => untarGz(makeTarGz([{ path: 'A/x.md', data: '1' }, { path: 'a/y.md', data: '2' }])));
+  assert.match(e.message, /目录/);
+});
+
+test('更深一层的目录大小写冲突也被拒（p/A/… 与 p/a/…）', () => {
+  expectViolation('E_CASE_COLLIDE',
+    () => untarGz(makeTarGz([{ path: 'p/A/x.md', data: '1' }, { path: 'p/a/y.md', data: '2' }])));
+});
+
+test('同一目录反复出现（拼写一致）不被误伤', () => {
+  const { entries } = untarGz(makeTarGz([
+    { path: 'A/x.md', data: '1' }, { path: 'A/y.md', data: '2' }, { path: 'A/z/w.md', data: '3' },
+  ]));
+  assert.equal(entries.length, 3);
+});
+
+test('拼写不同但折叠后也不同的目录可以共存（Ab 与 aB 才算冲突，Ab 与 Ac 不算）', () => {
+  const { entries } = untarGz(makeTarGz([{ path: 'Ab/x.md', data: '1' }, { path: 'Ac/y.md', data: '2' }]));
+  assert.equal(entries.length, 2);
+});
+
+// ── 🔴 Codex 第四轮：输入侧没有上限 ───────────────────────────────────────
+
+test('超大 gzip 输入在任何解压之前就被拒（E_GZIP_SIZE）', () => {
+  // 几百万个零输出 stored block：解压出来几乎什么都没有，却要我们完整 inflate + 重压缩。
+  // maxOutputLength 只管输出侧，管不到这个。
+  const n = 4_200_000; // 约 21 MB body，越过 ~19 MB 的输入上限
+  const body = Buffer.alloc((n + 1) * 5);
+  for (let i = 0; i <= n; i++) {
+    const o = i * 5;
+    body[o] = i === n ? 1 : 0; // 最后一块 BFINAL=1
+    body[o + 3] = 0xff; body[o + 4] = 0xff;
+  }
+  const gz = Buffer.concat([
+    Buffer.from([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 2, 255]), body, Buffer.alloc(8),
+  ]);
+  assert.ok(gz.length > 20 * 1024 * 1024, '前提：构造必须真的超过输入上限');
+  const e = expectViolation('E_GZIP_SIZE', () => gunzipCanonical(gz));
+  assert.match(e.message, /超过/);
+});
+
+test('正常大小的 gzip 不被输入上限误伤（16 MiB 不可压缩内容打包后仍可解）', () => {
+  const files = Array.from({ length: 8 }, (_, i) => ({
+    path: `f${i}.md`, data: randomBytes(2 * 1024 * 1024),
+  }));
+  const { totals } = untarGz(makeTarGz(files));
+  assert.equal(totals.bytes, 16 * 1024 * 1024);
+});
+
+test('🔴 已知残留：不可压缩内容上 CANON_SLACK 挡不住伪造的 XFL（记录现状，不是期望）', () => {
+  // Codex 第四轮的反例。留这条测试是为了**锁住已知边界**：
+  // 哪天有人把 CANON_SLACK 说成「level 9 的证明」，这条会提醒他不是。
+  const data = Buffer.alloc(200 * 1024);
+  let x = 0x12345678;
+  for (let i = 0; i < data.length; i++) {
+    x ^= x << 13; x ^= x >>> 17; x ^= x << 5; data[i] = x & 0xff;
+  }
+  const raw = makeTar([{ path: 'a.bin', data }]);
+  const l0 = deflateRawSync(raw, { level: 0, windowBits: 15, memLevel: 8, strategy: 0 });
+  const l9 = deflateRawSync(raw, { level: 9, windowBits: 15, memLevel: 8, strategy: 0 });
+  assert.ok(l0.length < Math.floor(l9.length * 1.1) + 64,
+    '前提：不可压缩内容上 level 0 与 level 9 的差必须落在 slack 之内，否则这条记录就过期了');
+
+  // 现状：被接受。压缩比的安全性不依赖这一关（由 canonical 分母保证），
+  // 这里只是 gzip 字节层面的非规范性。
+  const { entries } = untarGz(makeGz(raw, { body: l0, xfl: 2 }));
+  assert.equal(entries.length, 1);
 });

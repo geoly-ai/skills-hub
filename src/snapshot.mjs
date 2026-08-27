@@ -56,11 +56,25 @@ export function assertVerified(v, where) {
  * 默认 verifier：**永远抛错**（fail-closed）。
  * 不提供 `--no-verify` / `--insecure`（02-registry.md §6 末段），
  * 所以这里也不提供「跳过」的默认行为 —— 没接真验签就跑不起来，而不是静默放行。
+ *
+ * 真验签器在 `src/sigstore.mjs`，接线方式：
+ *
+ *   import { createSigstoreVerifier } from './sigstore.mjs';
+ *   const verifier = createSigstoreVerifier({ trustedRoot });  // §8.1 的内置 TUF 根
+ *   resolveCurrent({ …, verifier });
+ *
+ * 🔴 **这里故意不 import 它，也不做「找得到根就自动用」的兜底。** 两个理由：
+ *   1. 验签器必须带一个信任根才有意义，而根从哪来是调用方的责任
+ *      （§8.1：随 CLI 内置；§8.2：绝不能是网络或缓存里读来的）。让本模块自己
+ *      去找根，等于把「用哪个根」这个安全决策藏进默认值里。
+ *   2. 一个可写的全局默认 verifier 就是一个 `--no-verify`：谁都能改掉它。
+ *      保持「必须显式注入」，注入点才始终留在代码审查看得见的地方。
  */
 export function defaultVerifier() {
   throw new IntegrityError(
     'E_VERIFIER_MISSING',
-    'Sigstore 验签器未接入：本构建无法验证签名，拒绝继续（不存在 --no-verify）',
+    'Sigstore 验签器未接入：本构建无法验证签名，拒绝继续（不存在 --no-verify）。' +
+    '接线方式见 src/sigstore.mjs 的 createSigstoreVerifier()',
   );
 }
 

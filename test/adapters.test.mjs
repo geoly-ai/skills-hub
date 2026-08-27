@@ -23,6 +23,8 @@ import {
   GATE_PASSED,
   GATE_PENDING,
   GATE_UNSUPPORTED,
+  BLOCKED_ON_SCOPE_DECISION,
+  BLOCKED_ON_NO_RUNTIME,
 } from '../src/adapters/index.mjs';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'adp-'));
@@ -124,13 +126,25 @@ test('Q12 门矩阵：八个组合齐全，每条都有 evidence', () => {
   }
 });
 
-test('🔴 agents 两个 scope 都是 unsupported，理由是 no-reader（不是「.geoly 被误认」）', () => {
+test('🔴 agents 的 no-reader 结论已被实测推翻 —— 不能再标 unsupported', () => {
+  // 早先的判据是「固定串 grep 命中 0 ⇒ 没有读者」。那是**假阴性**：路径是运行时
+  // join 拼出来的，二进制里没有这个连续子串。实测 codex-cli 0.147.0 确实读
+  // `$HOME/.agents/skills` 与 `<cwd>/.agents/skills`（正对照 5 → 6）。
+  //
+  // 🔴 这条测试盯的是**不许倒退**：谁要是再把它改回 unsupported/no-reader，
+  //    就得先解释怎么绕过那次正对照 —— 而不是把一次搜不到当成不存在。
   for (const scope of SCOPES) {
     const g = getAdapter('agents').gate(scope);
-    assert.equal(g.status, GATE_UNSUPPORTED);
-    assert.equal(g.reason, 'no-reader');
-    if (scope === 'global') assert.match(g.evidence, /grep -F/);
-    assert.match(g.evidence, /无读者|命中数为 0/);
+    assert.notEqual(g.status, GATE_UNSUPPORTED, `agents/${scope} 的 no-reader 是假阴性，不能再标不支持`);
+    assert.equal(g.status, GATE_PENDING);
+    // 证据完整（跑过客户端、有读者版本号），卡的是范围决策
+    assert.equal(g.blockedOn, BLOCKED_ON_SCOPE_DECISION);
+    assert.match(g.clientVersion ?? '', /^codex-cli \d+\.\d+\.\d+$/);
+    // 🔴 evidence 必须写明读者是谁 —— .agents 没有自己的客户端，
+    //    版本号记的是 codex 的版本，不写清楚下一个人会以为存在 agents 客户端
+    assert.match(g.evidence, /读者是 codex-cli|读者同为 codex-cli/);
+    assert.match(g.evidence, /推翻|假阴性|证明不了没有读者|范围决策同 global/);
+    // 还没拍板，所以仍然装不了
     assert.equal(getAdapter('agents').supports(scope), false);
   }
 });
@@ -147,11 +161,11 @@ test('🔴 supports() 只认 passed —— 没有任何参数能放行 pending/u
 });
 
 test('🔴 门记录深冻结 —— 调用方改不了 status 来放行', () => {
-  const g = getAdapter('claude').gate('global');
+  const g = getAdapter('cursor').gate('global');
   assert.throws(() => { g.status = GATE_PASSED; }, TypeError);
-  assert.equal(getAdapter('claude').gate('global').status, GATE_PENDING);
-  assert.equal(getAdapter('claude').supports('global'), false);
-  assert.throws(() => resolveTarget({ client: 'claude', scope: 'global', home: '/h' }), /阻塞门未闭合/);
+  assert.equal(getAdapter('cursor').gate('global').status, GATE_PENDING);
+  assert.equal(getAdapter('cursor').supports('global'), false);
+  assert.throws(() => resolveTarget({ client: 'cursor', scope: 'global', home: '/h' }), /阻塞门未闭合/);
 });
 
 test('🔴 Q12 要求门绑定客户端版本：passed 必须带 clientVersion', () => {
@@ -162,56 +176,90 @@ test('🔴 Q12 要求门绑定客户端版本：passed 必须带 clientVersion',
   }
 });
 
-test('🔴 codex/global 证据完整，卡的是范围决策而不是证据', () => {
-  // ⚠️ 这两种 pending 不能混：`scope-decision-pending` 拍个板就能开，
-  // `client-version-unrecorded` 要重新做实验。早先这一格标成后者，
-  // 而文档里已经记了版本号 —— 两者矛盾（Codex 2026-08-26 验收时指出）。
-  const g = getAdapter('codex').gate('global');
-  assert.equal(g.status, GATE_PENDING);
-  assert.equal(g.blockedOn, 'scope-decision-pending');
-  assert.match(g.clientVersion ?? '', /^codex-cli \d+\.\d+\.\d+$/, '证据完整就必须带版本号');
-  // evidence 必须说清测量为什么有效，否则下一轮会被当成没测过
-  assert.match(g.evidence, /catalog_entries 仍为 6|未被识别为 skill/);
-  assert.match(g.evidence, /正对照 5→6/);
-});
-
-test('🔴 缺证据的格子不能冒充「只是没拍板」', () => {
-  // claude / cursor / 各项目级是真的没测过，它们的 blockedOn 不能是 scope-decision
-  for (const [client, scope] of [
-    ['claude', 'global'], ['claude', 'project'],
-    ['cursor', 'global'], ['cursor', 'project'],
-    ['codex', 'project'],
+test('🔴 实测通过的四格：必须带版本号，且 evidence 要能自证测量是敏感的', () => {
+  // 🔴 Q12 的历史教训是「读数不动 ≠ 没影响」。所以一条 passed 的 evidence 里
+  //    **必须能读到正对照动过**；只写「放进去没事」的证据是不可复核的。
+  for (const [client, scope, ver] of [
+    ['claude', 'global', /^claude-code \d+\.\d+\.\d+$/],
+    ['claude', 'project', /^claude-code \d+\.\d+\.\d+$/],
+    ['codex', 'global', /^codex-cli \d+\.\d+\.\d+$/],
+    ['codex', 'project', /^codex-cli \d+\.\d+\.\d+$/],
   ]) {
     const g = getAdapter(client).gate(scope);
-    assert.equal(g.status, GATE_PENDING, `${client}/${scope}`);
-    assert.notEqual(g.blockedOn, 'scope-decision-pending', `${client}/${scope} 是真缺证据，不是缺决策`);
-    assert.equal(g.clientVersion, null, `${client}/${scope} 没测过就不该有版本号`);
+    assert.equal(g.status, GATE_PASSED, `${client}/${scope}`);
+    assert.match(g.clientVersion ?? '', ver, `${client}/${scope} passed 必须绑定版本`);
+    assert.equal(g.blockedOn, undefined, `${client}/${scope} 过了的门不该还有 blocker`);
+    // 正对照的读数变化必须写在证据里（形如 5 → 6 / 15 → 16）
+    assert.match(g.evidence, /正对照/, `${client}/${scope} evidence 里没有正对照`);
+    assert.match(g.evidence, /\d+\s*→\s*\d+/, `${client}/${scope} evidence 里没有前后读数`);
+    assert.match(g.evidence, /canary/, `${client}/${scope} evidence 里没有 canary 判据`);
+    assert.equal(getAdapter(client).supports(scope), true);
   }
 });
 
+test('🔴 codex 与 claude 靠的不是同一道保护 —— 证据里要写清是哪一道', () => {
+  // codex：扫描**递归**，挡住 .geoly 的是点目录过滤。
+  // claude：**不过滤点目录**，挡住 .geoly 的是扫描不递归。
+  // 两端各只有一道保护，且不是同一道 —— 任一端改扫描策略都要复测，
+  // 所以这个事实必须留在证据里，不能只留一个「通过」。
+  assert.match(getAdapter('codex').gate('global').evidence, /同深度正对照/);
+  assert.match(getAdapter('claude').gate('global').evidence, /深度 1 正对照/);
+});
+
+test('🔴 缺证据的格子不能冒充「只是没拍板」', () => {
+  // cursor 两格是真的没有任何运行时读数（本机跑不起客户端），
+  // 它们的 blockedOn 不能是 scope-decision —— 那会让人以为拍个板就能开。
+  for (const [client, scope] of [['cursor', 'global'], ['cursor', 'project']]) {
+    const g = getAdapter(client).gate(scope);
+    assert.equal(g.status, GATE_PENDING, `${client}/${scope}`);
+    assert.equal(g.blockedOn, BLOCKED_ON_NO_RUNTIME, `${client}/${scope}`);
+    assert.notEqual(g.blockedOn, BLOCKED_ON_SCOPE_DECISION, `${client}/${scope} 是真缺证据，不是缺决策`);
+    assert.equal(g.clientVersion, null, `${client}/${scope} 没跑过客户端就不该有版本号`);
+  }
+});
+
+test('🔴 cursor 不是中性的「还没测」—— 静态分析预判失败，证据里必须留着这句', () => {
+  // ⚠️ 这一格最危险的失误不是漏测，而是**被当成大概率能过**然后顺手翻绿。
+  //    实际读到的机制是两道保护都没有：递归扫描 + 不过滤点目录。
+  for (const scope of SCOPES) {
+    const g = getAdapter('cursor').gate(scope);
+    assert.match(g.evidence, /本机无法测量|本机跑不起/, `cursor/${scope} 要写清为什么测不了`);
+    assert.match(g.evidence, /预判失败/, `cursor/${scope} 必须写明静态分析指向失败`);
+    assert.match(g.evidence, /递归/, `cursor/${scope} 要写清预判失败的机制`);
+  }
+  // 要闭合它得写清缺什么，否则「本机测不了」会变成永久借口
+  assert.match(getAdapter('cursor').gate('global').evidence, /登录 cursor-agent|装 Cursor IDE/);
+});
+
 test('🔴 unsupported 与 pending 的报错必须分得出来', () => {
+  // ⚠️ 真门表里**已经没有 unsupported 的格子**（agents 的 no-reader 被推翻）。
+  //    所以 unsupported 这一支只能用 classifyGate 非空地验，
+  //    拿真表验等于测空集 —— 那正是这套测试一直在防的事。
+  const uns = classifyGate({ status: GATE_UNSUPPORTED, reason: 'no-reader', evidence: 'e' });
+  assert.equal(uns.decision, 'deny-unsupported');
+  assert.match(uns.detail, /标为不支持.*no-reader/s);
+  assert.match(uns.detail, /没有开关能放行/);
+
+  // pending 走真门表：cursor 两格确实还没闭合
   assert.throws(
-    () => resolveTarget({ client: 'agents', scope: 'global', home: '/h' }),
-    /标为不支持.*no-reader/s,
-  );
-  assert.throws(
-    () => resolveTarget({ client: 'agents', scope: 'global', home: '/h', allowPending: true }),
-    /没有开关能放行/,
-  );
-  assert.throws(
-    () => resolveTarget({ client: 'claude', scope: 'global', home: '/h' }),
+    () => resolveTarget({ client: 'cursor', scope: 'global', home: '/h' }),
     /阻塞门未闭合/,
   );
   // 🔴 传 allowPending 也没用 —— 那会把阻塞门降级成建议
   assert.throws(
-    () => resolveTarget({ client: 'claude', scope: 'global', home: '/h', allowPending: true }),
+    () => resolveTarget({ client: 'cursor', scope: 'global', home: '/h', allowPending: true }),
     /没有 --allow-pending 这种开关/,
+  );
+  // blockedOn 要出现在报错里，用户才分得清是去跑门还是去拍板
+  assert.throws(
+    () => resolveTarget({ client: 'agents', scope: 'global', home: '/h' }),
+    /scope-decision-pending/,
   );
 });
 
-// 🔴 合成门表：真门表现在一个组合都没闭合，拿它测 supports()/enabledCombos()
-// 等于在空集上断言 —— 实现恒返回 false / [] 也会全绿。用一套自造的 def 来证明
-// 这三个函数**确实是从门状态推出来的**。
+// 🔴 合成门表：真门表里 unsupported 这一档现在**一个格子都没有**（agents 的
+// no-reader 结论已被实测推翻），拿真表去测 `deny-unsupported` 分支等于测空集。
+// 合成表同时还证明这三个函数**确实是从门状态推出来的**，而不是碰巧返回了对的东西。
 const SYNTH = buildAdapters([
   {
     client: 'alpha',
@@ -220,7 +268,12 @@ const SYNTH = buildAdapters([
     postInstallHint: 'x',
     gates: {
       global: { status: GATE_PASSED, clientVersion: '1.2.3', evidence: 'synthetic evidence for test' },
-      project: { status: GATE_PENDING, evidence: 'synthetic evidence for test' },
+      project: {
+        status: GATE_PENDING,
+        blockedOn: BLOCKED_ON_NO_RUNTIME,
+        clientVersion: null, // 🔴 缺证据的格子必须显式写 null，缺席都不行
+        evidence: 'synthetic evidence for test',
+      },
     },
   },
   {
@@ -268,17 +321,100 @@ test('🔴 合成门表授权不了安装 —— 它的门记录不在 REAL_GATE
   assert.throws(() => resolveTarget({ client: 'alpha', scope: 'global', home: '/h' }), /未知 client/);
 });
 
-test('🔴 目前没有任何组合闭合了 Q12 —— enabledCombos 为空，且没有开关能扩大它', () => {
-  // gates 只记录了 codex 全局那一次读数，且没记客户端版本；
-  // 版本没记 = 门没绑定版本 = Q12 没闭合。这是**当前证据的如实反映**，
-  // 不是实现缺陷：补上版本号，codex/global 立刻进这个集合。
-  assert.deepEqual(enabledCombos(), []);
-  // 上面的合成门表证明了「非空时它会非空」，所以这里的空不是恒空
+test('🔴 enabledCombos 恰好是实测通过的那四格 —— 不多不少', () => {
+  // 2026-08-26 逐格实测：claude 与 codex 的两个 scope 都过了。
+  // cursor 两格没有运行时证据、agents 两格等范围决策，一个都不许混进来。
+  assert.deepEqual(
+    enabledCombos().map((r) => `${r.client}/${r.scope}`).sort(),
+    ['claude/global', 'claude/project', 'codex/global', 'codex/project'],
+  );
+  // 🔴 每一格都得带版本号：没有版本就没法在客户端升级后复测
+  for (const r of enabledCombos()) assert.ok(r.clientVersion, `${r.client}/${r.scope}`);
+  // 没测过 / 没拍板的一格都不许进
+  for (const c of ['cursor', 'agents']) {
+    assert.ok(
+      !enabledCombos().some((r) => r.client === c),
+      `${c} 还没闭合，不该出现在 enabledCombos 里`,
+    );
+  }
+  // 合成门表证明这个集合是从门状态推出来的，不是写死的
   assert.equal(enabledCombos(SYNTH.list).length, 2);
 });
 
+test('🔴 blockedOn 的两类与 clientVersion 死死绑住 —— 缺证据的格子伪装不了缺决策', () => {
+  // 这是模块加载期不变量，用合成 def 非空地验两个方向
+  const mk = (gates) => () => buildAdapters([
+    { client: 'z', dirName: '.z', envHome: null, postInstallHint: null, gates },
+  ]);
+  const ok = { status: GATE_PASSED, clientVersion: '1.0.0', evidence: 'synthetic evidence for test' };
+  // 缺决策却没有版本号 = 其实没跑过门
+  assert.throws(mk({
+    global: ok,
+    project: { status: GATE_PENDING, blockedOn: BLOCKED_ON_SCOPE_DECISION, evidence: 'synthetic evidence for test' },
+  }), /必须带 clientVersion/);
+  // 缺证据却带版本号 = 冒充测过
+  assert.throws(mk({
+    global: ok,
+    project: { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, clientVersion: '9.9.9', evidence: 'synthetic evidence for test' },
+  }), /冒充测过/);
+  // 🔴 缺证据的格子**必须显式写 null** —— 把那一行删掉（字段缺席）也不行。
+  //    只查真假的话，删一行就能悄悄绕过去，而删一行正是 review 最容易滑过的改动。
+  assert.throws(mk({
+    global: ok,
+    project: { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, evidence: 'synthetic evidence for test' },
+  }), /必须显式写成 null/);
+  // 真门表里 cursor 两格就得满足这条
+  for (const scope of SCOPES) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(getAdapter('cursor').gate(scope), 'clientVersion'),
+      `cursor/${scope} 必须显式带 clientVersion 字段`,
+    );
+    assert.strictEqual(getAdapter('cursor').gate(scope).clientVersion, null);
+  }
+  // 自由文本的 blocker 不认
+  assert.throws(mk({
+    global: ok,
+    project: { status: GATE_PENDING, blockedOn: 'almost-there', evidence: 'synthetic evidence for test' },
+  }), /没有已知的 blockedOn/);
+  // passed 不得带 blocker
+  assert.throws(mk({
+    global: { ...ok, blockedOn: BLOCKED_ON_SCOPE_DECISION },
+    project: ok,
+  }), /既是 passed 又带 blockedOn/);
+  // unsupported 必须给 reason
+  assert.throws(mk({
+    global: ok,
+    project: { status: GATE_UNSUPPORTED, evidence: 'synthetic evidence for test' },
+  }), /没有 reason/);
+});
+
+test('🔴 门字段查的是类型不只是真假 —— `clientVersion: true` 骗不过「证据完整」那一档', () => {
+  // ⚠️ Codex 复核时用这几个值挨个探过：所有判据都写成 `!g.clientVersion` 的话，
+  //    一个 `true` 就能冒充版本号进 scope-decision 档，一个 `''` 又会被静默当成「没填」。
+  //    约定是：这几个字段要么缺席，要么是非空字符串。
+  const mk = (gates) => () => buildAdapters([
+    { client: 'z', dirName: '.z', envHome: null, postInstallHint: null, gates },
+  ]);
+  const ok = { status: GATE_PASSED, clientVersion: '1.0.0', evidence: 'synthetic evidence for test' };
+  const bad = [
+    ['clientVersion 是 true', { status: GATE_PENDING, blockedOn: BLOCKED_ON_SCOPE_DECISION, clientVersion: true, evidence: 'synthetic evidence for test' }],
+    ['clientVersion 是空串', { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, clientVersion: '', evidence: 'synthetic evidence for test' }],
+    ['reason 是 true', { status: GATE_UNSUPPORTED, reason: true, evidence: 'synthetic evidence for test' }],
+    ['reason 是空串', { status: GATE_UNSUPPORTED, reason: '   ', evidence: 'synthetic evidence for test' }],
+    ['blockedOn 是空串', { status: GATE_PASSED, clientVersion: '1', blockedOn: '', evidence: 'synthetic evidence for test' }],
+  ];
+  for (const [why, g] of bad) {
+    assert.throws(mk({ global: ok, project: g }), /必须是非空字符串或缺席/, why);
+  }
+  // 缺席（null / undefined）仍然合法 —— 那是「这一格没有这个字段」的正常表达
+  assert.doesNotThrow(mk({
+    global: ok,
+    project: { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, clientVersion: null, evidence: 'synthetic evidence for test' },
+  }));
+});
+
 test('resolveTarget 对已过门的组合返回完整描述（无组合过门时走 layout 验路径）', () => {
-  // 目前一个组合都没闭合，所以这里验的是路径/base 的派生本身
+  // 这里验的是路径/base 的派生本身（它们不判门，门本身的 fixture 就得靠它们）
   const codex = getAdapter('codex');
   const o = { scope: 'global', home: '/home/u', env: {} };
   const t = { ...codex.layout(o), base: codex.trustedBase(o) };
@@ -320,10 +456,13 @@ test('git clean -xfd 的提示必须点明审计历史也会被删', () => {
   assert.match(GIT_CLEAN_WARNING, /audit-archive/);
 });
 
-test('postInstallHint：unsupported 端没有提示', () => {
-  assert.equal(getAdapter('agents').postInstallHint(), null);
-  for (const c of ['claude', 'cursor', 'codex']) {
-    assert.ok(getAdapter(c).postInstallHint().length > 0);
+test('postInstallHint：每个可能被装的端都要有提示', () => {
+  // agents 原先是 unsupported 所以没提示；现在它有读者了（codex），
+  // 一旦范围拍板就会被装，提示必须存在 —— 而且要写明读者是 codex，
+  // 否则用户会去重启一个根本不存在的 agents 客户端。
+  assert.match(getAdapter('agents').postInstallHint() ?? '', /codex/);
+  for (const c of CLIENTS) {
+    assert.ok((getAdapter(c).postInstallHint() ?? '').length > 0, `${c} 缺 postInstallHint`);
   }
 });
 
@@ -335,21 +474,37 @@ test('adapter 表冻结，调用方改不了（门不能被就地篡改）', () 
 // ── §2.3 默认目标 vs 显式 --clients ──────────────────────────────────────────
 
 /** 假装某个组合已闭合门，用来测「门过了之后」的分支（真门表现在一个都没闭合）。 */
+// 🔴 **八格全部写死**。早先这里只覆盖 codex 两格，其余落回真门表 ——
+// 于是真门表一闭合（2026-08-26 claude 两格转 passed），这些本该稳定的
+// 「门没过会怎样」用例就跟着变了行为。注入的场景要自足，不能一半靠真表。
 const PASSED_CODEX = {
   'codex/global': { status: GATE_PASSED, clientVersion: '0.0.0-test', evidence: 'test' },
   'codex/project': { status: GATE_PASSED, clientVersion: '0.0.0-test', evidence: 'test' },
+  'claude/global': { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, evidence: 'test' },
+  'claude/project': { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, evidence: 'test' },
+  'cursor/global': { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, evidence: 'test' },
+  'cursor/project': { status: GATE_PENDING, blockedOn: BLOCKED_ON_NO_RUNTIME, evidence: 'test' },
+  'agents/global': { status: GATE_UNSUPPORTED, reason: 'no-reader', evidence: 'test' },
+  'agents/project': { status: GATE_UNSUPPORTED, reason: 'no-reader', evidence: 'test' },
 };
 
-test('🔴 门一个都没闭合时，默认目标全部 skipped —— 不是失败，也没有 selected', () => {
+test('🔴 真门表下的默认目标：只选闭合了的那几格，没闭合的如实 skipped', () => {
+  // 2026-08-26 之后 claude/codex 两个 scope 都闭合了，所以这里**不再是空集**。
+  // 但「没闭合的照样进不来」这条不变 —— cursor 两格没有运行时证据、
+  // agents 两格等范围决策，即使它们的目录存在也只能是 skipped。
   const home = tmp();
-  mkdirSync(join(home, '.claude'));
-  mkdirSync(join(home, '.codex'));
+  for (const d of ['.claude', '.codex', '.cursor', '.agents']) {
+    mkdirSync(join(home, d, 'skills'), { recursive: true });
+  }
   const p = planTargets({ home, env: {}, scope: 'global' });
-  assert.equal(p.ok, true, '默认目标下「都跳过」不是失败');
-  assert.deepEqual(p.selected, []);
-  assert.ok(p.skipped.some((s) => s.client === 'claude' && s.reason === 'gate-pending'));
-  assert.ok(p.skipped.some((s) => s.client === 'codex' && s.reason === 'gate-pending'));
-  assert.ok(p.skipped.some((s) => s.client === 'agents' && s.reason === 'gate-unsupported'));
+  assert.equal(p.ok, true, '默认目标下「跳过一部分」不是失败');
+  assert.deepEqual(p.selected.map((t) => t.client).sort(), ['claude', 'codex']);
+  // 🔴 目录明明在，仍然只能被门挡在外面
+  assert.ok(p.skipped.some((s) => s.client === 'cursor' && s.reason === 'gate-pending'));
+  assert.ok(p.skipped.some((s) => s.client === 'agents' && s.reason === 'gate-pending'));
+  // skipped 的理由要能读出是缺证据还是缺决策
+  assert.match(p.skipped.find((s) => s.client === 'cursor').message, /本机无法测量|本机跑不起/);
+  assert.match(p.skipped.find((s) => s.client === 'agents').message, /范围决策|读者是 codex-cli|读者同为 codex-cli/);
 });
 
 test('§2.3 默认目标：门过了但目录不存在 → skipped: missing-dir', () => {
@@ -487,18 +642,47 @@ test('classifyGate：只有 passed 是 allow，未知 status 走默认拒绝', (
   assert.equal(classifyGate(undefined).decision, 'deny-gate-open');
 });
 
-test('🔴 classifyGate 不是授权函数 —— 伪造的门记录进不了 resolveTarget', () => {
-  // 它对一个字面量当然说 allow：那只是分类
+test('🔴 classifyGate 不是授权函数 —— 它对伪造的字面量照样说 allow', () => {
+  // 它对一个字面量当然说 allow：那只是分类，不是批准。
   assert.equal(classifyGate({ status: GATE_PASSED }).decision, 'allow');
-  // 但真正的放行还要求门记录来自本模块的门表，伪造的进不去
-  const forged = { status: GATE_PASSED, clientVersion: '9', evidence: 'forged' };
-  const fake = { ...getAdapter('claude'), gate: () => forged };
-  assert.throws(
-    () => resolveTarget({ client: 'claude', scope: 'global', home: '/h' }),
-    /阻塞门未闭合/,
-    'resolveTarget 只查自己门表里的那条记录',
+  assert.equal(
+    classifyGate({ status: GATE_PASSED, clientVersion: '9', evidence: 'forged' }).decision,
+    'allow',
   );
-  assert.equal(fake.gate('global'), forged); // 伪造对象存在，但 resolveTarget 不会去读它
+
+  // 🔴 而 resolveTarget 只认**自己门表里**的那条记录：它内部用 client 名重新 getAdapter，
+  //    入参里根本没有「adapter」或「gate」这个口子可以塞。
+  //    必须挑一个**还没闭合**的组合来验，否则「没被拦住」与「本来就允许」分不开。
+  assert.equal(getAdapter('cursor').gate('global').status, GATE_PENDING, '前提：这一格确实没闭合');
+  assert.throws(
+    () => resolveTarget({ client: 'cursor', scope: 'global', home: '/h' }),
+    /阻塞门未闭合/,
+  );
+  assert.throws(
+    () => resolveTarget({
+      client: 'cursor',
+      scope: 'global',
+      home: '/h',
+      adapter: { gate: () => ({ status: GATE_PASSED, clientVersion: '9', evidence: 'forged' }) },
+      gate: { status: GATE_PASSED, clientVersion: '9', evidence: 'forged' },
+    }),
+    /阻塞门未闭合/,
+    '伪造的 adapter/gate 入参必须被无视',
+  );
+});
+
+test('🔴 REAL_GATES 身份检查：不在门表里的门记录授权不了安装（非空断言）', () => {
+  // ⚠️ 上一版这条测试造了个 fake adapter 却从没注入过 —— resolveTarget 内部
+  //    重新 getAdapter 拿真表，于是**把 WeakSet 检查整个删掉它照样绿**，
+  //    是一条空断言（Codex 复核时指出）。
+  //    真正能非空覆盖身份保护的是 planTargets 这条路径：TEST_GATES 注入的门记录
+  //    不在 REAL_GATES 里，计划即使「过了门」也必须被 assertPlanOk 拒绝。
+  const home = tmp();
+  mkdirSync(join(home, '.codex', 'skills'), { recursive: true });
+  const p = planTargets({ home, env: {}, scope: 'global', [TEST_GATES]: PASSED_CODEX });
+  // 前提：注入的门确实放行了 codex，所以下面拒绝的是一个**非空**的计划
+  assert.ok(p.selected.some((t) => t.client === 'codex'), '前提：注入的门确实放行了 codex');
+  assert.throws(() => assertPlanOk(p), /不得用来放行安装/);
 });
 
 test('🔴 门不变量：passed 必须带 clientVersion（用合成门表非空地测）', () => {

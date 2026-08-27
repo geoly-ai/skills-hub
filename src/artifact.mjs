@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import {
   mkdtempSync, mkdirSync, openSync, writeSync, fsyncSync, closeSync, futimesSync,
-  utimesSync, chmodSync, fchmodSync, fstatSync, lstatSync, readFileSync, existsSync, statSync, constants,
+  utimesSync, chmodSync, fchmodSync, fstatSync, lstatSync, readFileSync, existsSync, statSync, rmSync, constants,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,7 +32,14 @@ export function assertAssetBytes(bytes, record) {
   if (typeof expected !== 'string') viol('E_NO_EXPECTED_DIGEST', 'record.asset.sha256 缺失，拒绝校验资产');
   const got = 'sha256:' + createHash('sha256').update(buf).digest('hex');
   if (got !== expected) viol('E_ASSET_SHA256', `资产 sha256 是 ${got}，快照说应为 ${expected}`);
-  if (typeof record.asset.size === 'number' && buf.length !== record.asset.size) {
+  // 🔴 `asset.size` **必填**，不是「有就查」。
+  //    snapshot parser 本来就要求它存在，所以这里写成可选只在**直接调本 API** 时有区别 ——
+  //    也就是说，它唯一的作用是给绕过尺寸一致性校验留一个口子。
+  //    同 E_NO_EXPECTED_DIGEST 的立场：API 上不存在「不给期望值就跳过」。
+  if (typeof record.asset.size !== 'number') {
+    viol('E_NO_EXPECTED_SIZE', 'record.asset.size 缺失，拒绝校验资产');
+  }
+  if (buf.length !== record.asset.size) {
     viol('E_ASSET_SIZE', `资产 ${buf.length} 字节，快照说应为 ${record.asset.size}`);
   }
   return got;
@@ -149,14 +156,25 @@ export function verifyAndExtract({ bytes, record, parent = tmpdir() }) {
   assertModeCapabilityBinding(entries, record);
 
   const dir = createIsolatedDir(parent);
-  writeEntries(dir, entries);
+  // 🔴 失败路径必须自己收尸。这之前只有成功路径会把 dir 交给调用方，
+  //    写盘失败或树摘要不符时目录就留在 /tmp 里没人管 —— 一个合法 gzip 配上错的
+  //    tree_digest 就能让每次调用都完整写一遍盘再抛错，反复调用会堆出一地
+  //    geoly-unpack-*。调用方拿不到 dir，也就不可能替我们删。
+  let ok = false;
+  try {
+    writeEntries(dir, entries);
 
-  // 解完重算树摘要（§7 第 4 步）
-  const got = treeDigest(dir);
-  if (got !== record.tree_digest) {
-    viol('E_TREE_DIGEST', `解包后重算 ${got}，快照说应为 ${record.tree_digest}`);
+    // 解完重算树摘要（§7 第 4 步）
+    const got = treeDigest(dir);
+    if (got !== record.tree_digest) {
+      viol('E_TREE_DIGEST', `解包后重算 ${got}，快照说应为 ${record.tree_digest}`);
+    }
+    ok = true;
+    return { dir, entries, totals, treeDigest: got };
+  } finally {
+    // 只删我们自己用 mkdtemp 建的那一个；成功时所有权移交调用方，不能删
+    if (!ok) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* 清理尽力而为 */ } }
   }
-  return { dir, entries, totals, treeDigest: got };
 }
 
 // ── manifest 绑定（01-artifacts.md §5.3） ──────────────────────────────────
@@ -302,11 +320,50 @@ export function assertManifestBinding(record, payloadDir) {
   return { manifest: doc, frontmatter };
 }
 
-/** 第 7 步的组合入口：验资产 → 解包 → 树摘要 → manifest 绑定 */
+/**
+ * 第 7 步的组合入口：验资产 → 解包 → 树摘要 → manifest 绑定。
+ *
+ * 🔴 成功时 `dir` 的所有权移交调用方，**调用方必须调 `dispose()`**。
+ * 返回值里带 `dispose` 而不是只在文档里写一句「记得删」——
+ * 实测「靠调用方记得」是不成立的：我们自己的测试就漏了一地，
+ * 一轮全量跑之后 `$TMPDIR` 里有 3807 个 `geoly-unpack-*`。
+ *
+ * 能用 `withVerifiedArtifact()` 就用它，那个结构上不可能忘。
+ */
 export function verifyArtifact({ bytes, record, parent = tmpdir() }) {
   const r = verifyAndExtract({ bytes, record, parent });
   const b = assertManifestBinding(record, r.dir);
-  return { ...r, ...b };
+  let disposed = false;
+  return {
+    ...r,
+    ...b,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      try { rmSync(r.dir, { recursive: true, force: true }); } catch { /* 尽力而为 */ }
+    },
+  };
+}
+
+/**
+ * 作用域版：`fn` 无论正常返回还是抛错，隔离目录都会被清掉。
+ *
+ * 🔴 **这是首选入口。** 把「记得清理」从一条纪律变成一个结构性质：
+ * 调用方拿不到不清理的写法。异步 `fn` 也支持。
+ */
+export function withVerifiedArtifact({ bytes, record, parent = tmpdir() }, fn) {
+  const art = verifyArtifact({ bytes, record, parent });
+  let promise = false;
+  try {
+    const out = fn(art);
+    if (out && typeof out.then === 'function') {
+      promise = true;
+      return out.finally(() => art.dispose());
+    }
+    return out;
+  } finally {
+    if (!promise) art.dispose();
+  }
 }
 
 export { TarViolation };

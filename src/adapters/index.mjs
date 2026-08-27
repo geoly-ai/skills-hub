@@ -72,6 +72,28 @@ export const GATE_PENDING = 'pending';
 export const GATE_UNSUPPORTED = 'unsupported';
 
 /**
+ * 🔴 `pending` 的**原因**必须是可枚举的常量，不能是自由文本。
+ *
+ * Q12 的历史教训是「一个不动的读数被当成了『没影响』」；它的孪生兄弟是
+ * **「缺证据」被写成「只是还没拍板」** —— 两者都长得像「快好了」，代价却差一个数量级：
+ * 缺决策拍个板就能开，缺证据要重新架一次实验。
+ *
+ * 所以这里把两类分开，并在模块加载期用 `clientVersion` 的有无**机械地**校验：
+ * 证据完整的那一类**必须**带版本号，缺证据的那一类**必须**不带 ——
+ * 谁也没法靠改一行 evidence 文案把自己挪到另一类里去。
+ */
+/** 证据完整，卡的是「要不要把这一格纳入发车范围」这个人来拍的取舍。 */
+export const BLOCKED_ON_SCOPE_DECISION = 'scope-decision-pending';
+/** 🔴 本机跑不起这个客户端，Q12 要求的运行时验收**没有做过**。 */
+export const BLOCKED_ON_NO_RUNTIME = 'runtime-evidence-unavailable';
+
+/** 带这些 blocker 的格子「证据完整」 —— 必须有 clientVersion。 */
+const EVIDENCE_COMPLETE_BLOCKERS = new Set([BLOCKED_ON_SCOPE_DECISION]);
+/** 带这些 blocker 的格子「缺证据」 —— 必须没有 clientVersion，否则就是在冒充测过。 */
+const EVIDENCE_MISSING_BLOCKERS = new Set([BLOCKED_ON_NO_RUNTIME]);
+const KNOWN_BLOCKERS = new Set([...EVIDENCE_COMPLETE_BLOCKERS, ...EVIDENCE_MISSING_BLOCKERS]);
+
+/**
  * 🔴 `planTargets` 的**测试注入缝**，Symbol key（同 `target.mjs` 的 `TEST_DEPS`）。
  * 只用来在门尚未闭合时测「门过了之后」的分支；`assertPlanOk` 会拒绝被注入过的计划。
  */
@@ -90,17 +112,34 @@ const ADAPTER_DEFS = [
     dirName: '.claude',
     envHome: null,
     gates: {
+      // 🔴 两个 scope 都是实测通过（2026-08-26，claude-code 2.1.246）。
+      // 保护机制是**扫描不递归**：`<target>/` 下只看一层。深度对照证明了这一点 ——
+      // 把一个有效 skill 放到 `<target>/probe3/tx-1/stage/<n>/SKILL.md`（与 `.geoly`
+      // 里 staged skill 完全同深、且目录名不带点），读数**纹丝不动**（16 → 16）。
+      //
+      // ⚠️ **由此得到一条硬约束**：claude **不过滤点目录**（实测把
+      // `<target>/.geoly/SKILL.md` 当成了名为 `.geoly` 的 skill 加载，15 → 16）。
+      // 所以 §3.2 的布局**永远不得**在 `<target>/.geoly/SKILL.md` 放文件 ——
+      // 这一格的通过完全建立在「.geoly 顶层没有 SKILL.md」之上。
       global: {
-        status: GATE_PENDING,
-        clientVersion: null,
+        status: GATE_PASSED,
+        clientVersion: 'claude-code 2.1.246',
         evidence:
-          'docs/m1/00-gates.md Gate 1 只记录了 codex 一端的 catalog 读数（5→6 正对照）；' +
-          'claude 端没有自己的 catalog 读数，Q12 对该组合尚未执行',
+          'docs/m1/00-gates.md Gate 1 逐格实测表 claude/global：读数取 `claude -p ' +
+          '--output-format stream-json` 首条 system/init 事件的 skills 数组长度。' +
+          '深度 1 正对照 15 → 16（且 canary 名恰好出现 1 次，证明测量敏感）；' +
+          '放入完整 .geoly fixture（lock.db/-wal/-shm、generation、ledger.json、' +
+          'audit-seq、journal/1.json、tx-1/stage/<n>/SKILL.md、attic/1/<n>.tar）后仍为 16，' +
+          'staged/attic canary 在 catalog 与**真实发往模型的请求体**里命中数均为 0，' +
+          '其余 skill 逐名一致，退出码 0、stderr 与基线逐字节相同',
       },
       project: {
-        status: GATE_PENDING,
-        clientVersion: null,
-        evidence: 'docs/m1/00-gates.md Gate 1 未覆盖任何项目级 scope',
+        status: GATE_PASSED,
+        clientVersion: 'claude-code 2.1.246',
+        evidence:
+          'docs/m1/00-gates.md Gate 1 逐格实测表 claude/project：同 global 的协议，' +
+          'target 取 <projectRoot>/.claude/skills。正对照 15 → 16，' +
+          '加 .geoly fixture 后仍为 16，canary 在 catalog 与请求体命中数均为 0，退出码 0',
       },
     },
     postInstallHint: '重启 Claude Code，或在会话里跑 /skills 让它重扫技能目录',
@@ -110,15 +149,38 @@ const ADAPTER_DEFS = [
     dirName: '.cursor',
     envHome: null,
     gates: {
+      // 🔴 这两格**没有任何运行时证据**，而且静态分析**指向失败**，不是中性的「还没测」。
+      //
+      // 本机测不了：cursor-agent 2026.02.27-e7d2ef6 装了但未认证（跑任何命令都直接
+      // `Authentication required`，登录要交互式浏览器 OAuth），Cursor IDE 没装。
+      //
+      // ⚠️ 读它的 bundle（只读）看到的机制是**两道保护都没有**：
+      // Agent Skills 加载器逐级 readdir **递归**到深度 10，遇到任何 `SKILL.md` 就收，
+      // 目录排除集只有 {node_modules,.git,.svn,.hg,__pycache__,.cache,dist,build,.next,.nuxt}
+      // —— 既没有 `.geoly`，也没有任何点目录过滤。而 `.geoly/tx-1/stage/<n>/SKILL.md`
+      // 在 target 下只有 3 层。**预判：一旦能跑，它很可能会把 staged skill 当成真 skill 收进去。**
+      //
+      // 🔴 但预判不是实测，所以**不标 unsupported** —— Q12 要的是运行时验收。
+      //    同样**不因为「看起来八成会挂」就当它已经有结论**：这一格要的是把客户端跑起来。
       global: {
         status: GATE_PENDING,
+        blockedOn: BLOCKED_ON_NO_RUNTIME,
         clientVersion: null,
-        evidence: 'docs/m1/00-gates.md Gate 1 未覆盖 cursor 端（无 catalog 读数、无二进制核对）',
+        evidence:
+          'docs/m1/00-gates.md Gate 1 逐格实测表 cursor/global：**本机无法测量** —— ' +
+          'cursor-agent 2026.02.27-e7d2ef6 已安装但未认证（需交互式浏览器 OAuth），' +
+          'Cursor IDE 未安装，因此没有任何运行时读数。' +
+          '⚠️ 静态分析**预判失败**：其 Agent Skills 加载器递归到深度 10 收集 SKILL.md，' +
+          '排除集不含 .geoly 也不过滤点目录，而 .geoly/tx-1/stage/<n>/SKILL.md 只有 3 层。' +
+          '要闭合这一格需要：登录 cursor-agent（或装 Cursor IDE）后重跑逐格协议',
       },
       project: {
         status: GATE_PENDING,
+        blockedOn: BLOCKED_ON_NO_RUNTIME,
         clientVersion: null,
-        evidence: 'docs/m1/00-gates.md Gate 1 未覆盖任何项目级 scope',
+        evidence:
+          'docs/m1/00-gates.md Gate 1 逐格实测表 cursor/project：同 global —— ' +
+          '本机跑不起 cursor 客户端，无运行时读数；静态分析同样预判失败（递归扫描、不过滤点目录）',
       },
     },
     postInstallHint: '重启 Cursor（技能目录在启动时扫描）',
@@ -130,29 +192,32 @@ const ADAPTER_DEFS = [
     // 否则「门测的路径」与「实际安装的路径」不是同一个，门就白测了。
     envHome: 'CODEX_HOME',
     gates: {
+      // 🔴 两个 scope 都是实测通过（2026-08-26，codex-cli 0.147.0）。
+      // 保护机制与 claude **不是同一个**：codex 的扫描**是递归的**（深度对照证明：
+      // 同深度、非点名目录下的 skill 被收了，6 → 7），挡住 `.geoly` 的是**点目录过滤**
+      // （实测 `<target>/.geoly/SKILL.md` 不被加载）。
+      // ⚠️ 也就是说两端各只靠**一道**保护，且是不同的那一道 —— 任一端改了扫描策略都要复测。
       global: {
-        // 🔴 **这一格的证据是完整的**：测量有效（正对照 5→6）、结论为「未被识别」、
-        // 且版本号已确认为 codex-cli 0.147.0（同一台机器、同一个未变更的安装，
-        // 事后从二进制读出；期间没有升级过）。
-        //
-        // 它仍留在 pending，**卡的不是证据，是范围决策**：Q12 要求四端 × 两个 scope，
-        // 而 claude / cursor / 全部项目级都还没测。「只启用一端就发车」是排期上的取舍，
-        // 得由人来拍，不该由这张表自己决定。
-        // 🔴 拍板走「先启用 codex/global」时：把 status 改成 GATE_PASSED、
-        //    删掉 blockedOn 即可，clientVersion 已经在这里了。
-        status: GATE_PENDING,
-        blockedOn: 'scope-decision-pending',
+        status: GATE_PASSED,
         clientVersion: 'codex-cli 0.147.0',
         evidence:
-          'docs/m1/00-gates.md Gate 1：$CODEX_HOME/skills 下放完整 .geoly fixture' +
-          '（含 lock.db/-wal/-shm、tx-1/stage、attic/1）后 catalog_entries 仍为 6，' +
-          '未被识别为 skill、无报错、不影响路由；同一次测量用真 skill 做正对照 5→6，证明测量有效。' +
-          '版本 codex-cli 0.147.0（事后从同一个未变更的安装读出）',
+          'docs/m1/00-gates.md Gate 1 逐格实测表 codex/global：读数取 `codex debug ' +
+          'prompt-input` 渲染的模型可见 prompt 里 <skills_instructions> 的条目数。' +
+          '深度 1 正对照 5 → 6（canary 名恰好 1 次）；**同深度正对照** 6 → 7 ' +
+          '（probe3/tx-1/stage/<n>/SKILL.md 被收，证明扫描能到达 .geoly 里 staged skill 的深度）；' +
+          '再放入完整 .geoly fixture 后仍为 7，canary 命中 0，其余 skill 逐名一致，' +
+          '退出码 0、stderr 0 字节。' +
+          '⚠️ codex 是离线渲染，没有「请求体」这件产物 —— catalog 与模型可见内容是同一份，' +
+          'claude 那边的请求体证据不外推到这里。' +
+          '⚠️ 覆盖边界：加载 + 路由输入，未做端到端的 skill 调用验证',
       },
       project: {
-        status: GATE_PENDING,
-        clientVersion: null,
-        evidence: 'docs/m1/00-gates.md Gate 1 只测了 $CODEX_HOME（全局），未覆盖 <repo>/.codex/skills',
+        status: GATE_PASSED,
+        clientVersion: 'codex-cli 0.147.0',
+        evidence:
+          'docs/m1/00-gates.md Gate 1 逐格实测表 codex/project：同 global 的协议，' +
+          'target 取 <projectRoot>/.codex/skills（cwd 下的 .codex/skills 确实是 codex 的 skill root）。' +
+          '正对照 5 → 6、同深度正对照 6 → 7、加 .geoly fixture 后仍为 7，canary 命中 0，退出码 0',
       },
     },
     postInstallHint: '新开一个 codex 会话（catalog 在启动时构建）',
@@ -162,28 +227,44 @@ const ADAPTER_DEFS = [
     dirName: '.agents',
     envHome: null,
     gates: {
-      // 🔴 这一端被标 unsupported 的理由不是「.geoly 被误当成 skill」，
-      // 而是**这条路径根本没有读者** —— 装了也不会被加载。
-      // 把没有读者的目录写满文件是纯粹的副作用：占盘、进 git、被 `git clean` 误删，
-      // 却换不来任何一个 skill 生效。所以按 M0「未通过的客户端不得合入 adapter」处理。
+      // 🔴 **这一端原先标的 `unsupported / no-reader` 是错的，已推翻。**
+      //
+      // 原判据是「用固定串 `grep -F '.agents/skills'` 核对二进制，命中 0 → 没有读者」。
+      // 假阴性：那条路径是**运行时 join 拼出来的**，二进制里根本不存在这个连续子串。
+      // 实测（2026-08-26）：codex-cli 0.147.0 把 `$HOME/.agents/skills` 与
+      // `<cwd>/.agents/skills` 都当作 skill root 加载 —— 正对照 5 → 6，
+      // 且它渲染的 prompt 里直接列出了这两个 root。
+      //
+      // ⚠️ **「二进制里搜不到这个字符串」证明不了「没有读者」。** 固定串 grep 只能证
+      // 存在、不能证不存在；要证不存在得把客户端跑起来做正对照 —— 这正是 Q12 的要求。
+      //
+      // 现在的状态：**证据完整**（测量有效 + 结论 + 读者版本号），卡的是**范围决策** ——
+      // `.agents` 不是一个自己的客户端，它是一条**共享约定路径**，读者是 codex；
+      // 同时启用 `codex` 与 `agents` 会让同一批 skill 在 catalog 里出现两次。
+      // 「要不要把 .agents 纳入发车范围、以及它跟 codex 的关系怎么算」是人来拍的取舍。
       global: {
-        status: GATE_UNSUPPORTED,
-        reason: 'no-reader',
-        clientVersion: null,
+        status: GATE_PENDING,
+        blockedOn: BLOCKED_ON_SCOPE_DECISION,
+        // 🔴 这里记的是**读者**的版本，不是某个叫 agents 的客户端的版本 —— evidence 里写死了这件事。
+        clientVersion: 'codex-cli 0.147.0',
         evidence:
-          "docs/m1/00-gates.md Gate 1 附带发现：用固定串核对（grep -F '.agents/skills'）" +
-          '两个客户端二进制，命中数为 0 —— 该路径在当前版本下没有任何读者。' +
-          "⚠️ 早先用 grep '\\.agents' 得到过假阳性，匹配到的是 .claude/agents（子代理目录），" +
-          '与 skill 路由无关；核对路径一律用 -F',
+          'docs/m1/00-gates.md Gate 1 逐格实测表 agents/global：**读者是 codex-cli 0.147.0**' +
+          '（.agents 没有自己的客户端，是共享约定路径）。深度 1 正对照 5 → 6、' +
+          '同深度正对照 6 → 7、加完整 .geoly fixture 后仍为 7，canary 命中 0，退出码 0。' +
+          "⚠️ 推翻了早先「grep -F '.agents/skills' 命中 0 ⇒ 无读者」的结论：" +
+          '该路径是运行时 join 拼出来的，固定串 grep 搜不到只能证明搜不到，证明不了没有读者',
       },
       project: {
-        status: GATE_UNSUPPORTED,
-        reason: 'no-reader',
-        clientVersion: null,
-        evidence: '同 global：`.agents/skills` 无读者，项目级同理（且项目级 scope 本身也未过 Q12）',
+        status: GATE_PENDING,
+        blockedOn: BLOCKED_ON_SCOPE_DECISION,
+        clientVersion: 'codex-cli 0.147.0',
+        evidence:
+          'docs/m1/00-gates.md Gate 1 逐格实测表 agents/project：读者同为 codex-cli 0.147.0，' +
+          'target 取 <projectRoot>/.agents/skills。正对照 5 → 6、同深度正对照 6 → 7、' +
+          '加 .geoly fixture 后仍为 7，canary 命中 0，退出码 0。范围决策同 global',
       },
     },
-    postInstallHint: null,
+    postInstallHint: '新开一个 codex 会话（.agents/skills 的读者是 codex，catalog 在启动时构建）',
   },
 ];
 
@@ -345,12 +426,72 @@ export function assertGateInvariants(defs) {
       const g = d.gates[scope];
       if (!g) throw new Error(`adapter ${d.client} 缺 ${scope} 的门记录`);
       if (!valid.has(g.status)) throw new Error(`adapter ${d.client}/${scope} 的门状态非法：${g.status}`);
+      // 🔴 类型也要查，不只是真假。`clientVersion: true` 能骗过所有 `!g.clientVersion`
+      // 判断，于是一个**根本不是版本号的东西**就能把格子送进「证据完整」那一档。
+      // 空串同理：它是假值，会被当成「没有版本」，但写的人多半以为自己填了。
+      // 约定：这几个字段要么**缺席**（undefined/null），要么是**非空字符串**。
+      for (const f of ['clientVersion', 'reason', 'blockedOn']) {
+        const v = g[f];
+        if (v === undefined || v === null) continue;
+        if (typeof v !== 'string' || v.trim() === '') {
+          throw new Error(
+            `adapter ${d.client}/${scope} 的 ${f} 必须是非空字符串或缺席，拿到的是 ${JSON.stringify(v)}`,
+          );
+        }
+      }
       if (!g.evidence) throw new Error(`adapter ${d.client}/${scope} 的门记录缺 evidence`);
       if (g.status === GATE_PASSED && !g.clientVersion) {
         throw new Error(
           `adapter ${d.client}/${scope} 标了 passed 却没有 clientVersion —— ` +
             'Q12 要求门绑定具体客户端版本，否则升级后无从复测',
         );
+      }
+      // ③ 🔴 `passed` 不得带 blockedOn。两者同时出现只可能是改了一半：
+      //    要么门其实没过（那就别写 passed），要么 blocker 已经消解（那就删掉它）。
+      //    留着它会让 `list` 一边说「已启用」一边说「被 X 卡住」。
+      if (g.status === GATE_PASSED && g.blockedOn) {
+        throw new Error(
+          `adapter ${d.client}/${scope} 既是 passed 又带 blockedOn=${g.blockedOn} —— ` +
+            '过了的门没有 blocker，这是改了一半',
+        );
+      }
+      // ④ 🔴 `unsupported` 必须给 reason：「不支持」得说清是实测不通过还是结构上没读者，
+      //    否则下一个人无从判断该不该重测。
+      if (g.status === GATE_UNSUPPORTED && !g.reason) {
+        throw new Error(`adapter ${d.client}/${scope} 标了 unsupported 却没有 reason`);
+      }
+      // ⑤ 🔴 `pending` 必须给一个**白名单内**的 blockedOn，并且
+      //    「缺决策」与「缺证据」两类各自与 clientVersion 的有无死死绑住。
+      //
+      //    这条是整段不变量里最要紧的一条：Q12 栽过的跟头是「不敏感的测量被当成了负结果」，
+      //    它在门表里的等价物就是**缺证据的格子伪装成只是没拍板**。两者都只差一个词，
+      //    代价却差一个数量级 —— 拍板是一次会议，重做实验是重新架一套客户端。
+      //    所以不靠 evidence 文案自证，靠 clientVersion 这个**机械**判据：
+      //    没跑过客户端就不可能有版本号，有版本号就说明确实跑过。
+      if (g.status === GATE_PENDING) {
+        if (!KNOWN_BLOCKERS.has(g.blockedOn)) {
+          throw new Error(
+            `adapter ${d.client}/${scope} 是 pending 却没有已知的 blockedOn（拿到的是 ${g.blockedOn}）—— ` +
+              `只能是 ${[...KNOWN_BLOCKERS].join(' / ')}；自由文本会让「缺证据」和「缺决策」混成一团`,
+          );
+        }
+        if (EVIDENCE_COMPLETE_BLOCKERS.has(g.blockedOn) && !g.clientVersion) {
+          throw new Error(
+            `adapter ${d.client}/${scope} 的 blockedOn=${g.blockedOn} 表示「证据完整、只差拍板」，` +
+              '那就必须带 clientVersion —— 没有版本号说明门根本没跑过，那是缺证据不是缺决策',
+          );
+        }
+        // 🔴 必须**显式写成 null**，不能靠「字段缺席」蒙混。
+        //    只查真假的话，把 `clientVersion: null` 那一行删掉就能悄悄绕过去，
+        //    而删一行正是 review 时最容易滑过的改动（Codex 复核时就是这么戳穿的）。
+        //    写死 `=== null` 等于逼作者在这一格上**明确表态**「这里没有版本号」。
+        if (EVIDENCE_MISSING_BLOCKERS.has(g.blockedOn) && g.clientVersion !== null) {
+          throw new Error(
+            `adapter ${d.client}/${scope} 的 blockedOn=${g.blockedOn} 表示「没有运行时证据」，` +
+              `那 clientVersion 必须显式写成 null（拿到的是 ${JSON.stringify(g.clientVersion)}）—— ` +
+              '带着版本号是在冒充测过，字段缺席则是把这件事藏起来',
+          );
+        }
       }
     }
   }
@@ -380,8 +521,9 @@ export function getAdapter(client) {
  *
  * 🔴 导出它，是为了让测试能用**合成门表**造一套 adapter，非空地验证
  * `supports()` / `gateMatrix()` / `enabledCombos()` 这三个函数**确实是从门状态推出来的**，
- * 而不是碰巧恒返回 false / 空数组 —— 真门表现在一个组合都没闭合，
- * 拿它测这三个函数等于在空集上断言。
+ * 而不是碰巧返回了对的东西。真门表 2026-08-26 起有四格闭合了，
+ * 但 **`unsupported` 这一档一个格子都没有**（agents 的 no-reader 被实测推翻），
+ * 那一支仍然只能靠合成门表非空地测。
  *
  * ⚠️ 合成 adapter 的门记录**不会**进 `REAL_GATES`，因此它们授权不了任何安装。
  */
@@ -451,8 +593,8 @@ export function resolveTarget({
  * 那只是在回答「这个 status 属于哪一档」，不是在批准安装。
  * 真正的放行还要求那条门记录**来自本模块深冻结的门表**（见 `assertGateAllows`）。
  *
- * 抽出来是为了能非空地测每一支：门表现在一个组合都没闭合，
- * 拿真门表去测 `passed` 分支等于测了个空集。
+ * 抽出来是为了能非空地测每一支：真门表里 `unsupported` 现在一个格子都没有，
+ * 拿它去测 `deny-unsupported` 分支等于测了个空集。
  */
 export function classifyGate(g) {
   const status = g?.status;
@@ -534,8 +676,9 @@ export function planTargets(opts = {}) {
   } = opts;
   assertScope(scope);
   // 🔴 测试注入缝，Symbol key（同 target.mjs 的 TEST_DEPS，理由一样）：
-  // 门表现在**一个组合都没闭合**，不注入就没法测「门过了之后」的那几条分支
-  // （missing-dir / willCreate / selected）—— 那正是门一闭合就会立刻走到的路径。
+  // 用来把「门是什么状态」与「目录/创建逻辑怎么走」解耦：注入一套写死的门表，
+  // 这些用例就不会因为真门表的闭合情况变化而跟着改行为
+  //（2026-08-26 真门表从「全空」变成「四格闭合」时，只覆盖一半的注入表就漂过一次）。
   // 结果里记 `gatesOverridden`，`assertPlanOk` 会拒绝放行被注入过的计划。
   const gateOverride = opts[TEST_GATES] ?? null;
   const gateOf = (adapter, sc) =>

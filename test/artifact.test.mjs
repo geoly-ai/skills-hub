@@ -1,8 +1,8 @@
 // 制品链：资产验证 → 隔离解包 → 重算树摘要 → manifest 绑定
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync, mkdtempSync, writeFileSync, symlinkSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, mkdtempSync, writeFileSync, symlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -323,4 +323,114 @@ test('🔴 恶意 tar 的违规码能一路传到调用方（不是笼统「安�
   const rec = makeRecord({ asset: { file: 'a', sha256: shaOf(gz), size: gz.length } });
   const e = expectViolation('E_PATH_DOTDOT', () => verifyAndExtract({ bytes: gz, record: rec }));
   assert.match(e.message, /escape\.md/);
+});
+
+// ── Codex 第四轮：artifact 接缝的两个加固点 ────────────────────────────────
+
+test('asset.size 缺失时拒绝校验（E_NO_EXPECTED_SIZE），不是「没有就跳过」', () => {
+  const { gz } = makeArtifact();
+  const record = { asset: { sha256: shaOf(gz) } }; // 有 sha256、没有 size
+  expectViolation('E_NO_EXPECTED_SIZE', () => assertAssetBytes(gz, record));
+});
+
+test('asset.size 不符仍然被拒（E_ASSET_SIZE）—— 收紧没有把这条判定弄丢', () => {
+  const { gz } = makeArtifact();
+  expectViolation('E_ASSET_SIZE',
+    () => assertAssetBytes(gz, { asset: { sha256: shaOf(gz), size: gz.length + 1 } }));
+});
+
+test('🔴 树摘要不符时隔离临时目录被清理，不会在 /tmp 里堆积', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'unpack-parent-'));
+  const { gz, record } = makeArtifact();
+  const bad = { ...record, tree_digest: `geoly-tree-v1:sha256:${hex(7)}` };
+
+  const before = readdirSync(parent);
+  assert.equal(before.length, 0, '前提：父目录一开始必须是空的');
+
+  expectViolation('E_TREE_DIGEST', () => verifyAndExtract({ bytes: gz, record: bad, parent }));
+
+  const after = readdirSync(parent);
+  assert.deepEqual(after, [], `失败路径留下了残骸：${after.join(', ')}`);
+});
+
+test('成功路径不清理 —— 目录所有权交给调用方', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'unpack-parent-ok-'));
+  const { gz, record } = makeArtifact();
+  const { dir } = verifyAndExtract({ bytes: gz, record, parent });
+  assert.ok(existsSync(dir), '成功时目录必须还在，否则调用方拿到的是个空路径');
+  assert.ok(existsSync(join(dir, 'SKILL.md')));
+});
+
+// ── 隔离目录的生命周期 ───────────────────────────────────────────────────────
+
+test('🔴 withVerifiedArtifact 无论成败都清掉隔离目录', async () => {
+  const { withVerifiedArtifact } = await import('../src/artifact.mjs');
+  const { existsSync } = await import('node:fs');
+  const { gz: bytes, record } = makeArtifact();
+
+  let seen;
+  const out = withVerifiedArtifact({ bytes, record }, (art) => {
+    seen = art.dir;
+    assert.ok(existsSync(seen), 'fn 执行期间目录必须在');
+    return 'ok';
+  });
+  assert.equal(out, 'ok');
+  assert.equal(existsSync(seen), false, '正常返回后必须清掉');
+
+  let seen2;
+  assert.throws(() => withVerifiedArtifact({ bytes, record }, (art) => {
+    seen2 = art.dir;
+    throw new Error('boom');
+  }), /boom/);
+  assert.equal(existsSync(seen2), false, '抛错后同样必须清掉');
+});
+
+test('🔴 withVerifiedArtifact 支持异步 fn', async () => {
+  const { withVerifiedArtifact } = await import('../src/artifact.mjs');
+  const { existsSync } = await import('node:fs');
+  const { gz: bytes, record } = makeArtifact();
+
+  let seen;
+  await withVerifiedArtifact({ bytes, record }, async (art) => {
+    seen = art.dir;
+    await new Promise((r) => setTimeout(r, 5));
+    assert.ok(existsSync(seen), '异步 fn 还没结束时不能提前清');
+  });
+  assert.equal(existsSync(seen), false, '异步 fn 结束后必须清掉');
+});
+
+test('dispose 可重复调用', async () => {
+  const { verifyArtifact } = await import('../src/artifact.mjs');
+  const { existsSync } = await import('node:fs');
+  const { gz: bytes, record } = makeArtifact();
+  const art = verifyArtifact({ bytes, record });
+  art.dispose();
+  assert.equal(existsSync(art.dir), false);
+  assert.doesNotThrow(() => art.dispose(), '第二次 dispose 不该抛');
+});
+
+
+// ── DISPOSE_GUARD ────────────────────────────────────────────────────────────
+// 🔴 这一份里有十几处直接调 verifyArtifact 的地方，成功路径的隔离目录归调用方清。
+// 实测「靠调用方记得」不成立：这一份跑一轮就漏 25 个 geoly-unpack-*，
+// 全量跑完 $TMPDIR 里堆了 3807 个。新代码请用 withVerifiedArtifact。
+// 下面这条测试盯着这件事，别让它再退回去。
+
+test('🔴 这一份测试自己不许漏隔离目录', async () => {
+  const { mkdtempSync, readdirSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { withVerifiedArtifact, verifyArtifact } = await import('../src/artifact.mjs');
+
+  const sandbox = mkdtempSync(join(tmpdir(), 'leakcheck-'));
+  const { gz, record } = makeArtifact();
+
+  // 作用域版：结构上不可能漏
+  withVerifiedArtifact({ bytes: gz, record, parent: sandbox }, () => {});
+  // 裸调用 + 显式 dispose：也不该漏
+  verifyArtifact({ bytes: gz, record, parent: sandbox }).dispose();
+
+  const left = readdirSync(sandbox).filter((n) => n.startsWith('geoly-unpack-'));
+  assert.deepEqual(left, [], `隔离目录没清干净：${left}`);
+  assert.ok(existsSync(sandbox));
 });

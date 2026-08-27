@@ -25,6 +25,7 @@ import { checkAll } from './harness/invariants.mjs';
 import { adjudicate } from './harness/oracle.mjs';
 import {
   cleanupTarget, crashAndRecoverAsync, freshTarget, pool, sample, traceScenario,
+  sandboxRoot,
 } from './harness/crash-runner.mjs';
 import { snapshot } from './harness/fake-tx.mjs';
 
@@ -377,13 +378,15 @@ test('🔴 反证：旧树三处副本全毁时 I3 必须抓到', async () => {
 test('🔴 框架产物不留垃圾：跑一轮之后临时目录数量不增长', () => {
   // Codex 第二轮指出上一版这条是恒真的 assert.ok(true)。改成真的数一遍：
   // 矩阵跑了上千个 target，若 cleanupTarget 失效，/tmp 下会堆成千上万个 fx-* 目录。
-  const before = readdirSync(tmpdir()).filter((n) => n.startsWith('fx-')).length;
+  // 🔴 只数**本进程自己的**沙箱根。早先在 tmpdir() 里数，那是共享命名空间，
+  // 并行 worktree 会让这条测试在两个方向上都产出假红（多算别人的、或被别人删掉）。
+  const before = readdirSync(sandboxRoot()).filter((n) => n.startsWith('fx-')).length;
   for (let i = 0; i < 20; i++) {
     const t = freshTarget('leak');
     SCENARIOS['fake-tx'].setup(t);
     cleanupTarget(t);
   }
-  const after = readdirSync(tmpdir()).filter((n) => n.startsWith('fx-')).length;
+  const after = readdirSync(sandboxRoot()).filter((n) => n.startsWith('fx-')).length;
   assert.ok(after <= before, `建了 20 个临时 target 又清掉，fx-* 目录数却从 ${before} 涨到 ${after}`);
 });
 

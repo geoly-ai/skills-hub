@@ -17,8 +17,21 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const CHILD = join(here, 'child.mjs');
 
+/**
+ * 🔴 每个进程一个私有沙箱根，**不要直接用 `tmpdir()`**。
+ *
+ * 早先 target 直接建在 `tmpdir()` 下，而「不留垃圾」那条测试是在 `tmpdir()` 里
+ * 数 `fx-*` 的个数 —— 那是**进程级共享的命名空间**。并行 worktree 各跑一份全量时，
+ * 别人建的 `fx-*` 会被算进我的增量，于是产出**假红**；反过来别人删掉我的目录时
+ * 又会产出 `ENOENT` 的假红。同一份代码同一个 node，四轮里红一次绿三次。
+ *
+ * 判据不能建立在别人也能写的命名空间上。每进程一个根之后，计数只看自己那棵。
+ */
+const SANDBOX_ROOT = mkdtempSync(join(tmpdir(), `fxroot-${process.pid}-`));
+export const sandboxRoot = () => SANDBOX_ROOT;
+
 export function freshTarget(tag) {
-  return join(mkdtempSync(join(tmpdir(), `fx-${tag}-`)), 'skills');
+  return join(mkdtempSync(join(SANDBOX_ROOT, `fx-${tag}-`)), 'skills');
 }
 
 function spawnChild(env, timeoutMs = 60_000) {

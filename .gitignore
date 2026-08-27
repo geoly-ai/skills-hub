@@ -4,3 +4,4 @@ node_modules/
 # 本地跑测试时产生的临时状态
 /.tmp-test/
 docs/dashboard/data.json
+node_modules/
