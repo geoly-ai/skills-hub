@@ -349,7 +349,7 @@ function assertInclusionProofs(b) {
  * ⚠️ 这是**一致性**检查，不是安全检查：此时 checkpoint 还没验签。
  *    真正的权威仍然是库验过签之后的 checkpoint。
  */
-function assertProofSelfConsistent(entry, p, where) {
+export function assertProofSelfConsistent(entry, p, where) {
   // checkpoint note 的前三行：origin / logSize / base64(rootHash)
   const note = String(p.checkpoint.envelope).split('\n\n')[0];
   const lines = note.split('\n');
@@ -367,9 +367,18 @@ function assertProofSelfConsistent(entry, p, where) {
     fail('E_PROOF_INCONSISTENT',
       `${where}.inclusionProof.treeSize=${safe(String(p.treeSize), 32)} 与 checkpoint 的 logSize=${safe(logSize, 32)} 不一致`);
   }
-  if (String(p.logIndex) !== String(entry.logIndex)) {
+  // 🔴 **不要求 `proof.logIndex === entry.logIndex`** —— 它们语义不同：
+  //   · `entry.logIndex`  = 条目在日志里的**全局**索引（跨分片单调）
+  //   · `proof.logIndex`  = 条目在**当前这棵树**里的索引
+  // Rekor 分片之后两者本来就差一个偏移量。早先这里判相等，
+  // **会拒掉每一份合法 bundle** —— dry-run 的 canary 当场抓到（2026-08-28）：
+  // 真实值 2620957627 vs 2499053365，差约 1.2 亿。
+  //
+  // ⚠️ 这条检查是「冗余字段自相矛盾」防线的一部分，不能直接删掉了事。
+  // 真正成立的不变量是**树内索引必须落在这棵树里**：
+  if (!(p.logIndex >= 0n && p.logIndex < BigInt(logSize))) {
     fail('E_PROOF_INCONSISTENT',
-      `${where}.inclusionProof.logIndex=${safe(String(p.logIndex), 32)} 与条目自身的 logIndex=${safe(String(entry.logIndex), 32)} 不一致`);
+      `${where}.inclusionProof.logIndex=${safe(String(p.logIndex), 32)} 不在 [0, treeSize=${safe(logSize, 32)}) 内`);
   }
 }
 

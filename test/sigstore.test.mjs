@@ -609,3 +609,42 @@ test('🔴 内置根被打包进发布物（package.json files 覆盖 src）', a
   // 依赖必须钉死：^ 浮动会让未来的 4.x 悄悄要求更高的 Node（见 R-5）
   assert.match(pkg.dependencies['@sigstore/verify'], /^\d+\.\d+\.\d+$/, '安全依赖必须钉死精确版本');
 });
+
+// ── 冗余字段一致性：拿真实 bundle 当判据 ────────────────────────────────────
+
+test('🔴 真实 bundle 的包含证明必须通过一致性检查（分片下两个 logIndex 本就不等）', async () => {
+  // 🔴 这条测试是补上一个**缺口**：夹具早就在仓库里，但没有任何测试把
+  // assertProofSelfConsistent 跑在它上面。于是「logIndex 必须相等」这个错误判据
+  // 一路通过了全部单测，直到 release dry-run 的 canary 才在真实签发时炸出来。
+  //
+  // Rekor 里这两个字段语义不同：
+  //   entry.logIndex = 全局索引（跨分片单调）
+  //   proof.logIndex = 当前这棵树内的索引
+  // 分片之后本来就差一个偏移。真实值：2620957627 vs 2499053365，差约 1.2 亿。
+  const { assertProofSelfConsistent } = await import('../src/sigstore.mjs');
+  const entry = REAL_BUNDLE.verificationMaterial.tlogEntries[0];
+  const proof = {
+    ...entry.inclusionProof,
+    logIndex: BigInt(entry.inclusionProof.logIndex),
+    treeSize: BigInt(entry.inclusionProof.treeSize),
+    rootHash: Buffer.from(entry.inclusionProof.rootHash, 'base64'),
+  };
+  assert.notEqual(String(entry.logIndex), String(proof.logIndex),
+    '前提：真实 bundle 里这两个索引确实不相等，否则这条测试没在测该测的东西');
+  assert.doesNotThrow(() => assertProofSelfConsistent(entry, proof, 'real'));
+});
+
+test('🔴 树内索引超出 treeSize 仍要拒 —— 放宽不等于不检查', async () => {
+  const { assertProofSelfConsistent } = await import('../src/sigstore.mjs');
+  const entry = REAL_BUNDLE.verificationMaterial.tlogEntries[0];
+  const base = entry.inclusionProof;
+  const mk = (logIndex) => ({
+    ...base, logIndex,
+    treeSize: BigInt(base.treeSize),
+    rootHash: Buffer.from(base.rootHash, 'base64'),
+  });
+  for (const bad of [BigInt(base.treeSize), BigInt(base.treeSize) + 1n, -1n]) {
+    assert.throws(() => assertProofSelfConsistent(entry, mk(bad), 'x'),
+      /E_PROOF_INCONSISTENT|不在 \[0, treeSize/, `应拒绝 logIndex=${bad}`);
+  }
+});
