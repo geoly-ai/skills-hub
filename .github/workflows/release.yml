@@ -295,7 +295,11 @@ jobs:
           #    provenance 仍然成立（它靠的是 id-token，不是 token 的种类），
           #    但那就多了一个长期凭据 —— 02-registry.md §8.2 明写「无长期 token」，
           #    所以这只应该是过渡态。
-          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # 2026-08-28 用户拍板：先走 NPM_TOKEN（与 social-ops-hub 同款），
+          # 不等 trusted publisher 的网页配置。provenance 不受影响 —— 它靠 id-token。
+          # ⚠️ 这是**过渡态**：02-registry.md §8.2 明写「无长期 token」，
+          #    配好 trusted publisher 后要把这一行删掉。
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
           TGZ: ${{ steps.pack.outputs.tgz }}
         run: |
