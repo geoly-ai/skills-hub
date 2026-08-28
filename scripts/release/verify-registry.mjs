@@ -19,8 +19,16 @@ function arg(name, dflt) {
 
 const name = arg('name');
 const version = arg('version');
-const attempts = Number(arg('attempts', '5'));
-const delayMs = Number(arg('delay-ms', '3000'));
+// 🔴 窗口按**被观测系统的实际时延**定，不要照抄别处的数字。
+//
+// 原先是 5 × 3s = 15s，抄自 social-ops-hub。2026-08-28 首次真发布时：
+// `npm publish` 成功、provenance 已进透明日志、`+ @geoly-ai/skills-hub@0.1.0` 已打印，
+// 但 15 秒内 registry 还查不到 —— 于是这条**本来是为了防「退出码 0 不等于发出去」**
+// 的检查，反过来制造了一个假警报，把一次成功的发布报成了失败。
+//
+// 方向是对的（判据必须是「registry 真的在供这个版本」），错的是窗口。
+const attempts = Number(arg('attempts', '20'));
+const delayMs = Number(arg('delay-ms', '6000'));
 
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);

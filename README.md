@@ -6,18 +6,57 @@
 `geoly-ai` 的 skill 分发中心：一条命令装单个 skill、装矩阵包，
 并支持外部投稿与过审。
 
-> ⚠️ **M0 规格已封版，M1 实现刚起步** —— 目前只有基础模块和埋点子系统，
-> 装 skill 的主流程还没接通。
+## 安装
+
+```sh
+npm i -g @geoly-ai/skills-hub     # 或 npx @geoly-ai/skills-hub <命令>
+skills-hub --help
+```
+
+**已发布**：[`@geoly-ai/skills-hub@0.1.0`](https://www.npmjs.com/package/@geoly-ai/skills-hub)
+（46 个文件，带 npm provenance；发布 workflow 会用**本包自带的验签器 + 内置信任根**
+自验一遍它自己签的 tarball）。
+
+平台：**macOS / Linux / WSL**，**Node ≥ 22.13**。
+
+### 当前能装到哪几端
+
+| client | 全局 | 项目级 | 说明 |
+|---|:--:|:--:|---|
+| `claude` | ✅ | ✅ | |
+| `codex` | ✅ | ✅ | |
+| `agents` | ✅ | ✅ | **present-only**：`.agents` 已存在才加入，**不会被创建** |
+| `cursor` | ❌ | ❌ | 无运行时证据，且静态读其加载器**预判会失败**（R-8） |
+
+⚠️ `codex` 与 `agents` 同时装时，同一个 skill 会在 codex 的 catalog 里出现两次 ——
+这两个位置本身重叠，CLI 会告警但不拦截。
 
 ## 现在在哪一步
 
 | 阶段 | 状态 |
 |---|---|
-| **M0 · 制品与信任模型** | ✅ **已通过**（v45，2026-08-25） |
-| M1 · 只读分发（单 skill 的 resolve / install / list / check） | 🚧 进行中 —— 信任链与 adapter 已就绪，事务内核在做 |
-| M2 · pack 与受控 catalog | — |
+| **M0 · 制品与信任模型** | ✅ 已通过（v45，2026-08-25） |
+| **M1 · 只读分发** | ✅ **已完成并发布 0.1.0** —— resolve / install / recover / check / list-search-why / sync-lock |
+| **M2 · pack 与受控 catalog** | 🚧 库层已就绪（packer / pack / vendor），命令面与 promotion 未接 |
 | M3 · 投稿与审核 | — |
-| M4 · update / remove / 正式发包 | — |
+| M4 · update / remove | — |
+
+**868 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
+逐个反向命中）是 CI 的合并门。
+
+### 🔴 0.1.0 明确**没有**做到的
+
+不写清楚就等于默认承诺了，所以逐条列出：
+
+- **制品（skill tar.gz）与快照的签发链不存在** —— packer 是 M2。
+  这一版签的是 **npm 包本身**（provenance + cosign 对 `.tgz` 的签名），不是 skill 制品。
+- **registry 是纯缓存，没有网络客户端** —— `resolveCurrent()` 是同步的，接不进 `fetch`。
+- **`--from-generation` 只做到编译计划**，接成正向事务的入口还没写。
+- **`--release-frozen` 如实拒绝**（没有按 label 解冻 attic 的导出），不提供假装成功的路径。
+- `cursor` 未验证；`search` 搜不了 description（快照 record 里没有这个字段）。
+
+已知且**明确接受**的残余风险见 [`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)（R-1 … R-11），
+M0 正文的勘误见 [`docs/m0/ERRATA.md`](docs/m0/ERRATA.md)（E-1 … E-8）。
 
 ## 从哪读起
 
