@@ -305,7 +305,7 @@ export function record(input) {
  * 那个窗口靠上报侧的"延迟一个周期再删"来压缩，见 upload.mjs 的 retire()
  * 与规格 §6 的 T-15 —— 那是**已知且接受**的残余风险，不是被闭合了。
  */
-function appendDurable(path, line) {
+export function appendDurable(path, line) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const fd = openSync(path, 'a', 0o644);
     let orphaned;

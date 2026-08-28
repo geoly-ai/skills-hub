@@ -17,6 +17,7 @@ import {
   isValidEvent,
   serializeEvent,
   lockPath,
+  appendDurable,
 } from './telemetry.mjs';
 import { acquire, LockBusyError } from './lock.mjs';
 // parseStrict 而非内建 parse：重复 key 会被静默取最后一个
@@ -174,11 +175,22 @@ function reapTomb() {
   return true;
 }
 
+/**
+ * 🔴 必须走 `appendDurable`，不能裸 `openSync` + append。
+ *
+ * `record()` 的追加一直有 nlink 守卫（写完查 inode 是否已被删、中招就换新 fd 重写），
+ * 而这条「把 leftover 扫回队列」的补偿路径原先没有 ——
+ * **同一个不变量，两条路径两种强度**。
+ *
+ * 它偏偏跑在 flush 的收尾阶段：此时另一个进程的 record 完全可能正在触发换代，
+ * 把队列 inode 改名或删掉，于是扫回去的事件写进一个没有目录项的 inode，**静默消失**。
+ *
+ * CI 的 Linux runner 在压力测试里抓到过一条丢失（本机 macOS 六轮不复现）。
+ * ⚠️ 判据：**同一个不变量的所有写入路径必须用同一种强度的保证**，
+ * 不能主路径有守卫、补偿路径没有 —— 补偿路径往往正好跑在最危险的时刻。
+ */
 function appendToQueue(events) {
-  const fd = openSync(queuePath(), 'a', 0o644);
-  try {
-    appendFileSync(fd, events.map((e) => serializeEvent(e) + '\n').join(''));
-  } finally { closeSync(fd); }
+  appendDurable(queuePath(), events.map((e) => serializeEvent(e) + '\n').join(''));
 }
 
 /** 把 path 里不属于 sentEids 的事件追加回 queue */
