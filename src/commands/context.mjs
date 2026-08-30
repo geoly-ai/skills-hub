@@ -224,6 +224,12 @@ export function makeContext(globals, deps = {}) {
     registryFactory: deps.registryFactory ?? null,
     /** 注入点：埋点。生产是 `telemetry.record` */
     record: deps.record ?? null,
+    /**
+     * 注入点：标准输入。**只有 `install --all` 的 §3 全量确认用它**。
+     * 🔴 交互与否的判据是 `isTTY`，不是「有没有 stdin」—— 管道进来的 stdin
+     *    照样可读，但那不是「用户正坐在终端前逐条看名单」。
+     */
+    stdin: deps.stdin ?? process.stdin,
   });
   return ctx;
 }

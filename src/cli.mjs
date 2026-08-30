@@ -14,10 +14,10 @@ import { Output } from './commands/output.mjs';
 import { createCacheRegistry } from './commands/registry.mjs';
 import { EXIT, classify, UsageError } from './exit-codes.mjs';
 
-const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的 vendor / install pack:）
+const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
 
 命令：
-  install <spec>…                    装制品（skill 与 pack:；--all 仍在做）
+  install <spec>… | install --all    装制品（skill / pack:；--all 见 09-cli.md §3）
   list [--packs|--installed|--outdated]
   search <kw>…
   check                              两阶段校验（字节 / 现在还该不该用）
@@ -42,6 +42,7 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的 vendor / instal
   --allow-yanked              仅取证；大声告警并写进账本（不放行 degraded）
   --replace <name>            点名替换未被账本认领的同名目录
   --no-bundled / --pre / --json / --yes
+  --yes-i-really-want-everything  仅 --all 在非交互下使用（--yes 不够）
   --keep-generations <N>      attic 保留代数，默认 3
 
 🔴 没有 --no-verify、--insecure、--force、--force-unlock、--assume-idle。

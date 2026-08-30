@@ -123,9 +123,15 @@ const SKIP_REASON = Object.freeze({
  * 🔴 同名但**不同制品**（版本不同、或 namespace 不同）→ 拒绝，不猜。
  *    它们要落到同一个目录名上，谁覆盖谁没有正确答案。
  */
-export function buildUnits(records, packInfos) {
+export function buildUnits(records, packInfos, { allSnapshot = null } = {}) {
   const byName = new Map();
   const rootSpecs = [];
+  // 🔴 `--all` 的 root 是**一条** `all@snapshot:<N>`，不是 N 条 direct
+  //    （04-install.md §4 的 root-key grammar）。它**不带** artifact / tree_digest：
+  //    「当时那张快照里全部可装的 skill」不是某一个制品，账本的 validateRoot
+  //    对 kind='all' 明令这两个字段不许出现。
+  const allKey = allSnapshot === null ? null : `all@snapshot:${allSnapshot}`;
+  if (allKey !== null) rootSpecs.push({ key: allKey, kind: 'all' });
   const add = (record, rootKey) => {
     const cur = byName.get(record.name);
     if (cur === undefined) {
@@ -146,6 +152,7 @@ export function buildUnits(records, packInfos) {
 
   for (const r of records) {
     if (r.kind === 'pack') continue;      // pack 的单元来自它的成员，见下
+    if (allKey !== null) { add(r, allKey); continue; }
     const key = `direct:${r.id}`;
     rootSpecs.push({ key, kind: 'direct', artifact: r.id, tree_digest: r.tree_digest });
     add(r, key);
@@ -299,19 +306,146 @@ export function planPackConflicts(packInfos, ledger, units, replace, target) {
   return { retire: [...retire].sort() };
 }
 
+/**
+ * `--all`（09-cli.md §3）= 当前快照里全部 `kind: skill`、`status: published`、
+ * 且声明支持该 target client 的制品。
+ *
+ * 🔴 **名单来自快照自己的 `latest` 投影，不自己再算一遍。**
+ *    第一版我照着 §3 的措辞手写了过滤条件（status/prerelease/clients），
+ *    结果漏掉一件事：快照里**同一个 skill 会有多个 published 版本**，
+ *    于是 `--all` 会同时选中 `foo@1.0.0` 与 `foo@2.0.0`，两者要落到同一个目录名上，
+ *    `buildUnits()` 当场抛 3 —— **只要有任何一个 skill 发过第二个正式版本，
+ *    `install --all` 就永远跑不起来**（Codex 2026-08-30 抓到）。
+ *
+ *    `snapshot.latest` 是 promotion 算好、`parseSnapshot()` 校验过自洽的投影：
+ *    每个 `<kind>:<ns>/<name>` 一个版本，且已排除 yanked / degraded / prerelease。
+ *    这与 `commands/resolve.mjs` 顶上那条注释是同一条纪律 ——
+ *    「自己算就会和快照的 latest 投影分叉」。
+ *
+ * 🔴 **不含** pack、`deprecated`、`degraded`、`yanked`、prerelease。
+ *    `latest` 已经挡掉后三者；`deprecated` 与 pack 在这里挡。
+ *
+ * 🔴 `--allow-yanked` / `--pre` 在这里**不生效**：它们是针对「我知道我在装什么」
+ *    的具体制品的知情豁免，而 `--all` 恰恰是「我没有逐个看」。
+ *    把两者叠加等于用一个大开关授权了一批没人看过的例外。
+ */
+export function allInstallable(snap, client) {
+  const byId = new Map(snap.artifacts.map((r) => [r.id, r]));
+  const out = [];
+  for (const [key, version] of Object.entries(snap.latest ?? {})) {
+    if (!key.startsWith('skill:')) continue;                  // pack 不进
+    const rec = byId.get(`${key}@${version}`);
+    if (rec === undefined) {
+      // 🔴 **不静默跳过。** `parseSnapshot()` 已经把 latest 的**键集**（E_LATEST_KEYS）
+      //    与**取值**（E_LATEST_VALUE）都校死了 —— 走到这里只可能是两种情况：
+      //    ① 有人把一份没过校验的快照传了进来；② parseSnapshot 有洞。
+      //    两种都是我们自己的 bug，`continue` 会把它们掩盖成「名单少了一个」。
+      //    抛普通 Error → classify 落到 2 且 `unclassified: true`，
+      //    人类输出会以「内部错误（CLI 自身的 bug，不是制品有问题）」开头 —— 正是这一格。
+      throw new Error(`snapshot.latest[${key}] = ${version}，但 artifacts 里没有 ${key}@${version}`);
+    }
+    if (rec.status !== 'published') continue;                 // deprecated 不进
+    if (rec.clients.length === 0 || !rec.clients.includes(client)) continue;
+    out.push(rec);
+  }
+  return out.sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id)));
+}
+
+/**
+ * §3 的全量确认。
+ *
+ * · 交互式：列出**完整名单与数量**，要求输入**数量数字**（不是敲回车）；
+ * · 非交互：必须 `--yes-i-really-want-everything`，🔴 `--yes` **不够**；
+ * · 一律打印告警：装太多 skill 会让 agent 的路由判定互相竞争。
+ */
+export async function confirmAll(ctx, out, list) {
+  const tty = ctx.stdin?.isTTY === true;
+  // 🔴 这条告警**无论走哪条分支都要打**（§3 末句「一律打印告警」），
+  //    包括名单为空、以及已经给了 --yes-i-really-want-everything 的自动化路径。
+  out.warn(
+    `--all 会装 ${list.length} 个 skill。装太多 skill 会让 agent 的路由判定互相竞争 ——`
+    + '日常「一键装一组」的正确入口是 `install pack:<name>`。',
+  );
+  // 🔴 **「这个 flag 在这里不起作用」也要在空名单时说。** 它是对用户输入的如实反馈，
+  //    与名单里有几个东西无关（Codex 2026-08-30 复查）。
+  if (tty && ctx.yesEverything) {
+    out.warn('--yes-i-really-want-everything 仅在**非交互**下使用（09-cli.md §2），当前是终端 —— 本次忽略它。');
+  }
+  if (list.length === 0) return;      // 没东西可确认，也没有门要过
+
+  if (!tty) {
+    if (ctx.yesEverything) return;
+    throw new UsageError(
+      `非交互下 --all 必须显式给 --yes-i-really-want-everything（09-cli.md §3）。\n`
+      + `  🔴 --yes **不够** —— 它跳过的是「可跳过的确认」，而这一条不可跳过。\n`
+      + `  本次会装 ${list.length} 个：${list.map((r) => r.name).join(', ')}`,
+    );
+  }
+
+  // 🔴 **交互式没有跳过的余地。** 09-cli.md §2 的表里写死了
+  //    `--yes-i-really-want-everything` 是「**仅** `--all` 在非交互下使用」——
+  //    它不是「确认的第二种写法」，而是「没有终端可问时的替代品」。
+  //    在 TTY 下让它跳过名单，等于把「逐条看过」这件事悄悄取消掉（Codex 2026-08-30）。
+  out.line(`--all 会装下面 ${list.length} 个 skill：`);
+  for (const r of list) out.line(`  ${r.name.padEnd(32)}${r.id}`);
+  out.line(`请输入数量 ${list.length} 以确认（回车不算确认）：`);
+  const answer = await readLine(ctx.stdin);
+  if (answer.trim() !== String(list.length)) {
+    throw new UsageError(
+      `未确认：需要输入数量 ${list.length}，实际得到 ${JSON.stringify(answer.trim())}。什么都没做。`,
+      { telemetryReason: 'user-abort' },
+    );
+  }
+}
+
+function readLine(stdin) {
+  return new Promise((resolve, reject) => {
+    // 🔴 **先看它还能不能读**：只挂 data/end/error 的话，一个已经 end 或被 destroy
+    //    的 stdin 会让这个 Promise **永远 pending** —— 命令挂死，没有任何输出
+    //    （Codex 2026-08-30）。判据是 `readableEnded` / `destroyed`，
+    //    并且额外监听 `close`（destroy 后只发这一个）。
+    if (stdin === null || stdin === undefined) { resolve(''); return; }
+    if (stdin.readableEnded === true || stdin.destroyed === true) { resolve(''); return; }
+    let buf = '';
+    const onData = (chunk) => {
+      buf += chunk.toString('utf8');
+      const nl = buf.indexOf('\n');
+      if (nl === -1) return;
+      cleanup();
+      resolve(buf.slice(0, nl));
+    };
+    const onEnd = () => { cleanup(); resolve(buf); };
+    const onErr = (e) => { cleanup(); reject(e); };
+    const cleanup = () => {
+      stdin.removeListener('data', onData);
+      stdin.removeListener('end', onEnd);
+      stdin.removeListener('close', onEnd);
+      stdin.removeListener('error', onErr);
+      stdin.pause?.();
+    };
+    stdin.on('data', onData);
+    stdin.on('end', onEnd);
+    stdin.on('close', onEnd);
+    stdin.on('error', onErr);
+    stdin.resume?.();
+  });
+}
+
 export async function cmdInstall(ctx, argv, out) {
   const specs = [];
+  let isAll = false;
   for (const a of argv) {
-    if (a === '--all') {
-      throw new UsageError(
-        '`install --all` 是 M2 的能力（09-cli.md §1 的阶段列）。'
-        + '日常「一键装一组」的正确入口是 `install pack:<name>` —— 那也在 M2。',
-      );
-    }
+    if (a === '--all') { isAll = true; continue; }
     if (a.startsWith('-')) throw new UsageError(`install 不认得 flag ${a}`);
     specs.push(a);
   }
-  if (specs.length === 0) throw new UsageError('用法：skills-hub install <spec>…（至少一条）');
+  // 🔴 `--all` 与显式 spec **不混用**。`--all` 已经把「全部可装的 skill」都含进去了，
+  //    再点名一条要么是冗余、要么是用户以为能改变 `--all` 的范围 —— 两种都该问清楚，
+  //    不该猜。（规范没写这个组合，那就不给「合理默认」。）
+  if (isAll && specs.length) {
+    throw new UsageError(`--all 不与显式 spec 混用（多给了：${specs.join(' ')}）。--all 已经含全部可装的 skill。`);
+  }
+  if (!isAll && specs.length === 0) throw new UsageError('用法：skills-hub install <spec>…（至少一条），或 install --all');
 
   const queries = specs.map(parseSpec);
 
@@ -332,7 +466,7 @@ export async function cmdInstall(ctx, argv, out) {
 
   // `--create-missing <client>` 点名时，只对点到的那几个 client 生效
   const named = Array.isArray(ctx.createMissing) ? new Set(ctx.createMissing) : null;
-  const selected = tplan.selected.filter((t) => !t.willCreate || ctx.createMissing === 'all' || named?.has(t.client));
+  let selected = tplan.selected.filter((t) => !t.willCreate || ctx.createMissing === 'all' || named?.has(t.client));
   for (const t of tplan.selected) {
     if (t.willCreate && !selected.includes(t)) {
       out.warn(`${t.client}/${t.scope} 的目录不存在，且 --create-missing 没有点到它：跳过`);
@@ -341,13 +475,21 @@ export async function cmdInstall(ctx, argv, out) {
 
   // §6 第 0 条：`skipped: 目录不存在` / `skipped: unsupported` **算成功**
   for (const s of tplan.skipped) out.note(`跳过 ${s.client}/${s.scope}：${s.reason} —— ${s.message}`);
+  // 🔴 `tplan.skipped` 是**冻结**的（adapters 那边 Object.freeze 过）——
+  //    往里 push 会抛 `Cannot add property 0, object is not extensible`，
+  //    而且那是 TypeError、会被 classify 判成「CLI 自身的 bug」。自己留一份可变的。
+  const skippedRows = [...tplan.skipped];
 
   if (selected.length === 0) {
+    // 🔴 §3 的告警是「一律」，这条路径也不例外（Codex 2026-08-30 复查）。
+    //    ⚠️ 这里**还没解析快照**，所以说不出「会装几个」—— 如实只说结论，
+    //    不为了凑格式去解析一张这条路径根本用不上的快照。
+    if (isAll) out.warn('--all：没有可安装的 target（全部跳过），本次什么都不会装。');
     out.line('没有可安装的 target（全部跳过）。');
-    for (const s of tplan.skipped) out.line(`  skipped  ${s.client}/${s.scope}  ${s.reason}`);
+    for (const s of skippedRows) out.line(`  skipped  ${s.client}/${s.scope}  ${s.reason}`);
     return out.emit('install', {
       targets: [],
-      skipped: tplan.skipped.map((s) => ({ client: s.client, reason: s.reason, scope: s.scope })),
+      skipped: skippedRows.map((s) => ({ client: s.client, reason: s.reason, scope: s.scope })),
     }, EXIT.OK);
   }
 
@@ -391,31 +533,83 @@ export async function cmdInstall(ctx, argv, out) {
     for (const sk of p.plan.skipped) out.warn(`${p.record.id}：跳过成员 ${sk.id} —— ${SKIP_REASON[sk.why] ?? sk.why}`);
   }
 
-  // 🔴 **pack 自己不落成 skills/ 下的目录。** pack 是引用不是容器（03-packs.md §1）：
-  //    它的载荷只有 pack.json 与说明文档，账本里它是一条 **root**，不是 entry。
+  // 🔴 **单元集合是 per-client 的，不是全局一份。**
+  //    `--all` 的定义里就含「**且声明支持该 target client** 的制品」（§3）——
+  //    两个 client 的名单本来就不一样。早先 records 是所有 target 共用一份，
+  //    那对显式 spec 成立（你点名了，它装不上就是硬错误），对 `--all` 不成立。
+  //
+  // 🔴 **pack 自己不落成 skills/ 下的目录**（03-packs.md §1）：它的载荷只有
+  //    pack.json 与说明文档，账本里它是一条 **root**，不是 entry。
   //    要把 pack 的载荷摊成目录树是 `vendor` 干的事，不是 install。
-  const { units, rootSpecs } = buildUnits(records, packInfos);
-
-  // 客户端兼容性：record.clients 声明支持哪些 client
+  const perClient = new Map();
   for (const t of selected) {
-    const bad = records.filter((r) => r.clients.length > 0 && !r.clients.includes(t.client));
-    if (bad.length) {
-      throw new ConflictError(
-        `${bad.map((r) => r.id).join(', ')} 未声明支持 client=${t.client}`
-        + `（声明的是 ${bad[0].clients.join(', ') || '(空)'}）`,
-        { telemetryReason: 'unsupported-client' },
-      );
+    if (perClient.has(t.client)) continue;
+    if (isAll) {
+      const recs = allInstallable(snap, t.client);
+      perClient.set(t.client, {
+        records: recs, packInfos: [], ...buildUnits(recs, [], { allSnapshot: snap.snapshot }),
+      });
+    } else {
+      // 显式 spec：装不上是**硬错误**（用户点名了它）
+      const bad = records.filter((r) => r.clients.length > 0 && !r.clients.includes(t.client));
+      if (bad.length) {
+        throw new ConflictError(
+          `${bad.map((r) => r.id).join(', ')} 未声明支持 client=${t.client}`
+          + `（声明的是 ${bad[0].clients.join(', ') || '(空)'}）`,
+          { telemetryReason: 'unsupported-client' },
+        );
+      }
+      perClient.set(t.client, { records, packInfos, ...buildUnits(records, packInfos) });
     }
+  }
+
+  if (isAll) {
+    // 🔴 **名单为空的 client 整个跳过，不要走一个空事务。**
+    //    实测（2026-08-30 探针）：不跳的话它照样 bootstrap 出 `.geoly`、烧掉一代
+    //    generation，并写进一条 `all@snapshot:N` root —— 而**没有任何 entry 指向它**。
+    //    那正是悬挂 root，与 orphanRootsAfter() 要消灭的是同一个东西；
+    //    这里是自己制造一个，只不过因为它属于「本次要写入的 root」而被 GC 放过。
+    //    §6 第 0 条：`skipped` 算成功。
+    for (const t of selected) {
+      if (perClient.get(t.client).units.length > 0) continue;
+      skippedRows.push({
+        client: t.client, scope: t.scope, reason: 'nothing-installable',
+        message: `快照 ${snap.snapshot} 里没有声明支持 ${t.client} 的可装 skill`,
+      });
+      out.note(`跳过 ${t.client}/${t.scope}：nothing-installable —— 快照里没有支持它的可装 skill`);
+    }
+    selected = selected.filter((t) => perClient.get(t.client).units.length > 0);
+    if (selected.length === 0) {
+      // 🔴 §3 的告警是「一律」—— 这条早退路径也要走一遍 confirmAll（空名单下
+      //    它只打告警就返回，没有门要过）。早先直接 return，那条告警就漏了。
+      await confirmAll(ctx, out, []);
+      out.line('--all：没有任何 target 有可装的 skill。');
+      return out.emit('install', {
+        installed: [],
+        skipped: skippedRows.map((x) => ({ client: x.client, reason: x.reason, scope: x.scope })),
+        snapshot: snap.snapshot,
+        targets: [],
+      }, EXIT.OK);
+    }
+
+    // §3 的全量确认。🔴 **必须在任何磁盘写入之前** —— 下面就要建 target 目录了。
+    const union = new Map();
+    for (const v of perClient.values()) for (const r of v.records) union.set(r.id, r);
+    const list = [...union.values()].sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id)));
+    for (const [flag, on] of [['--pre', ctx.pre], ['--allow-yanked', ctx.allowYanked], ['--no-bundled', ctx.noBundled]]) {
+      if (on) out.warn(`${flag} 在 --all 下**不生效**（§3 的名单本就排除 prerelease/yanked，且 --all 不装 pack）：已忽略，也不会写进账本的 intent。`);
+    }
+    await confirmAll(ctx, out, list);
   }
 
   // ── §8.2 遮蔽：项目级安装 vs 全局同名 ───────────────────────────────────
   // 🔴 判据是**真正会落盘的目录名**（= 单元名），不是用户敲的 spec。
   //    装 pack 时落盘的是它的成员，`records.map(r => r.name)` 会拿到 pack 自己的名字
   //    —— 那个名字根本不会出现在 skills/ 下，于是遮蔽检测**一个都查不到**。
-  const names = units.map((u) => u.name);
   const shadowInfo = new Map();
   if (ctx.scope === 'project') {
     for (const t of selected) {
+      const names = perClient.get(t.client).units.map((u) => u.name);
       const d = detectShadowed(names, { client: t.client, home: ctx.home, env: ctx.env });
       shadowInfo.set(t.client, d);
       if (d.shadowed.length && !ctx.shadowGlobal) {
@@ -473,7 +667,7 @@ export async function cmdInstall(ctx, argv, out) {
         const t = byPath.get(o.path);
         const started = Date.now();
         try {
-          const r = installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor, pinned, out, verifier });
+          const r = installOneTarget(ctx, t, perClient.get(t.client), { snap, floor, pinned, out, verifier });
           results.push({
             ...r, client: t.client, scope: t.scope, target: t.target, ok: true, ms: Date.now() - started,
           });
@@ -489,7 +683,7 @@ export async function cmdInstall(ctx, argv, out) {
   );
 
   // ── 埋点（🔴 事务之外、收尾处；record 不抛，也不放进关键路径）───────────
-  emitTelemetry(ctx, results, records, snap);
+  emitTelemetry(ctx, results, perClient, snap);
 
   // ── §7：逐 target 结果表，即使全部成功。**不允许只打一句 done。** ────────
   const okCount = results.filter((r) => r.ok).length;
@@ -498,8 +692,10 @@ export async function cmdInstall(ctx, argv, out) {
   for (const r of results) {
     const a = annotations({
       stale, offline: ctx.offline,
-      yanked: records.some((x) => x.status === 'yanked'),
-      degraded: records.some((x) => x.status === 'degraded'),
+      // 🔴 标注按**这个 target 自己的**名单算：--all 下两个 client 的名单不一样，
+      //    拿全局一份去标会让一行显示别人的状态。
+      yanked: (perClient.get(r.client)?.records ?? []).some((x) => x.status === 'yanked'),
+      degraded: (perClient.get(r.client)?.records ?? []).some((x) => x.status === 'degraded'),
       shadowed: (shadowInfo.get(r.client)?.shadowed.length ?? 0) > 0,
     });
     out.line(`  ${r.ok ? 'ok      ' : 'failed  '}${r.client}/${r.scope}  ${r.target}${annotationSuffix(a)}`);
@@ -515,9 +711,11 @@ export async function cmdInstall(ctx, argv, out) {
 
   const body = {
     duration_ms: Date.now() - t0,
-    installed: records.map((r) => ({ artifact: r.id, name: r.name, status: r.status, version: r.version })),
+    installed: [...new Map([...perClient.values()].flatMap((v) => v.records).map((r) => [r.id, r])).values()]
+      .sort((a, b) => Buffer.compare(Buffer.from(a.id), Buffer.from(b.id)))
+      .map((r) => ({ artifact: r.id, name: r.name, status: r.status, version: r.version })),
     pinned_snapshot: pinned ? snap.snapshot : undefined,
-    skipped: tplan.skipped.map((s) => ({ client: s.client, reason: s.reason, scope: s.scope })),
+    skipped: skippedRows.map((s) => ({ client: s.client, reason: s.reason, scope: s.scope })),
     snapshot: snap.snapshot,
     targets: results.map((r) => ({
       annotations: r.annotations,
@@ -602,16 +800,25 @@ function installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor
     //    绝不在下载 / stage / 「某个成员装成功了」的时刻改（pack.mjs 那一节写死了）。
     const intent = { no_bundled: ctx.noBundled, pre: ctx.pre };
     if (ctx.allowYanked) intent.allow_yanked = true;      // 账本如实记录本机历史
+    // 🔴 **`all` root 的 intent 不写那两个在它身上不生效的 flag。**
+    //    `--pre` / `--allow-yanked` 对 `--all` 的名单没有任何影响（见 allInstallable），
+    //    可它们照样会被写进 root ——「意图」于是与**实际发生的事**不符，
+    //    而 `pre: true` 还会跟着投影进项目 lockfile（Codex 2026-08-30）。
+    //    账本记的是本机历史，历史必须是真的。
+    //    `no_bundled` 同理：`--all` 不装 pack，也就没有 bundled 可跳过。
+    const allIntent = { no_bundled: false, pre: false };
     const roots = {};
     for (const rs of rootSpecs) {
-      roots[rs.key] = {
-        artifact: rs.artifact,
-        intent,
-        kind: rs.kind,
-        requested_at: at,
-        snapshot: snap.snapshot,
-        tree_digest: rs.tree_digest,
-      };
+      roots[rs.key] = rs.kind === 'all'
+        ? { intent: allIntent, kind: 'all', requested_at: at, snapshot: snap.snapshot }
+        : {
+          artifact: rs.artifact,
+          intent,
+          kind: rs.kind,
+          requested_at: at,
+          snapshot: snap.snapshot,
+          tree_digest: rs.tree_digest,
+        };
     }
 
     const installReqs = [];
@@ -667,11 +874,12 @@ function installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor
   });
 }
 
-function emitTelemetry(ctx, results, records, snap) {
+function emitTelemetry(ctx, results, perClient, snap) {
   const rec = ctx.record;
   if (!rec) return;
   for (const r of results) {
-    for (const a of records) {
+    // 🔴 每个 target 记的是**它自己那份名单**（--all 下按 client 各不相同）
+    for (const a of perClient.get(r.client)?.records ?? []) {
       // 🔴 `reason` 只能来自 REASONS 有限代码表；`record()` 自己不抛，但传错值会被它内部
       //    的 assertValidEvent 拒掉并静默丢事件 —— 所以 reason 由 classify() 产出。
       rec({
