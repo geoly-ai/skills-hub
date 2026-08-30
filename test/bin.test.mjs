@@ -72,3 +72,26 @@ test('🔴 rmtreeFsync 遇到「看不见」不能当成「不存在」', async 
   rmtreeFsync(dangling);
   assert.throws(() => lstatSync(dangling), /ENOENT/, '断链必须被真的删掉，而不是被当成不存在跳过');
 });
+
+test('🔴 src/ 与 scripts/ 里不得出现字面 NUL 字节', async () => {
+  // 一个字面 NUL 会让整个源文件被判为**二进制**：`file(1)` 报 `data`，
+  // 而带 `-I` 的 grep（ripgrep / ugrep 默认就带）会**整文件跳过**。
+  // 后果不是报错，是**静默漏搜** —— `grep 'export' src/pack.mjs` 返回空，
+  // 读起来像「这个文件没有导出任何东西」。2026-08-30 在 pack.mjs 上真的踩过：
+  // `normalizeContractText` 的哨兵写成了字面 NUL，改成 `\u0000` 转义即可，
+  // 两者运行时完全等价。这条门就是防它再长回来。
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const hits = [];
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const p = join(d, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!/\.(mjs|js|json|md|sh)$/.test(e.name)) continue;
+      if (readFileSync(p).includes(0)) hits.push(p.slice(repo.length + 1));
+    }
+  };
+  for (const sub of ['src', 'scripts']) walk(join(repo, sub));
+  assert.deepEqual(hits, [], `这些文件里有字面 NUL，会被 grep -I 整文件跳过：${hits.join(', ')}`);
+});

@@ -212,12 +212,17 @@ export function contractPathsChanged(current, previous = []) {
  * ⚠️ 仍有残余绕过面：把实质变更藏进一个日期字面量里（`2026-01-01` → `1999-12-31`）
  * 本门看不见。规范原文就是这么写的，这条如实记在交付汇报里。
  */
+// 🔴 哨兵用 `\u0000` **转义**写，不写字面 NUL 字节。
+// 两者运行时完全等价，但字面 NUL 会让整个源文件被当成**二进制**：
+// `file(1)` 报 `data`，而 `grep -I`（ripgrep / ugrep 默认就带）会**整文件跳过** ——
+// 于是 `grep 'export' src/pack.mjs` 返回空，看起来像“这个文件没有导出”。
+// 它不报错、不测失败，只是让搜索静默地漏掉本文件。
 function normalizeContractText(buf, { currentVersion, previousVersion }) {
   let s = buf.toString('utf8');
   for (const v of [currentVersion, previousVersion]) {
-    if (typeof v === 'string' && v !== '') s = s.split(v).join(' VERSION ');
+    if (typeof v === 'string' && v !== '') s = s.split(v).join('\u0000VERSION\u0000');
   }
-  return s.replace(/\d{4}-\d{2}-\d{2}/g, ' DATE ');
+  return s.replace(/\d{4}-\d{2}-\d{2}/g, '\u0000DATE\u0000');
 }
 
 /**
