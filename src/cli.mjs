@@ -14,7 +14,7 @@ import { Output } from './commands/output.mjs';
 import { createCacheRegistry } from './commands/registry.mjs';
 import { EXIT, classify, UsageError } from './exit-codes.mjs';
 
-const HELP = `skills-hub —— geoly skill 分发（M1）
+const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的 vendor）
 
 命令：
   install <spec>…                    装制品（direct；pack 与 --all 在 M2）
@@ -25,6 +25,8 @@ const HELP = `skills-hub —— geoly skill 分发（M1）
   sync-lock                          在 repo 锁下重算 geoly-skills.lock.json
   recover [--continue|--rollback|--reinstall] [--from-generation N [--only x]…]
           [--reset-generation N] [--resume-cleanup]
+  vendor <pack-spec> --out <dir> [--layout flat]
+                                     把 pack 与全部成员物化成一棵目录树（不走安装账本）
 
   stats [--json] [--export <file>]   本地埋点报表
   telemetry <status|flush>           埋点/上报开关与队列
@@ -58,6 +60,7 @@ const COMMANDS = {
   check: () => import('./commands/check.mjs').then((m) => m.cmdCheck),
   'sync-lock': () => import('./commands/sync-lock.mjs').then((m) => m.cmdSyncLock),
   recover: () => import('./commands/recover.mjs').then((m) => m.cmdRecover),
+  vendor: () => import('./commands/vendor.mjs').then((m) => m.cmdVendor),
 };
 
 /**

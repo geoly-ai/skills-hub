@@ -13,6 +13,10 @@ import { acquire } from './lock.mjs';
 
 export const KINDS = new Set([
   'install', 'update', 'remove', 'check', 'rollback', 'recover', 'sync-lock',
+  // 🔴 `vendor` 记的是「物化了哪个 pack」，**没有** client / scope ——
+  //    它写的是用户仓库里的目录，不是某个 client 的 skills 目录（03-packs.md §6）。
+  //    两个字段本来就是可选的，所以缺席是如实描述，不是漏填。
+  'vendor',
 ]);
 export const RESULTS = new Set(['ok', 'skipped', 'failed', 'corrupt']);
 

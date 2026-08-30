@@ -57,7 +57,10 @@ Codex 2026-08-26 一眼指出三个绕过：`client: { path: '/Users/a' }` 值�
 artifact: ^(skill|pack):[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*@[0-9A-Za-z.+-]{1,32}$
 ```
 
-`kind` 枚举：`install` / `update` / `remove` / `check` / `rollback` / `recover` / `sync-lock`。
+`kind` 枚举：`install` / `update` / `remove` / `check` / `rollback` / `recover` / `sync-lock` / `vendor`。
+
+> `vendor` 事件**不带** `client` / `scope`：它物化的是用户仓库里的目录，
+> 不属于任何一个 client 的 skills 目录（03-packs.md §6）。
 
 ### 2.0 四个边界，同一个校验器
 
