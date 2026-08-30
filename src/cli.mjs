@@ -14,10 +14,10 @@ import { Output } from './commands/output.mjs';
 import { createCacheRegistry } from './commands/registry.mjs';
 import { EXIT, classify, UsageError } from './exit-codes.mjs';
 
-const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的 vendor）
+const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的 vendor / install pack:）
 
 命令：
-  install <spec>…                    装制品（direct；pack 与 --all 在 M2）
+  install <spec>…                    装制品（skill 与 pack:；--all 仍在做）
   list [--packs|--installed|--outdated]
   search <kw>…
   check                              两阶段校验（字节 / 现在还该不该用）

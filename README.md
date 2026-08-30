@@ -37,11 +37,11 @@ skills-hub --help
 |---|---|
 | **M0 · 制品与信任模型** | ✅ 已通过（v45，2026-08-25） |
 | **M1 · 只读分发** | ✅ **已完成并发布 0.1.0** —— resolve / install / recover / check / list-search-why / sync-lock |
-| **M2 · pack 与受控 catalog** | 🚧 库层已就绪（packer / pack / vendor），命令面与 promotion 未接 |
+| **M2 · pack 与受控 catalog** | 🚧 进行中 —— `vendor` 与 `install pack:` 已接线；`install --all` 与 promotion 未接 |
 | M3 · 投稿与审核 | — |
 | M4 · update / remove | — |
 
-**868 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
+**901 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
 逐个反向命中）是 CI 的合并门。
 
 ### 🔴 0.1.0 明确**没有**做到的

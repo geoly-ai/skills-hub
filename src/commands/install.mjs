@@ -18,6 +18,8 @@ import { mkdirChainFsync } from '../atomic-fs.mjs';
 import { planTargets, assertPlanOk, getAdapter, STATE_DIR } from '../adapters/index.mjs';
 import { precheckTarget, assertPrecheckOk, missingGitignorePatterns, gitignoreHint } from '../target.mjs';
 import { withVerifiedArtifact } from '../artifact.mjs';
+import { validatePackManifest, resolvePackInstall, addRequestedBy, conflictMatches } from '../pack.mjs';
+import { withPackErrors } from './pack-errors.mjs';
 import { layout, readLedger, bootstrapLedger, nextGeneration, ensureGenerationWatermark } from '../ledger.mjs';
 import { derivePlan } from '../plan.mjs';
 import { runTransaction, nowUtc } from '../install.mjs';
@@ -99,6 +101,204 @@ export function detectShadowed(names, { client, home, env }) {
   return { globalTarget, shadowed: hit };
 }
 
+/** `skipped[].why` → 人类文案（与 commands/vendor.mjs 同一张表的语义）。 */
+const SKIP_REASON = Object.freeze({
+  __proto__: null,
+  'no-bundled': '--no-bundled 跳过（role: tool）',
+  'bundled-yanked': '🔴 bundled 成员已被 yank —— 按 03-packs.md §5 跳过，pack 仍是 published',
+  'bundled-degraded': '🔴 bundled 成员是 degraded 的 pack —— 按 §5 的同一条跳过',
+});
+
+/**
+ * 把「用户敲的 spec」摊成「真正会落盘的单元」+「账本里的 root」。
+ *
+ * - `direct:<artifact-id>` root ↔ 该 skill 本身一个单元；
+ * - `pack:<ns>/<name>@<ver>` root ↔ 它 §4 解析出来的**每个成员**一个单元。
+ *
+ * 🔴 **同名必须合并成一个单元，不能变成两个计划项。** `derivePlan` 的 `claim()`
+ *    对同一事务里重复的 `name` 直接抛错；而「同一个 skill 被一个 pack 和一条 direct
+ *    同时请求」「两个 pack 共享一个成员」都是完全正常的现场。合并之后
+ *    `requested_by` 带两个 root key —— 这正是 §4.1 refcount 想要的形状。
+ *
+ * 🔴 同名但**不同制品**（版本不同、或 namespace 不同）→ 拒绝，不猜。
+ *    它们要落到同一个目录名上，谁覆盖谁没有正确答案。
+ */
+export function buildUnits(records, packInfos) {
+  const byName = new Map();
+  const rootSpecs = [];
+  const add = (record, rootKey) => {
+    const cur = byName.get(record.name);
+    if (cur === undefined) {
+      byName.set(record.name, { name: record.name, record, requestedBy: [rootKey] });
+      return;
+    }
+    if (cur.record.id !== record.id) {
+      throw new ConflictError(
+        `目录名 ${record.name} 被两个不同的制品请求：${cur.record.id} 与 ${record.id}。\n`
+        + '  它们要落到同一个目录上，谁覆盖谁没有正确答案 —— 请只保留一个，'
+        + '或分别装到不同的 target。',
+        { telemetryReason: 'version-conflict' },
+      );
+    }
+    // 🔴 去重 + 字节序升序由 addRequestedBy 保证（ledger.validateEntry 就是这么校的）
+    cur.requestedBy = addRequestedBy(cur.requestedBy, rootKey);
+  };
+
+  for (const r of records) {
+    if (r.kind === 'pack') continue;      // pack 的单元来自它的成员，见下
+    const key = `direct:${r.id}`;
+    rootSpecs.push({ key, kind: 'direct', artifact: r.id, tree_digest: r.tree_digest });
+    add(r, key);
+  }
+  for (const p of packInfos) {
+    // 🔴 pack root 的 key **就是 ArtifactId 本身**（它已经以 `pack:` 开头），
+    //    不再加 `direct:` 前缀 —— 见 pack.parseRootKey 的 grammar。
+    const key = p.record.id;
+    rootSpecs.push({ key, kind: 'pack', artifact: p.record.id, tree_digest: p.record.tree_digest });
+    for (const m of p.plan.install) add(m.record, key);
+  }
+  return { units: [...byName.values()], rootSpecs };
+}
+
+/**
+ * 单个单元的 `requested_by`，以及它牵连的**旧 root 去留**。
+ *
+ * 🔴 `buildLedgerImage()` 是拿 `req.requested_by` **整个覆盖**的，不做合并 ——
+ *    所以合并只能在这里做，且必须做：不合并的话「先 direct 装了 x，
+ *    再装一个也含 x 的 pack」会把 direct 那条边抹掉，M4 的 `remove` 就会
+ *    在还有人要它的时候把目录删掉。
+ *
+ * 🔴 **制品变了（换版本）时不合并旧边** —— 旧 root 请求的是旧版本，这个目录
+ *    已经不再满足它；留着那条边是说谎，还会让 `remove` 永远删不掉。
+ *    但**丢掉边还不够**：Codex 2026-08-30 指出那样会留下「root 还在、没有任何
+ *    entry 指向它」的**悬挂 root**，投影进 lockfile 就是一条假记录。
+ *    所以本函数把失去引用的旧 root 一并交出来（`orphanedRoots`），
+ *    由调用方放进**同一个** `ledger_image.post` 的 `removeRoots` 里。
+ *
+ * 🔴 **旧边里有 pack root 时直接拒绝换版本。** pack.json 锁的是成员的
+ *    **精确版本 + tree_digest**（03-packs.md §2）；把它的成员目录换成别的版本，
+ *    等于在用户看不见的地方把矩阵的锁弄断，而 pack 自己仍然显示 published。
+ *    这条的正确出口是 §4.2 的 `update pack:`（M4），不是让 install 悄悄干掉它。
+ *
+ * @returns {{requested_by:string[], orphanedRoots:string[]}}
+ */
+export function planEntryRefs(ledger, record, incoming) {
+  const old = ledger.entries?.[record.name];
+  let list = [...incoming];
+  if (!old) return { requested_by: list, orphanedRoots: [] };
+  if (old.artifact === record.id) {
+    for (const k of old.requested_by ?? []) list = addRequestedBy(list, k);
+    return { requested_by: list, orphanedRoots: [] };
+  }
+  const dropped = (old.requested_by ?? []).filter((k) => !list.includes(k));
+  const packRoots = dropped.filter((k) => k.startsWith('pack:'));
+  if (packRoots.length) {
+    throw new ConflictError(
+      `${record.name} 现在是 ${old.artifact}，由 pack 锁定：${packRoots.join(', ')}。\n`
+      + `  换成 ${record.id} 会**弄断那个 pack 的锁** —— pack.json 锁的是成员的精确版本\n`
+      + '  与 tree_digest（03-packs.md §2），而 pack 自己仍然会显示 published。\n'
+      + '  正确出口是 `update pack:<name>`（04-install.md §4.2，M4），不是让 install 悄悄改掉它。',
+      { telemetryReason: 'version-conflict' },
+    );
+  }
+  return { requested_by: list, orphanedRoots: dropped };
+}
+
+/**
+ * 本次事务结束后，哪些 root 已经没有任何 entry 指向。
+ *
+ * 🔴 判据必须是**事务后的全景**，不是「这一条 entry 掉了哪些边」：
+ *    一个 pack root 有 a、b 两个成员，只有 a 换了制品时它**没有**变成孤儿。
+ */
+export function orphanRootsAfter(ledger, installReqs, retireNames) {
+  const after = new Map();
+  for (const [name, e] of Object.entries(ledger.entries ?? {})) after.set(name, e.requested_by ?? []);
+  for (const n of retireNames) after.delete(n);
+  for (const r of installReqs) after.set(r.name, r.requested_by);
+  const live = new Set();
+  for (const list of after.values()) for (const k of list) live.add(k);
+  return Object.keys(ledger.roots ?? {}).filter((k) => !live.has(k)).sort();
+}
+
+/**
+ * §4 解析顺序第 4 步：`conflicts` 与**事务后的全景**比对。
+ *
+ * 🔴 判据不能只看账本现状（Codex 2026-08-30 P1）。「不能共存」说的是**最终状态**，
+ *    而最终状态包含本次要装的东西：空 target 上 `install pack:A skill:ns/x`，
+ *    A 的 conflicts 命中 x 时账本是空的、检查通过，最后两个一起落盘 ——
+ *    这道门就白设了。所以候选集 = 账本已有 entry ∪ 本次单元 ∪ 本次的 pack 本体。
+ *
+ * 🔴 `--replace <name>` 是 §4 第 4 步给的唯一出路，但它**必须真的把那条 entry
+ *    退掉**（Codex 同轮 P1）。早先只是「跳过冲突检查」——而 `--replace` 在本仓库
+ *    的语义是「点名替换**未被账本认领**的同名目录」，对已认领 entry 什么都不做，
+ *    于是冲突双方照旧共存。那是最坏的一种：门看起来在，实际没拦住。
+ *    现在它产出一个 `retire` 计划项，与安装在**同一个事务**里。
+ *
+ * 🔴 **要退掉的 entry 由 pack 请求时拒绝**：那会把另一个 pack 的矩阵拆掉。
+ * 🔴 **本次事务内部的冲突没有 `--replace` 出路**：两样都是这条命令要装的，
+ *    退掉谁都不是用户表达过的意思 —— 让他自己改命令行。
+ *
+ * @returns {{retire:string[]}}
+ */
+export function planPackConflicts(packInfos, ledger, units, replace, target) {
+  // 候选：name → artifact id。本次单元覆盖账本里的同名项（它就要被换掉了）
+  const candidates = new Map();
+  for (const [name, e] of Object.entries(ledger.entries ?? {})) candidates.set(name, e.artifact);
+  const incoming = new Set(units.map((u) => u.name));
+  for (const u of units) candidates.set(u.name, u.record.id);
+
+  const retire = new Set();
+  const blocked = [];
+  const hit = (pack, pattern, name, artifact, inTx) => {
+    if (inTx) {
+      blocked.push({ pack, pattern, name, artifact, why: 'in-transaction' });
+      return;
+    }
+    if (!replace.has(name)) {
+      blocked.push({ pack, pattern, name, artifact, why: 'needs-replace' });
+      return;
+    }
+    const byPack = (ledger.entries[name]?.requested_by ?? []).filter((k) => k.startsWith('pack:'));
+    if (byPack.length) {
+      blocked.push({ pack, pattern, name, artifact, why: 'held-by-pack', holders: byPack });
+      return;
+    }
+    retire.add(name);
+  };
+
+  for (const p of packInfos) {
+    for (const pat of p.manifest.conflicts) {
+      // pack 本体之间的冲突（pack A 声明 conflicts: pack:ns/B）
+      for (const q of packInfos) {
+        if (q.record.id === p.record.id) continue;
+        if (conflictMatches(pat, q.record.id)) {
+          blocked.push({ pack: p.record.id, pattern: pat.raw, name: q.record.name, artifact: q.record.id, why: 'in-transaction' });
+        }
+      }
+      for (const [name, artifact] of candidates) {
+        // 🔴 pack 不与自己的成员冲突判定 —— 那是这个 pack 自相矛盾，另说；
+        //    但它**确实**该被拦下，所以这里不做例外，如实命中。
+        if (conflictMatches(pat, artifact)) hit(p.record.id, pat.raw, name, artifact, incoming.has(name));
+      }
+    }
+  }
+
+  if (blocked.length) {
+    const lines = blocked.map((b) => {
+      const head = `  ${b.name}（${b.artifact}）命中 ${b.pack} 的 conflicts: ${b.pattern}`;
+      if (b.why === 'in-transaction') return `${head}\n      —— 两样都是本次要装的，没有 --replace 出路：请改命令行`;
+      if (b.why === 'held-by-pack') return `${head}\n      —— 它由 pack 请求（${b.holders.join(', ')}），退掉会拆散那个矩阵`;
+      return `${head}\n      —— 出路：--replace ${b.name}（会在同一个事务里把它退掉）`;
+    });
+    throw new ConflictError(
+      `${target}：与 pack 声明的 conflicts 冲突（03-packs.md §4 第 4 步）：\n${lines.join('\n')}\n`
+      + '🔴 没有泛化的 --force。',
+      { telemetryReason: 'version-conflict' },
+    );
+  }
+  return { retire: [...retire].sort() };
+}
+
 export async function cmdInstall(ctx, argv, out) {
   const specs = [];
   for (const a of argv) {
@@ -114,11 +314,6 @@ export async function cmdInstall(ctx, argv, out) {
   if (specs.length === 0) throw new UsageError('用法：skills-hub install <spec>…（至少一条）');
 
   const queries = specs.map(parseSpec);
-  for (const q of queries) {
-    if (q.kind === 'pack') {
-      throw new UsageError(`pack 安装是 M2 的能力（09-cli.md §1 的阶段列）：${q.raw}`);
-    }
-  }
 
   // ── 目标解析（🔴 assertPlanOk 必须调） ──────────────────────────────────
   const tplan = planTargets({
@@ -160,11 +355,46 @@ export async function cmdInstall(ctx, argv, out) {
   const { snapshot: snap, stale, floor, pinned, verifier } = await resolveSnapshotForCommand(ctx);
   if (stale) out.warn('timestamp 已过期：本次输出全部按 stale 处理（--allow-stale 已给）');
 
-  const records = queries.map((q) => resolveSpec(snap, q, { pre: ctx.pre, allowYanked: ctx.allowYanked }));
+  // 🔴 **按 ArtifactId 去重。** 两条 spec 可以解析到同一个 record（`x` 与
+  //    `skill:geoly/x@0.1.0`），同一条也可以被写两遍。不去重的话它会被 fetch
+  //    与验签两次 —— 第二次取字节失败就让整条命令失败，而第一次明明已经验过了
+  //    （Codex 2026-08-30 P2）。埋点也会因此重复计数。
+  const resolved = queries.map((q) => resolveSpec(snap, q, { pre: ctx.pre, allowYanked: ctx.allowYanked }));
+  const records = [...new Map(resolved.map((r) => [r.id, r])).values()];
   for (const r of records) {
     if (r.status === 'yanked') out.warn(`🔴 ${r.id} 已被 yank，仍按 --allow-yanked 安装（会写进账本）`);
     if (r.status === 'deprecated') out.warn(`${r.id} 的状态是 deprecated`);
   }
+
+  // ── pack：取本体 → 验签 → 读 pack.json → §4 的成员解析 ─────────────────
+  // 🔴 **在进 target 循环之前做一次就够**：成员集合与 target 无关。
+  //    唯一与 target 有关的是 §4 第 3 步的 client 门，而 pack record 的 `clients`
+  //    本身就是「成员交集」（由 promotion 写进快照），所以它走下面那条**和 direct
+  //    完全同一个**的兼容性检查 —— 一处判定、一种文案。
+  //    因此这里 `client: null`：让 resolvePackInstall 只管成员，不重复判 client。
+  const byId = new Map(snap.artifacts.map((r) => [r.id, r]));
+  const packInfos = records.filter((r) => r.kind === 'pack').map((record) => {
+    const bytes = ctx.registry.fetchAsset(record);
+    const manifest = withPackErrors(() => withVerifiedArtifact(
+      { bytes, record }, (art) => validatePackManifest(art.manifest),
+    ));
+    const plan = withPackErrors(() => resolvePackInstall({
+      manifest,
+      packRecord: record,
+      lookup: (id) => byId.get(id),
+      intent: { noBundled: ctx.noBundled, allowYanked: ctx.allowYanked },
+      client: null,
+    }));
+    return { record, manifest, plan };
+  });
+  for (const p of packInfos) {
+    for (const sk of p.plan.skipped) out.warn(`${p.record.id}：跳过成员 ${sk.id} —— ${SKIP_REASON[sk.why] ?? sk.why}`);
+  }
+
+  // 🔴 **pack 自己不落成 skills/ 下的目录。** pack 是引用不是容器（03-packs.md §1）：
+  //    它的载荷只有 pack.json 与说明文档，账本里它是一条 **root**，不是 entry。
+  //    要把 pack 的载荷摊成目录树是 `vendor` 干的事，不是 install。
+  const { units, rootSpecs } = buildUnits(records, packInfos);
 
   // 客户端兼容性：record.clients 声明支持哪些 client
   for (const t of selected) {
@@ -179,7 +409,10 @@ export async function cmdInstall(ctx, argv, out) {
   }
 
   // ── §8.2 遮蔽：项目级安装 vs 全局同名 ───────────────────────────────────
-  const names = records.map((r) => r.name);
+  // 🔴 判据是**真正会落盘的目录名**（= 单元名），不是用户敲的 spec。
+  //    装 pack 时落盘的是它的成员，`records.map(r => r.name)` 会拿到 pack 自己的名字
+  //    —— 那个名字根本不会出现在 skills/ 下，于是遮蔽检测**一个都查不到**。
+  const names = units.map((u) => u.name);
   const shadowInfo = new Map();
   if (ctx.scope === 'project') {
     for (const t of selected) {
@@ -240,7 +473,7 @@ export async function cmdInstall(ctx, argv, out) {
         const t = byPath.get(o.path);
         const started = Date.now();
         try {
-          const r = installOneTarget(ctx, t, records, { snap, floor, pinned, out, verifier });
+          const r = installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor, pinned, out, verifier });
           results.push({
             ...r, client: t.client, scope: t.scope, target: t.target, ok: true, ms: Date.now() - started,
           });
@@ -306,7 +539,7 @@ export async function cmdInstall(ctx, argv, out) {
 }
 
 /** 单个 target 的第 2–10 步。 */
-function installOneTarget(ctx, t, records, { snap, floor, out, verifier }) {
+function installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor, out, verifier }) {
   const target = t.target;
   const P0 = layout(target);
   const onLedgerChanged = makeLockfileHook(ctx, { snap, verifier });
@@ -320,7 +553,9 @@ function installOneTarget(ctx, t, records, { snap, floor, out, verifier }) {
   assertPrecheckOk(pre);
 
   // ── 第 4 步：取字节 → 验签/验资产/解包/manifest 绑定 ────────────────────
-  const items = records.map((r) => ({ record: r, bytes: ctx.registry.fetchAsset(r) }));
+  // 🔴 取的是**单元**（真正会落盘的那些），不是用户敲的 spec ——
+  //    pack 本体不落盘，它的字节在 cmdInstall 里读 pack.json 时已经验过一遍。
+  const items = units.map((u) => ({ unit: u, record: u.record, bytes: ctx.registry.fetchAsset(u.record) }));
 
   // 🔴 作用域版包住**整个**事务：plan.sources 指向解包目录，回调一返回它就没了
   return withVerifiedArtifacts(items, join(target, STATE_DIR), (verified) => {
@@ -347,7 +582,7 @@ function installOneTarget(ctx, t, records, { snap, floor, out, verifier }) {
     //    但这在语义上是**冲突未解决**（§6 第 3 条）。在这里先判、抛 ConflictError，
     //    让退出码落对格 —— 不靠对内核的错误文案做正则。
     const replace = new Set(ctx.replace);
-    for (const r of records) {
+    for (const r of units) {
       const dir = join(target, r.name);
       if (!existsSync(dir)) continue;
       if (Object.hasOwn(L.entries, r.name)) continue;
@@ -359,38 +594,62 @@ function installOneTarget(ctx, t, records, { snap, floor, out, verifier }) {
       );
     }
 
+    // ── §4 第 4 步：conflicts 与**事务后的全景**比对（含本次要装的东西）────
+    const { retire } = planPackConflicts(packInfos, L, units, replace, target);
+    for (const n of retire) out.warn(`--replace ${n}：它命中了 pack 的 conflicts，本次事务会把它退掉`);
+
+    // 🔴 §4.1 refcount：roots 与 requested_by 只在这里（→ `ledger_image.post`）成形，
+    //    绝不在下载 / stage / 「某个成员装成功了」的时刻改（pack.mjs 那一节写死了）。
+    const intent = { no_bundled: ctx.noBundled, pre: ctx.pre };
+    if (ctx.allowYanked) intent.allow_yanked = true;      // 账本如实记录本机历史
     const roots = {};
+    for (const rs of rootSpecs) {
+      roots[rs.key] = {
+        artifact: rs.artifact,
+        intent,
+        kind: rs.kind,
+        requested_at: at,
+        snapshot: snap.snapshot,
+        tree_digest: rs.tree_digest,
+      };
+    }
+
     const installReqs = [];
     for (const v of verified) {
       const r = v.record;
-      const rootKey = `direct:${r.id}`;
-      const intent = { no_bundled: ctx.noBundled, pre: ctx.pre };
-      if (ctx.allowYanked) intent.allow_yanked = true;    // 账本如实记录本机历史
-      roots[rootKey] = {
-        artifact: r.id,
-        intent,
-        kind: 'direct',
-        requested_at: at,
-        snapshot: snap.snapshot,
-        tree_digest: r.tree_digest,
-      };
       installReqs.push({
         artifact: r.id,
         installed_at: at,
         name: r.name,
-        requested_by: [rootKey],
+        // 🔴 与账本里**已有**的 requested_by 合并 —— 但**只在制品没变**时。
+        //    buildLedgerImage 是拿 `req.requested_by` 整个覆盖的，不合并；
+        //    不带上旧的，「先 direct 装了 x，再装一个含 x 的 pack」就会把 direct
+        //    那条边悄悄抹掉，M4 的 `remove` 于是会把还有人要的目录删掉。
+        //    ⚠️ 制品**变了**（换版本）时不合并：旧 root 要的是旧版本，这个目录
+        //    已经不再满足它了。留着那条边是说谎，而 `remove` 会因此永远删不掉。
+        //    （换版本的正确语义是 §4.2 的 update，那是 M4。）
+        requested_by: planEntryRefs(L, r, v.unit.requestedBy).requested_by,
         snapshot: snap.snapshot,
         srcDir: v.art.dir,
         tree_digest: r.tree_digest,
       });
     }
 
+    // 🔴 事务后没有任何 entry 指向的 root 一并删掉 —— 与安装在**同一个**
+    //    `ledger_image.post` 里（04-install.md §5.2 第 9 步）。
+    //    不删就会留下「root 还在、没人指向它」的悬挂记录，投影进 lockfile 即是假记录。
+    //    ⚠️ 判据是**事务后的全景**：一个 pack root 只要还有别的成员指着它就不算孤儿。
+    const removeRoots = orphanRootsAfter(L, installReqs, retire)
+      .filter((k) => !Object.hasOwn(roots, k));      // 本次要写入的 root 不在此列
+
     const plan = derivePlan({
       generation,
       install: installReqs,
       ledger: L,
       ledgerExisted,
+      removeRoots,
       replace,
+      retire,
       roots,
       target,
     });
@@ -404,7 +663,7 @@ function installOneTarget(ctx, t, records, { snap, floor, out, verifier }) {
       onLedgerChanged,
     });
 
-    return { generation, installed: installReqs.map((r) => r.name) };
+    return { generation, installed: installReqs.map((r) => r.name), retired: retire };
   });
 }
 
