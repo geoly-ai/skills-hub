@@ -37,11 +37,11 @@ skills-hub --help
 |---|---|
 | **M0 · 制品与信任模型** | ✅ 已通过（v45，2026-08-25） |
 | **M1 · 只读分发** | ✅ **已完成并发布 0.1.0** —— resolve / install / recover / check / list-search-why / sync-lock |
-| **M2 · pack 与受控 catalog** | 🚧 进行中 —— `vendor` 与 `install pack:` 已接线；`install --all` 与 promotion 未接 |
+| **M2 · pack 与受控 catalog** | 🚧 进行中 —— 命令面已齐（`vendor` / `install pack:` / `install --all`）；promotion 的**派生**那一半已就绪（`scripts/build-snapshot.mjs`），元数据来源待 M3 |
 | M3 · 投稿与审核 | — |
 | M4 · update / remove | — |
 
-**901 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
+**930 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
 逐个反向命中）是 CI 的合并门。
 
 ### 🔴 0.1.0 明确**没有**做到的
@@ -50,6 +50,11 @@ skills-hub --help
 
 - **制品（skill tar.gz）与快照的签发链不存在** —— packer 是 M2。
   这一版签的是 **npm 包本身**（provenance + cosign 对 `.tgz` 的签名），不是 skill 制品。
+  ⚠️ M2 进行中：`scripts/build-snapshot.mjs` 已能从 `artifacts/**` 确定性地**构建**
+  快照与资产（打包、摘要、pack 的 clients 交集 / capabilities 并集、`degraded` 重算、
+  `latest` 投影），但**它不签名** —— 签名仍是 release workflow 的事，尚未接上。
+  且 record 必填的 `owner` / `review`（以及 pack 的 `provenance`，`pack.json` 里没有
+  这个字段）目前由显式的 `--inputs` 提供，M3 的投稿流水线接上后才自动产出。
 - **registry 是纯缓存，没有网络客户端** —— `resolveCurrent()` 是同步的，接不进 `fetch`。
 - **`--from-generation` 只做到编译计划**，接成正向事务的入口还没写。
 - **`--release-frozen` 如实拒绝**（没有按 label 解冻 attic 的导出），不提供假装成功的路径。
