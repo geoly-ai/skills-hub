@@ -20,7 +20,7 @@
 // 🔴 **不重算快照。** 快照是输入，不是产物 —— 它已经过人工审、即将被签。
 //    这里只重建资产、只做比对。
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -32,11 +32,32 @@ class AssetError extends Error {
 }
 const bad = (code, msg) => { throw new AssetError(code, msg); };
 
-/** `skill:geoly/alpha@1.0.0` → `{kind, namespace, name, version}` */
-export function parseArtifactId(id) {
-  const m = /^(skill|pack):([^/]+)\/([^@]+)@(.+)$/.exec(id);
-  if (m === null) bad('E_ASSET_INPUT', `认不出 ArtifactId：${JSON.stringify(id)}`);
-  return { kind: m[1], namespace: m[2], name: m[3], version: m[4] };
+/**
+ * 记录里的 `path` → 落在 `artifactsRoot` 下的实际目录。
+ *
+ * 🔴 **不要再从 `id` 里正则解析出四段。** 第一版是那么写的
+ *    （`^(skill|pack):([^/]+)\/([^@]+)@(.+)$`），那是给自己造第二个真值源：
+ *    `.+` 会把 `../../etc` 一并吃进 version，拼进 `join()` 就是一次目录穿越。
+ *    现在这条路径走不通，**只因为** `parseSnapshot` 已经用
+ *    `RE_NAMESPACE` / `RE_NAME` / `parseSemver` 把它们逐个验过、
+ *    并断言 `id` 与 `path` 都等于由这些字段拼出来的值 —— 但那是**别处**的保证。
+ *    直接用已验过的 `r.path` 就不依赖那份保证了。
+ *
+ * ⚠️ `r.path` 的形状由 `parseSnapshot` 的 `E_PATH_MISMATCH` 钉死：
+ *    `artifacts/<kind>s/<ns>/<name>/<ver>`。这里把开头的 `artifacts/` 换成
+ *    调用方给的根。
+ */
+export function resolveArtifactDir(artifactsRoot, recPath) {
+  const prefix = 'artifacts/';
+  if (!recPath.startsWith(prefix)) {
+    bad('E_ASSET_INPUT', `record.path 应以 ${prefix} 开头，得到 ${JSON.stringify(recPath)}`);
+  }
+  const rel = recPath.slice(prefix.length);
+  // 防御性：`parseSnapshot` 已经不会让 `..` 出现在这里，但这一步的代价是零
+  if (rel.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')) {
+    bad('E_ASSET_INPUT', `record.path 里有不合法的片段：${JSON.stringify(recPath)}`);
+  }
+  return join(artifactsRoot, rel);
 }
 
 /**
@@ -50,18 +71,27 @@ export function parseArtifactId(id) {
  */
 export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null }) {
   const snap = parseSnapshot(snapshotBytes);
-  if (outDir !== null) mkdirSync(outDir, { recursive: true });
+  if (outDir !== null) {
+    // 🔴 **必须是空的**。残留的 .tgz 会被 `dist/assets/*.tgz` 一并挂上去 ——
+    //    那是一个「快照里根本没有的制品」出现在 Release 上的现成路径。
+    if (existsSync(outDir) && readdirSync(outDir).length > 0) {
+      bad('E_ASSET_INPUT',
+        `${outDir} 不是空的 —— 残留文件会被一起挂上 Release，`
+        + '而它们不在这张快照里。请先清空。');
+    }
+    mkdirSync(outDir, { recursive: true });
+  }
 
   const problems = [];
   const skipped = [];
+  const written = new Set();
   let built = 0;
 
   for (const rec of snap.artifacts) {
     // 🔴 **yank 掉的也要重建。** 它仍然在快照里、仍然要能被验证 ——
     //    一个用户装过它、`check` 会去比对摘要。不挂资产等于让他的校验失败。
     //    （`degraded` 同理：那是 pack 的派生状态，成员资产照旧存在。）
-    const a = parseArtifactId(rec.id);
-    const dir = join(artifactsRoot, `${a.kind}s`, a.namespace, a.name, a.version);
+    const dir = resolveArtifactDir(artifactsRoot, rec.path);
     if (!existsSync(dir)) {
       problems.push(`${rec.id}：快照里有，但 ${dir} 不存在`);
       continue;
@@ -71,7 +101,7 @@ export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null
     try {
       // 带上 record —— packArtifact 会跑 assertManifestBinding()，
       // 那是 manifest ↔ ArtifactId 六项（skill 七项）绑定门
-      packed = packArtifact({ root: dir, kind: a.kind, record: rec });
+      packed = packArtifact({ root: dir, kind: rec.kind, record: rec });
     } catch (e) {
       problems.push(`${rec.id}：打包失败 —— ${e.message.split('\n')[0]}`);
       continue;
@@ -92,6 +122,14 @@ export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null
       continue;
     }
 
+    // 🔴 两条 record 写到同一个文件名 = 后一个把前一个覆盖掉，而 Release 上
+    //    只会有一份。`assetFileName` 带了 kind/ns/name/version 且 id 唯一，
+    //    所以理论上撞不了 —— 但「理论上撞不了」正是不该省这一行的理由。
+    if (written.has(rec.asset.file)) {
+      problems.push(`${rec.id}：asset.file 与前面某条重复（${rec.asset.file}）`);
+      continue;
+    }
+    written.add(rec.asset.file);
     if (outDir !== null) writeFileSync(join(outDir, rec.asset.file), packed.bytes);
     built++;
   }

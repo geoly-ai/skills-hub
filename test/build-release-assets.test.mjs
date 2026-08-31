@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
-import { buildReleaseAssets, parseArtifactId } from '../scripts/release/build-release-assets.mjs';
+import { buildReleaseAssets, resolveArtifactDir } from '../scripts/release/build-release-assets.mjs';
 import { buildSnapshot } from '../scripts/build-snapshot.mjs';
 import { stringify } from '../src/canonical-json.mjs';
 import { makeSkillArtifact, makePackArtifact, cleanupTrees } from './fixtures/pack-tree.mjs';
@@ -65,13 +65,23 @@ const sha = (b) => `sha256:${createHash('sha256').update(b).digest('hex')}`;
 
 // ════════════════════════════════════════════════════════════════════════════
 
-test('parseArtifactId：认得出四段', () => {
-  assert.deepEqual(parseArtifactId('skill:geoly/alpha@1.0.0'),
-    { kind: 'skill', namespace: 'geoly', name: 'alpha', version: '1.0.0' });
-  // 版本里可以有 `-rc.1`、`+` 不允许（那是 01-artifacts 的事，这里只要能切开）
-  assert.equal(parseArtifactId('pack:a/b@1.0.0-rc.1').version, '1.0.0-rc.1');
-  expectCode('E_ASSET_INPUT', () => parseArtifactId('不是 id'));
-  expectCode('E_ASSET_INPUT', () => parseArtifactId('other:a/b@1.0.0'));
+test('🔴 目录由已验过的 record.path 得出，不再从 id 正则解析', () => {
+  // 从 id 解析的写法（`([^@]+)@(.+)`）会把 `../../etc` 一并吃进 version
+  assert.equal(resolveArtifactDir('/r', 'artifacts/skills/geoly/alpha/1.0.0'),
+    '/r/skills/geoly/alpha/1.0.0');
+  expectCode('E_ASSET_INPUT', () => resolveArtifactDir('/r', 'somewhere/else'));
+  for (const p of ['artifacts/../../etc', 'artifacts/skills/../../..', 'artifacts//x']) {
+    expectCode('E_ASSET_INPUT', () => resolveArtifactDir('/r', p));
+  }
+});
+
+test('🔴 输出目录必须是空的 —— 残留会被一起挂上 Release', () => {
+  const s = scene();
+  const out = join(mkroot(), 'assets');
+  mkdirSync(out, { recursive: true });
+  writeFileSync(join(out, '上一轮残留的.tgz'), 'x');
+  expectCode('E_ASSET_INPUT',
+    () => buildReleaseAssets({ artifactsRoot: s.artifactsRoot, snapshotBytes: s.bytes, outDir: out }));
 });
 
 test('自洽的树：全部重建成功，且写出的字节 sha256 与快照记录一致', () => {
