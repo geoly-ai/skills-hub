@@ -459,6 +459,46 @@ jobs:
       #    判据不该是「同一次 run 内传递的，应该没人动过」，而该是「摘要对得上」。
       #    这一步只用 sha256sum —— 不 checkout、不跑 node，
       #    因为这个 job 持有 contents: write，可执行代码面越小越好。
+      # 🔴 制品资产也要复核摘要 —— 与上面那条同一个理由：
+      #    判据不是「同一次 run 内传过来的，应该没人动过」，而是「摘要对得上」。
+      #    早先只复核了 npm 的 .tgz，制品的 .tar.gz 是**下载完直接挂**的
+      #    —— 那正是这个 job 的注释自己反对的做法。
+      #    ⚠️ 仍然不跑 node（这个 job 有 contents: write，可执行面越小越好）：
+      #    快照 JSON 就在同一份 bundle 里，用 jq + sha256sum 足够。
+      - name: 复核制品资产的摘要
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          snaps=()
+          for f in registry/snapshots/hub-*.json; do
+            [ "${f%.sigstore.json}" = "$f" ] && snaps+=("$f")
+          done
+          assets=(dist/assets/*.tar.gz)
+          if [ ${#snaps[@]} -eq 0 ]; then
+            # 没有快照就不该有制品资产 —— 有的话说明来路不明
+            [ ${#assets[@]} -eq 0 ] || {
+              echo "::error::没有快照，却有 ${#assets[@]} 个制品资产 —— 来路不明，拒绝挂载"; exit 1; }
+            echo "::notice::本轮没有快照，也没有制品资产。"
+            exit 0
+          fi
+          newest=$(for f in "${snaps[@]}"; do
+                     n=${f##*/hub-}; echo "${n%.json} $f"
+                   done | sort -n -k1,1 | tail -1 | cut -d" " -f2-)
+          echo "按 $newest 复核 ${#assets[@]} 个制品资产"
+
+          # 快照记的每一个资产都必须在，且摘要对得上
+          want_count=$(jq '.artifacts | length' "$newest")
+          [ "${#assets[@]}" = "$want_count" ] || {
+            echo "::error::快照记了 $want_count 个制品，却有 ${#assets[@]} 个资产文件"; exit 1; }
+          jq -r '.artifacts[] | "\(.asset.sha256) \(.asset.file)"' "$newest" |
+          while read -r want file; do
+            [ -f "dist/assets/$file" ] || { echo "::error::缺资产 $file"; exit 1; }
+            got="sha256:$(sha256sum "dist/assets/$file" | cut -d' ' -f1)"
+            [ "$got" = "$want" ] || {
+              echo "::error::$file 摘要不符：想要 $want，实际 $got"; exit 1; }
+          done
+          echo "::notice::✔ 全部制品资产的摘要与快照一致"
+
       - name: 复核摘要
         env:
           TGZ: ${{ needs.publish.outputs.tgz }}
