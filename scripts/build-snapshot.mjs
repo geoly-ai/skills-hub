@@ -31,7 +31,8 @@
 //   · `latest` 投影（排除 yanked / degraded / prerelease）
 //   · `artifacts` 按 `id` 字节序排序、canonical JSON 字节
 
-import { readFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
 import { writeAtomic } from '../src/atomic-fs.mjs';
@@ -410,7 +411,24 @@ export async function main(argv) {
 
 export { PromotionError };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 🔴 **入口守卫必须比 realpath**。早先写的是
+//    `import.meta.url === `file://${process.argv[1]}``，它在两种很常见的现场下
+//    悄悄判假：① 路径上有符号链接（`import.meta.url` 用 realpath，`argv[1]` 不用）；
+//    ② 路径里有需要 URL 转义的字符（空格、中文…）。
+//    判假的后果不是报错，是 **`main()` 根本不跑、进程退出 0** ——
+//    一个「跑完了、什么都没产出、还说自己成功」的发布脚本。本机实测踩过。
+function invokedDirectly() {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // 🔴 realpath 失败（文件被删、权限）时**按「是入口」处理**：
+    //    宁可多跑一次也不要静默不跑。被 import 的场景 argv[1] 一定存在且解析得开。
+    return true;
+  }
+}
+
+if (invokedDirectly()) {
   main(process.argv.slice(2)).then(
     (c) => process.exit(c),
     (e) => { process.stderr.write(`${e.message}\n`); process.exit(1); },

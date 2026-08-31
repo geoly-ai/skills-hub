@@ -32,32 +32,20 @@ pack 的 provenance **不被任何摘要覆盖** —— 它只被快照签名覆
 
 ---
 
-## R-13 · 🔴 `timestamp.yml` 走 `git push origin main`，而规范说那条路走不通
+## R-13 · ~~`timestamp.yml` 走 `git push origin main`~~（2026-08-30 已闭合）
 
-**前提**：无需攻击者。这条是**实现与规范直接矛盾**，不是攻击面。
+**原问题**：`timestamp.yml` 的收尾 job 干的是 §3.2 明确否掉的 v2 那套 ——
+`git add registry/timestamp.json` ＋ `git push origin main`，并为此持有
+`contents: write`。第一次真跑会被分支保护挡住。
 
-**事实**：[`02-registry.md`](../m0/02-registry.md) §3.2 写得很清楚 ——
+**已闭合**：改成滚动 Release 资产（`tag: timestamp`），并新增
+`scripts/release/build-timestamp.mjs` 生成 timestamp ——
+因为 §3.2 的「仓库里不存当前值」与 cron 每 3 天刷新 `created_at` / `valid_until`
+是**同一件事的两半**：滚动刷新读不了一份静态的仓库文件，
+留着仓库那份就会出现「仓库里的过期、Release 上的新鲜」两个真值。
 
-> v2 说「由 release bot commit 落盘」——但分支保护禁止直推（含管理员），**跑不起来**。
-> v3：timestamp **只作为 GitHub Release 资产分发**……更新 release 资产**不需要 commit**。
-> 仓库里**不存** timestamp 的当前值。
-
-而 `timestamp.yml` 的收尾 job 干的正是 v2 那套：`git add registry/timestamp.json …`
-＋ `git push origin main`，并为此持有 `contents: write`
-（checkout 会把 GITHUB_TOKEN 写进 `.git/config`）。
-
-**后果**：① 第一次真跑会被分支保护挡住 —— 而 timestamp 是「我拿到的清单是不是**现在**的」
-那一环，它不运转就等于新鲜度链没有闭合；
-② 仓库里会存下 timestamp 的当前值，§3.2 明令不存。
-
-**为什么本轮不闭合**：改法（滚动 Release 资产 + 去掉那个 `contents: write` 的 job）
-本机**验不了** —— cosign 身份、资产上传、tag 行为都只有真跑才知道。
-而它是发布关键路径，且会移除一个持写权限的 job。**这属于该由人拍板的动作**。
-
-**代价评估**：不闭合的代价是「定时刷新至今尚未运转」——
-而它**本来就没运转**：`timestamp.yml` 的 `schedule:` 是注释掉的，
-理由是「仓库里还没有 registry/snapshots/，这个 job 每天都会 fail-closed 变红」。
-所以这条**今天没有在造成损害**，但它是打开 cron 之前**必须先解决**的前置。
+**遗留**：见 [R-17](#r-17)（两个资产的更新不是原子的）。
+仍然**本机验不了** cosign / OIDC / Rekor（见 [R-14](#r-14)）。
 
 ---
 
@@ -123,3 +111,30 @@ pack 的 provenance **不被任何摘要覆盖** —— 它只被快照签名覆
 `all@snapshot:M` root），或者按名字单装。
 
 **代价评估**：接受。真正的自动跟进语义属于 `update --all`（M4）。
+
+---
+
+## R-17 · timestamp 的两个资产不是原子替换
+
+**前提**：无需攻击者。客户端在一个很窄的时间窗内取 timestamp。
+
+**现状**：`gh release upload --clobber` 是**逐文件**的。
+`timestamp.json` 与 `timestamp.json.sigstore.json` 必然有一段新旧混搭的窗口：
+先传 bundle 则中间态是「旧正文 + 新 bundle」，先传正文则是「新正文 + 旧 bundle」——
+**两种都验不过**。GitHub 没有提供原子的多资产替换。
+
+**缓解**：混搭态的后果是**验签失败**，而客户端对验签失败是 fail-closed 的 ——
+它不会拿一份验不过的 timestamp 去装东西。窗口宽度是一次 HTTP 上传。
+
+**为什么不闭合**：闭合有两条路，**都要改规格**：
+① 把正文与 bundle 合成**一个**资产；
+② 改成带 `version` 的**不可变**资产名，客户端从 Release 元数据里挑「同代且都在」的一对。
+两者都改变 [`02-registry.md`](../m0/02-registry.md) §4 定义的分发形态，
+并且会牵动**还不存在**的网络客户端（`registry.mjs` 至今没有出网路径）。
+在客户端写出来之前就把分发形态定死，是在没有使用者的情况下设计协议。
+
+**代价评估**：⚠️ **「下一次取就好」是一句缓解，不是协议保证**（Codex 2026-08-30 的原话）。
+现在没有任何地方规定客户端要重取、要配对检查、或要有限重试；
+第二次上传若失败，坏状态会**一直留着**直到下一次 cron。
+接受这一条的前提是「新鲜度链尚未运转」——真要打开 cron 之前，
+①②里得选一条，并且同时把客户端的重取策略写进规格。

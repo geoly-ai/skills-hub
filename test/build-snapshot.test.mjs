@@ -284,3 +284,27 @@ test('🔴 写盘顺序：先资产、后快照；且都是原子写', async () 
   assert.deepEqual(readdirSync(dirname(out)).filter((n) => n.startsWith('.')), []);
   assert.deepEqual(readdirSync(assetsOut).filter((n) => n.startsWith('.')), []);
 });
+
+test('🔴 CLI 真调用：`node scripts/build-snapshot.mjs` 必须真的产出文件', async () => {
+  // 同 build-timestamp 那条：测的是**入口守卫**。守卫判假时 main() 不跑、
+  // 退出 0、什么都没产出，而直接调 main() 的测试全绿。
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+
+  const root = mkroot();
+  const a = putSkill(root, { name: 'alpha' });
+  const inFile = join(root, 'in.json');
+  writeFileSync(inFile, stringify({ schema: INPUTS_SCHEMA, artifacts: inputsFor([a.id]).artifacts, yanked: [] }));
+  const out = join(root, 'registry', 'snapshots', 'hub-42.json');
+
+  const r = spawnSync(process.execPath, [
+    join(repoRoot, 'scripts/build-snapshot.mjs'),
+    '--artifacts', join(root, 'artifacts'), '--inputs', inFile, '--snapshot', '42',
+    '--previous', '41', '--created-at', '2026-08-25T12:00:00Z',
+    '--repo', 'geoly-ai/skills-hub', '--out', out,
+  ], { encoding: 'utf8' });
+  assert.equal(r.status, 0, `${r.stderr}`);
+  assert.ok(existsSync(out), '🔴 退出码 0 但没有产出文件 —— 入口守卫判假的症状');
+  parseSnapshot(readFileSync(out), { expectSnapshot: 42 });
+});

@@ -21,17 +21,28 @@ name: Timestamp
 
 on:
   workflow_dispatch:
+    inputs:
+      min_cli_version:
+        description: "min_cli_version（策略值）。留空＝沿用上一份 timestamp；**第一次必须给**"
+        required: false
+        type: string
   # ⚠️ timestamp 的有效期是 **7 天**（02-registry.md §3），所以正式运转起来之后
   #    必须有定时刷新，否则客户端会集体 stale。
   #
-  #    现在**故意注释掉**：仓库里还没有 registry/snapshots/，这个 job 每天都会
-  #    fail-closed 变红。一个每天报红的定时任务，两周之内就会被所有人静音 ——
-  #    到那时它就再也提醒不了任何事。
+  #    现在**仍然故意注释掉**：仓库里还没有 registry/snapshots/，
+  #    这个 job 会 fail-closed 变红。一个反复报红的定时任务，两周之内就会被
+  #    所有人静音 —— 到那时它就再也提醒不了任何事。
   #
-  #    🔴 **M2 建出 registry/ 之后，取消下面两行的注释。**
+  #    ✅ 2026-08-30：分发方式已按 §3.2 改成滚动 Release 资产（不再 git push），
+  #       R-13 那条前置**已解除**。现在剩下的唯一阻塞是「仓库里还没有快照」。
+  #    🔴 **`registry/snapshots/` 下真的有快照之后，取消下面两行的注释。**
   #       在那之前，「7 天新鲜度链」这一条**尚未运转**，不要写成已闭合。
+  #
+  #    ⚠️ 周期是**每 3 天**，不是每天：§3 的有效期是 7 天，§3.2 说「每 3 天更新一次，
+  #       允许连续失败约 4 天」—— 7 − 3 = 4 就是那句话的算术依据。改其中一个数
+  #       就要同时改另一个。
   # schedule:
-  #   - cron: "0 3 * * *"
+  #   - cron: "0 3 */3 * *"
 
 permissions:
   contents: read
@@ -47,7 +58,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       id-token: write
-      # 🔴 没有 contents: write。把签好的东西提交回仓库是下一个 job 的事，
+      # 🔴 没有 contents: write。更新 Release 资产是下一个 job 的事，
       #    那个 job 不碰 OIDC。（同 release.yml 的拆法。）
       contents: read
     steps:
@@ -79,21 +90,85 @@ jobs:
       # 🔴 fail-closed：没有快照就没有「当前最新快照是哪一个」可以声明。
       #    不造一个空的 timestamp 出来充数 —— 那会让 CLI 拿到一份指向不存在快照的
       #    已签名文件，比没有 timestamp 糟得多。
+      # 🔴 fail-closed：没有快照就没有「当前最新快照是哪一个」可以声明。
+      #    不造一个空的 timestamp 出来充数 —— 那会让 CLI 拿到一份指向不存在快照的
+      #    已签名文件，比没有 timestamp 糟得多。
+      #    ⚠️ 判据要剔掉 `hub-<N>.json.sigstore.json` —— 它自己也以 `.json` 结尾，
+      #    「只有签名、没有快照」不该算作有快照。
       - name: 前置：必须已经有快照
         run: |
           set -euo pipefail
-          if ! ls registry/snapshots/hub-*.json >/dev/null 2>&1; then
+          shopt -s nullglob
+          found=0
+          for f in registry/snapshots/hub-*.json; do
+            [ "${f%.sigstore.json}" = "$f" ] || continue
+            found=1
+          done
+          if [ "$found" -eq 0 ]; then
             echo "::error::registry/snapshots/ 下没有快照 —— 没有东西可以指向。"
             echo "::error::timestamp 的语义是「当前最新快照是哪一个」（02-registry.md §3）；"
             echo "::error::在快照存在之前签一份 timestamp 出来，就是签一句谎话。"
-            echo "::error::registry/ 与 packer 属于 M2 的范围，这条链现在**尚未接通**。"
             exit 1
           fi
-          if [ ! -f registry/timestamp.json ]; then
-            echo "::error::registry/timestamp.json 不存在。本 workflow 只负责**签**它，"
-            echo "::error::生成它是 promotion 流程的事（M2）。"
+
+      # ── 取上一份 timestamp（§3.2：当前值在 Release 上，不在仓库里）──────
+      # 🔴 `version` 必须单调递增、`min_cli_version` 沿用上一份 —— 两者都要有
+      #    「上一份」才知道。它在滚动 release `timestamp` 的资产里。
+      #    第一次跑时那个 release 还不存在，取不到就是取不到，**不是错误**。
+      - name: 取上一份 timestamp（首次不存在则跳过）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # 🔴 **必须分清「不存在」与「取不到」。**
+          #    早先是 `download || 按首次处理` —— 于是 release 明明在、只是网络或权限
+          #    抖了一下，也会被当成首次：生成 version=1 去覆盖线上那份 version=137，
+          #    **version 直接倒退**，而 §3 要求它单调递增。
+          #    现在先 `view` 判存在性；只要 release 在，download 就**必须**成功，
+          #    失败即硬失败（`set -e` 兜住）。
+          # 🔴 **只有确认是 404 才能 bootstrap。** `if gh …; then` 会把**任何**非零退出
+          #    都当成「不存在」—— 限流、权限、GitHub 故障、网络抖动全都算，
+          #    而 `set -e` 对 `if` 的条件命令不生效。于是一次 500 就会让我们生成
+          #    version=1，然后 publish 用 --clobber 覆盖掉线上那份 version=137。
+          #    **version 倒退**，而 §3 要求它单调递增。
+          #    判据改成直接问 API 的 HTTP 状态码，不看 gh 的退出码。
+          code=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/timestamp" \
+                   --silent --include 2>/dev/null | head -1 | awk '{print $2}' || true)
+          if [ -z "$code" ]; then
+            # 连状态码都拿不到（网络断、gh 崩）—— 这不是「不存在」，是「不知道」。
+            echo "::error::查不到滚动 release 的状态（拿不到 HTTP 状态码）。"
+            echo "::error::**不**按首次处理 —— 那会生成 version=1 覆盖掉线上的高版本。"
+            exit 1
+          elif [ "$code" = "404" ]; then
+            echo "::notice::滚动 release \`timestamp\` 确实不存在（HTTP 404）—— 按首次生成处理。"
+            echo "::notice::首次必须显式给 min_cli_version（本 workflow 的输入）。"
+            rm -f prev-timestamp.json
+          elif [ "$code" = "200" ]; then
+            echo "::notice::滚动 release 存在 —— 取上一份 timestamp（取不到即失败，不退化成首次）"
+            gh release download timestamp --repo "$GITHUB_REPOSITORY" \
+              --pattern timestamp.json --output prev-timestamp.json
+            test -s prev-timestamp.json || {
+              echo "::error::取到的 prev-timestamp.json 是空的 —— 拒绝在这上面接力"
+              exit 1
+            }
+          else
+            echo "::error::查滚动 release 得到 HTTP $code —— 既不是 200 也不是 404，状态未知。"
+            echo "::error::**不**按首次处理（见上）。"
             exit 1
           fi
+
+      - name: 生成 timestamp.json
+        env:
+          MIN_CLI: ${{ inputs.min_cli_version }}
+        run: |
+          set -euo pipefail
+          args=(--snapshots registry/snapshots --repo "$GITHUB_REPOSITORY" --out timestamp.json)
+          [ -f prev-timestamp.json ] && args+=(--previous prev-timestamp.json)
+          # 🔴 有效期 7 天、刷新周期 3 天（§3 / §3.2）——「允许连续失败约 4 天」
+          #    这句话的算术依据就是这两个数，别单独改其中一个。
+          args+=(--valid-days 7)
+          [ -n "${MIN_CLI:-}" ] && args+=(--min-cli-version "$MIN_CLI")
+          node --no-warnings scripts/release/build-timestamp.mjs "${args[@]}"
 
       - name: 装 cosign（版本钉死）
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -137,14 +212,14 @@ jobs:
           cosign sign-blob \
             --new-bundle-format \
             --rekor-url https://rekor.sigstore.dev \
-            --bundle registry/timestamp.json.sigstore.json \
-            registry/timestamp.json
+            --bundle timestamp.json.sigstore.json \
+            timestamp.json
 
       - name: 🔴 自验（必须以 timestamp 身份验过）
         run: |
           node --no-warnings scripts/release/verify-own-bundle.mjs \
-            --artifact registry/timestamp.json \
-            --bundle registry/timestamp.json.sigstore.json \
+            --artifact timestamp.json \
+            --bundle timestamp.json.sigstore.json \
             --identity timestamp
 
       # 🔴 交叉证伪：同一份 bundle 拿 **release 身份** 去验**必须失败**。
@@ -157,8 +232,8 @@ jobs:
       - name: 🔴 证伪：拿 release 身份验必须以 E_IDENTITY_MISMATCH 失败
         run: |
           node --no-warnings scripts/release/verify-own-bundle.mjs \
-            --artifact registry/timestamp.json \
-            --bundle registry/timestamp.json.sigstore.json \
+            --artifact timestamp.json \
+            --bundle timestamp.json.sigstore.json \
             --identity release \
             --expect-failure E_IDENTITY_MISMATCH
 
@@ -167,38 +242,71 @@ jobs:
           name: timestamp-signed
           if-no-files-found: error
           path: |
-            registry/timestamp.json
-            registry/timestamp.json.sigstore.json
+            timestamp.json
+            timestamp.json.sigstore.json
 
-  # ── 把签好的 bundle 提交回仓库 ─────────────────────────────────────────
-  # 🔴 有 contents: write，但**没有 id-token**，不跑 npm ci、不跑任何第三方代码。
-  commit:
+  # ── 更新滚动 release `timestamp` 的资产（§3.2）─────────────────────────
+  # 🔴 **不 commit。** 02-registry.md §3.2 写得很清楚：
+  #      「v2 说『由 release bot commit 落盘』——但分支保护禁止直推（含管理员），
+  #        **跑不起来**。v3：timestamp **只作为 GitHub Release 资产分发**……
+  #        更新 release 资产**不需要 commit**。仓库里**不存** timestamp 的当前值。」
+  #    早先这个 job 干的正是被否掉的 v2 那套（git push origin main），
+  #    并为此持有 contents: write + 把 GITHUB_TOKEN 写进 .git/config。
+  #
+  # 🔴 除了「推不动」之外还有更根本的一条：cron 每 3 天要刷新 created_at /
+  #    valid_until，而滚动刷新读不了一份静态的仓库文件。留着仓库那份就会出现
+  #    「仓库里的过期、Release 上的新鲜」两个真值。
+  #
+  # ⚠️ 这个 job 仍需要 contents: write —— 更新 release 资产要写权限。
+  #    但它**不 checkout、不跑 npm ci、不跑仓库里的任何 JS**，
+  #    只做 download-artifact + 两条 gh 命令。可执行代码面压到最小。
+  publish:
     needs: sign
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      # ⚠️ 这个 job **确实需要**持久化凭据（它要 push）。代价照实写在这里：
-      #    checkout 会把 GITHUB_TOKEN 写进 .git/config。
-      #    缓解是把这个 job 的可执行代码面压到最小 —— 它不跑 npm ci、
-      #    不跑测试、不跑任何仓库里的 JS，只做 download-artifact + git 三条命令。
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: timestamp-signed
-          path: registry
-      - name: 提交
+
+      - name: 更新滚动 release 的资产
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git config user.name "geoly-timestamp[bot]"
-          git config user.email "timestamp@users.noreply.github.com"
-          git add registry/timestamp.json registry/timestamp.json.sigstore.json
-          if git diff --cached --quiet; then
-            echo "::notice::没有变化，不提交"
-            exit 0
+          test -f timestamp.json || { echo "::error::拿不到 timestamp.json"; exit 1; }
+          test -f timestamp.json.sigstore.json || { echo "::error::拿不到 bundle"; exit 1; }
+
+          # 🔴 **两个文件一起换，bundle 先于正文。**
+          #    `gh release upload --clobber` 是逐文件的，中间必然有一段
+          #    新旧混搭的窗口。两种顺序的中间态分别是「旧正文 + 新 bundle」与
+          #    「新正文 + 旧 bundle」—— **两种都验不过**，GitHub 没有原子的
+          #    多资产替换，这个窗口消不掉。
+          #    如实记下：窗口内取到的客户端会验签失败并 fail-closed，下一次取就好了。
+          #    fail-closed 是可接受的，静默放行才不是。
+          # 🔴 同上：存在性判据是 HTTP 状态码，不是 gh 的退出码。
+          #    这里判错的后果是「本该 upload 却去 create」→ 直接报错（tag 已存在），
+          #    不像上面那样静默倒退 —— 但判据该一致，也该说清为什么。
+          code=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/timestamp" \
+                   --silent --include 2>/dev/null | head -1 | awk '{print $2}' || true)
+          if [ "$code" != "200" ] && [ "$code" != "404" ]; then
+            echo "::error::查滚动 release 得到 HTTP ${code:-（无）} —— 状态未知，拒绝继续。"
+            exit 1
           fi
-          git commit -m "chore(timestamp): 刷新并重新签名 timestamp.json"
-          git push origin main
+          if [ "$code" = "200" ]; then
+            gh release upload timestamp \
+              --repo "$GITHUB_REPOSITORY" --clobber \
+              timestamp.json.sigstore.json timestamp.json
+          else
+            # 首次：建一个滚动 release。这个 tag **不参与信任** ——
+            # CLI 只按签名 identity 与摘要判真伪，不看 tag。
+            gh release create timestamp \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "timestamp（滚动）" \
+              --notes "当前 timestamp.json 与其 Sigstore bundle。**滚动更新**，不代表某个版本。02-registry.md §3.2：timestamp 只作为 Release 资产分发，仓库里不存当前值。有效期 7 天，每 3 天刷新一次。" \
+              timestamp.json.sigstore.json timestamp.json
+          fi
+          echo "::notice::已更新滚动 release timestamp 的两个资产。"

@@ -48,9 +48,13 @@ M3 接上投稿流水线时把那份 inputs 换成流水线的产物即可，脚
 
 🔴 **第一次真跑必须 `dry_run: true`。**
 
-### 2.3 `timestamp.yml` 的分发方式与规范矛盾（**未改**）
+### 2.3 timestamp 的分发（**已按 §3.2 改**，但留了一条）
 
-见 [R-13](01-residual-risks.md#r-13)。规范否掉的方案被实现了，本轮**只发现、未修**。
+原本走 `git push origin main`（§3.2 明确否掉的 v2 方案），已改成滚动 Release 资产，
+并新增 `scripts/release/build-timestamp.mjs` 生成 timestamp。见 [R-13](01-residual-risks.md#r-13)。
+
+遗留：两个资产的更新**不是原子的**，见 [R-17](01-residual-risks.md#r-17)。
+🔴 打开 cron 之前必须先解决它 —— 否则「新鲜度链」在一个可长期停留的坏状态上运转。
 
 ### 2.4 M2 之外
 
@@ -87,7 +91,7 @@ skill 走 `skill.json`；pack 只能走 `--inputs`。
 | # | 事项 | 现状 | 代价 |
 |---|---|---|---|
 | ① | promotion 的 `owner` / `review` 来源 | 已按「显式 `--inputs`」实现 | 全程跑不通，需人工准备 inputs |
-| ② | `timestamp.yml` 的分发方式 | 未改，仍是 `git push origin main` | 第一次真跑会被分支保护挡住 |
+| ② | `timestamp.yml` 的分发方式 | ✅ 已按 §3.2 改成滚动 Release 资产 | 遗留 R-17（两资产非原子），打开 cron 前须解决 |
 | ③ | bundled 成员是 `degraded` 的 pack 时，跳过还是终止 | 已选「跳过并告警」 | 见下 |
 
 **③ 的原委**（`src/pack.mjs` 的 `resolvePackInstall` 里已写明，这里归位）：
