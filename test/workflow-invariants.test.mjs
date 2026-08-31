@@ -535,8 +535,11 @@ test('🔴 阶段 C 必须排在签名与 npm publish **之前**', () => {
   const at = (re) => body.search(re);
   const stageC = at(/name: 重建制品资产并比对/);
   assert.ok(stageC > 0, '找不到阶段 C 那一步');
+  // ⚠️ 早先只断言了签快照与 npm publish —— 把 attestation 挪到 C 之前
+  //    测试仍会绿（Codex 2026-08-31）。三样都是撤不回来的产物，一个都不能漏。
   for (const [what, re] of [
     ['签快照', /name: 签快照/],
+    ['attestation', /name: attestation/],
     ['npm publish', /npm publish /],
   ]) {
     const p = at(re);

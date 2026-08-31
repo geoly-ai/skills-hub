@@ -21,6 +21,7 @@
 //    这里只重建资产、只做比对。
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -68,11 +69,21 @@ export function resolveArtifactDir(artifactsRoot, recPath) {
  * @param {object} a
  * @param {string} a.artifactsRoot   合并后的 `artifacts/`
  * @param {Buffer} a.snapshotBytes   已定稿的 `hub-<N>.json`
- * @param {string|null} a.outDir     写出 `.tgz` 的目录（null = 只比对不写）
+ * @param {string|null} a.outDir     写出 `.tar.gz` 的目录（null = 只比对不写）
+ * @param {number|null} a.expectSnapshot  文件名里的 N（绑定文件名 ↔ 正文）
  * @returns {{snapshot:number, built:number, files:string[]}}
  */
-export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null }) {
-  const snap = parseSnapshot(snapshotBytes);
+export function buildReleaseAssets({
+  artifactsRoot, snapshotBytes, outDir = null, expectSnapshot = null,
+}) {
+  // 🔴 **文件名里的 N 必须等于正文的 `snapshot`。**
+  //    `newestSnapshot()` 只负责**挑**文件，这条绑定在 `build-timestamp.mjs`
+  //    的后半段才做 —— 阶段 C 不做的话：一个叫 `hub-9.json`、内容却是自洽的
+  //    `snapshot: 8` 的文件会一路绿到底，随后被签名、被 attestation 引用、
+  //    资产也按它复核，最后 Release 上挂出一张**名字是错的**快照
+  //    （Codex 2026-08-31）。
+  const snap = parseSnapshot(snapshotBytes,
+    expectSnapshot === null ? undefined : { expectSnapshot });
   if (outDir !== null) {
     // 🔴 **必须是空的**。残留的 .tgz 会被 `dist/assets/*.tgz` 一并挂上去 ——
     //    那是一个「快照里根本没有的制品」出现在 Release 上的现成路径。
@@ -188,6 +199,7 @@ export function main(argv) {
     bad('E_ASSET_INPUT', '--snapshot 与 --snapshots-dir 必须给且只给一个');
   }
   let snapshotPath = o.snapshot;
+  let expectSnapshot = null;
   if (snapshotPath === undefined) {
     const dir = o['snapshots-dir'];
     // 🔴 **只有「目录根本不存在」才算无事可做**（第一次 promotion 之前就是这样）。
@@ -197,14 +209,21 @@ export function main(argv) {
       process.stderr.write(`${dir} 不存在 —— 本轮没有制品资产要建。\n`);
       return 0;
     }
-    snapshotPath = newestSnapshot(dir).file;
+    const newest = newestSnapshot(dir);
+    snapshotPath = newest.file;
+    expectSnapshot = newest.n;
     process.stderr.write(`按 ${snapshotPath} 重建制品资产。\n`);
   }
   const r = buildReleaseAssets({
     artifactsRoot: o.artifacts,
     snapshotBytes: readFileSync(snapshotPath),
     outDir: o.out ?? null,
+    expectSnapshot,
   });
+  // 🔴 把「用了哪一张、它的摘要是多少」输出到 stdout —— 下游 job 要拿它当
+  //    真值去复核，而不是相信「同一次 run 内传过来的东西没人动过」。
+  const digest = createHash('sha256').update(readFileSync(snapshotPath)).digest('hex');
+  process.stdout.write(`snapshot_n=${r.snapshot}\nsnapshot_sha256=${digest}\n`);
   process.stderr.write(
     `✔ 快照 ${r.snapshot}：${r.built} 个制品重建出的字节与记录**逐字节一致**`
     + `${o.out === undefined ? '（只比对，未写出）' : `，已写到 ${o.out}`}。\n`);

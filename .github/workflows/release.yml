@@ -155,6 +155,8 @@ jobs:
     outputs:
       tgz: ${{ steps.pack.outputs.tgz }}
       sha256: ${{ steps.pack.outputs.sha256 }}
+      snapshot_n: ${{ steps.assets.outputs.snapshot_n }}
+      snapshot_sha256: ${{ steps.assets.outputs.snapshot_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -277,12 +279,17 @@ jobs:
       #    shell 版接受 `hub-01.json` / `hub-1e3.json`、不查编号重复、
       #    也不比对文件名与内容里的 snapshot。
       - name: 重建制品资产并比对（§1 阶段 C）
+        id: assets
         run: |
           set -euo pipefail
           node --no-warnings scripts/release/build-release-assets.mjs \
             --artifacts artifacts \
             --snapshots-dir registry/snapshots \
-            --out dist/assets
+            --out dist/assets > assets.out
+          cat assets.out
+          # 🔴 把「用了哪一张快照、它的摘要是多少」传给下游 —— 下游 job 拿它当
+          #    **真值**去复核，而不是相信跨 job 传过来的那份快照没被动过。
+          cat assets.out >> "$GITHUB_OUTPUT"
 
       - name: 签快照（无快照则跳过）
         env:
@@ -466,6 +473,9 @@ jobs:
       #    ⚠️ 仍然不跑 node（这个 job 有 contents: write，可执行面越小越好）：
       #    快照 JSON 就在同一份 bundle 里，用 jq + sha256sum 足够。
       - name: 复核制品资产的摘要
+        env:
+          WANT_N: ${{ needs.publish.outputs.snapshot_n }}
+          WANT_SNAP_SHA: ${{ needs.publish.outputs.snapshot_sha256 }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -478,13 +488,22 @@ jobs:
             # 没有快照就不该有制品资产 —— 有的话说明来路不明
             [ ${#assets[@]} -eq 0 ] || {
               echo "::error::没有快照，却有 ${#assets[@]} 个制品资产 —— 来路不明，拒绝挂载"; exit 1; }
+            [ -z "$WANT_N" ] || {
+              echo "::error::publish 说用了快照 $WANT_N，这里却一张都没有"; exit 1; }
             echo "::notice::本轮没有快照，也没有制品资产。"
             exit 0
           fi
-          newest=$(for f in "${snaps[@]}"; do
-                     n=${f##*/hub-}; echo "${n%.json} $f"
-                   done | sort -n -k1,1 | tail -1 | cut -d" " -f2-)
-          echo "按 $newest 复核 ${#assets[@]} 个制品资产"
+          # 🔴🔴 **先复核快照本身。** 早先这里直接把「下载下来的快照」当摘要真值，
+          #    于是把快照与资产**一起**换成自洽的一套，复核照样绿，最后分发出去的
+          #    是一张与它 bundle 不匹配的快照（Codex 2026-08-31）。
+          #    这个 job 的设计目标就是不信任跨 job 传递 —— 那就不能对快照破例。
+          [ -n "$WANT_N" ] || { echo "::error::publish 没有输出 snapshot_n"; exit 1; }
+          newest="registry/snapshots/hub-$WANT_N.json"
+          test -f "$newest" || { echo "::error::拿不到 $newest"; exit 1; }
+          got_snap=$(sha256sum "$newest" | cut -d' ' -f1)
+          [ "$got_snap" = "$WANT_SNAP_SHA" ] || {
+            echo "::error::$newest 摘要不符：想要 $WANT_SNAP_SHA，实际 $got_snap"; exit 1; }
+          echo "按 $newest（摘要已复核）复核 ${#assets[@]} 个制品资产"
 
           # 快照记的每一个资产都必须在，且摘要对得上
           want_count=$(jq '.artifacts | length' "$newest")
@@ -556,7 +575,7 @@ jobs:
             --title "$TAG" \
             --notes "npm 包与其 Sigstore bundle（离线验签路径见 README / 02-registry.md §8.2）。
 
-          快照（\`hub-<N>.json\`）与其 bundle、以及该快照记录的全部制品资产（\`.tgz\`）
+          快照（\`hub-<N>.json\`）与其 bundle、以及该快照记录的全部制品资产（\`.tar.gz\`）
           在有快照时一并挂出。制品资产是按快照**重建并逐字节比对**过的（§1 阶段 C）。
 
           ⚠️ 没有快照的那几轮，这里只有 npm 包本身。" \

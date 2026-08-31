@@ -193,3 +193,64 @@ test('🔴 CLI 拒拼错的选项', () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /\[E_ASSET_INPUT\]/);
 });
+
+test('🔴 文件名里的 N 与正文的 snapshot 必须绑定', () => {
+  // `hub-9.json` 里装一张自洽的 `snapshot: 8` —— 不绑定的话它一路绿到底，
+  // 最后 Release 上挂出一张名字是错的快照
+  const s = scene();
+  assert.throws(() => buildReleaseAssets({
+    artifactsRoot: s.artifactsRoot, snapshotBytes: s.bytes, expectSnapshot: 9,
+  }), /E_SNAPSHOT_N|snapshot/);
+  // 对得上时正常
+  const r = buildReleaseAssets({
+    artifactsRoot: s.artifactsRoot, snapshotBytes: s.bytes, expectSnapshot: 0,
+  });
+  assert.equal(r.snapshot, 0);
+});
+
+test('🔴 CLI 把用了哪一张、摘要是多少输出到 stdout（下游拿它当真值）', () => {
+  const s = scene();
+  const dir = join(mkroot(), 'snapshots');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'hub-0.json'), s.bytes);
+  const r = spawnSync(process.execPath, [
+    join(REPO_ROOT, 'scripts/release/build-release-assets.mjs'),
+    '--artifacts', s.artifactsRoot, '--snapshots-dir', dir,
+  ], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^snapshot_n=0$/m);
+  assert.match(r.stdout, new RegExp(`^snapshot_sha256=${createHash('sha256').update(s.bytes).digest('hex')}$`, 'm'));
+});
+
+test('🔴 CLI：快照目录里文件名与正文对不上 → 拒', () => {
+  const s = scene();
+  const dir = join(mkroot(), 'snapshots');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'hub-9.json'), s.bytes);   // 正文是 snapshot: 0
+  const r = spawnSync(process.execPath, [
+    join(REPO_ROOT, 'scripts/release/build-release-assets.mjs'),
+    '--artifacts', s.artifactsRoot, '--snapshots-dir', dir,
+  ], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+});
+
+test('CLI：快照目录不存在 → no-op（第一次 promotion 之前就是这样）', () => {
+  const s = scene();
+  const r = spawnSync(process.execPath, [
+    join(REPO_ROOT, 'scripts/release/build-release-assets.mjs'),
+    '--artifacts', s.artifactsRoot, '--snapshots-dir', join(mkroot(), '没有'),
+  ], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('🔴 --snapshot 与 --snapshots-dir 必须给且只给一个', () => {
+  const s = scene();
+  for (const extra of [[], ['--snapshot', 'x', '--snapshots-dir', 'y']]) {
+    const r = spawnSync(process.execPath, [
+      join(REPO_ROOT, 'scripts/release/build-release-assets.mjs'),
+      '--artifacts', s.artifactsRoot, ...extra,
+    ], { encoding: 'utf8' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /\[E_ASSET_INPUT\]/);
+  }
+});
