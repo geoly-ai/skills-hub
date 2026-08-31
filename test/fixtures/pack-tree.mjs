@@ -116,11 +116,17 @@ function recordFor({ kind, namespace, name, version, packed, over }) {
 }
 
 /** 一个真的能装的 skill 制品：{root, bytes, record}。 */
-export function makeSkillArtifact({ namespace = 'geoly', name, version = '0.3.6', files = {}, over = {} } = {}) {
+export function makeSkillArtifact({
+  namespace = 'geoly', name, version = '0.3.6', files = {}, over = {},
+  // 🔴 `over` 改的是 **record**，不是载荷里的 manifest。要让 `skill.json` 里的
+  //    capabilities / clients 也变，得走这两个参数 —— 否则会出现「record 说 shell、
+  //    载荷说 none」的自相矛盾，而读 manifest 的那一侧看到的是 none。
+  capabilities = ['none'], clients = ['claude', 'cursor', 'codex', 'agents'],
+} = {}) {
   const manifest = {
     schema: 'geoly.skills.skill/1', kind: 'skill', namespace, name, version,
     description: `${name} 的描述`, license: 'MIT',
-    clients: ['claude', 'cursor', 'codex', 'agents'], capabilities: ['none'],
+    clients, capabilities,
     replaces: [], conflicts: [],
     provenance: { kind: 'original', author_github_id: 'chovizzz', submitted_by_pr: 1 },
   };
@@ -130,7 +136,10 @@ export function makeSkillArtifact({ namespace = 'geoly', name, version = '0.3.6'
     ...files,
   });
   const packed = packDirectory(root);
-  return { root, bytes: packed.bytes, packed, record: recordFor({ kind: 'skill', namespace, name, version, packed, over }) };
+  return {
+    root, bytes: packed.bytes, packed,
+    record: recordFor({ kind: 'skill', namespace, name, version, packed, over: { clients, capabilities, ...over } }),
+  };
 }
 
 /** 一个真的 pack 制品。`members` / `bundled` 传成员 record 列表。 */
