@@ -28,14 +28,16 @@
 
 不写清楚就等于默认承诺了，所以逐条列出。
 
-### 2.1 promotion 只有派生那一半
+### 2.1 promotion 只有派生那一半（✅ 另一半已由 M3 补上）
 
 快照 record 必填 `owner` 与 `review{pr, approved_by, head_sha, capability_tier}`，
 而这四样全是**投稿 PR 的事实**（[`06-submission.md`](../m0/06-submission.md)），属于 M3。
 `build-snapshot.mjs` 因此收一份显式的 `--inputs`，**不发明**它们。
 
-于是 M2 交付的 promotion **跑不通「从 PR 到快照」的全程** —— 需要有人手工准备 inputs。
-M3 接上投稿流水线时把那份 inputs 换成流水线的产物即可，脚本一行不用改。
+✅ **2026-08-31（`a97dddb`）**：M3 的 `scripts/promote/build-inputs.mjs` 产出了那份
+inputs，`build-snapshot.mjs` **一行都没改** —— 这个接缝留对了。
+⚠️ 但「从 PR 到快照」的全程仍**没有跑通**：`promote.yml`（取事实那一半：从 GitHub API
+拿 PR 号 / head SHA / approver、从 diff 得出本次新增了哪些 ArtifactId）还没写。
 
 ### 2.2 签名本身**本机从未验证过**
 
@@ -90,7 +92,7 @@ skill 走 `skill.json`；pack 只能走 `--inputs`。
 
 | # | 事项 | 现状 | 代价 |
 |---|---|---|---|
-| ① | promotion 的 `owner` / `review` 来源 | 已按「显式 `--inputs`」实现 | 全程跑不通，需人工准备 inputs |
+| ① | promotion 的 `owner` / `review` 来源 | ✅ **已闭合**（M3，`a97dddb`）—— `scripts/promote/build-inputs.mjs` 产出那份 inputs，`build-snapshot.mjs` 一行未改 | — |
 | ② | `timestamp.yml` 的分发方式 | ✅ 已按 §3.2 改成滚动 Release 资产 | 遗留 R-17（两资产非原子），打开 cron 前须解决 |
 | ③ | bundled 成员是 `degraded` 的 pack 时，跳过还是终止 | 已选「跳过并告警」 | 见下 |
 
