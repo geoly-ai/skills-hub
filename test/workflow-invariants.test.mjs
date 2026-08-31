@@ -26,17 +26,34 @@
 //    它证明的是「几条不该出现的东西没有出现」和「引用的东西真的存在」。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, mkdtempSync, cpSync, writeFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = dirname(fileURLToPath(new URL('.', import.meta.url).href)).replace(/\/test$/, '');
-const WF_DIR = join(REPO, '.github', 'workflows');
+
+// 🔴 目录可被环境变量改写 —— **只为文件末尾那一轮变异自检**：
+//    它把 workflows 复制到临时目录、改坏一处、再把本文件当子进程跑一遍，
+//    断言必须红。仓库里的文件**一个字节都不动**。
+const WF_DIR = process.env.GEOLY_WF_DIR ?? join(REPO, '.github', 'workflows');
+// 子进程里跳过变异自检本身，否则无限递归
+const IN_MUTATION_CHILD = process.env.GEOLY_WF_DIR !== undefined;
 
 // 🔴 `.yaml` 也要收。GitHub 两种扩展名都加载 —— 只扫 `.yml` 的话，
 //    一个 `evil.yaml` 会对本文件**完全隐形**（Codex 2026-08-31）。
 const ALL = readdirSync(WF_DIR).filter((f) => /\.ya?ml$/.test(f)).sort();
 
+/**
+ * 🔴 **每一条断言都写成 `(files) => 问题[]` 的纯函数**，`files` 是
+ *    `{文件名: 内容}`。这样变异测试可以在**内存里**把内容改坏、跑同一批断言，
+ *    不用碰仓库里的文件（碰了就得考虑「跑到一半被打断怎么办」）。
+ *
+ *    这么做的理由是这一份自己的历史：上一版是我**手工**跑了一轮变异才发现
+ *    有两条断言根本不生效。手工跑的东西不会再跑第二次 —— 于是断言会慢慢
+ *    退化成永远为真，而没有人会注意到。现在这一轮变异是测试的一部分。
+ */
 const raw = (f) => readFileSync(join(WF_DIR, f), 'utf8');
 /**
  * 🔴 **先去掉整行注释再匹配。** 否则「注释里提到 `pr-classify.mjs`」
@@ -401,4 +418,78 @@ test('🔴 维护者名单：state 与内容必须自洽', () => {
     assert.ok(!ids.has(m.id), `维护者 id 重复：${m.id} —— 同一个人凑不出两票`);
     ids.add(m.id);
   }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 变异自检：把被测的东西改坏，上面那些断言必须红
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 🔴 **这一节存在的理由是这份文件自己的历史。** 上一版是我手工跑了一轮变异，
+//    才发现两条断言根本不生效（一处 checkout 压根没被切出来，
+//    所以「有没有 persist-credentials」对它完全没作用）。
+//    手工跑的东西不会再跑第二次 —— 断言会慢慢退化成永远为真，而没人注意到。
+//
+// ⚠️ 我在这份文件里写过两次 `assert.ok(… || true)`（永远为真）。
+//    「写完断言把它守的东西改坏一次」这个习惯，靠自觉是不够的，所以写进测试。
+
+/** 只改**非注释行**上的第一处 —— 注释在匹配前已被剥掉，改它等于什么都没改。 */
+function mutateRealLine(body, find, replace) {
+  const lines = body.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trimStart().startsWith('#')) continue;
+    if (lines[i].includes(find)) {
+      lines[i] = lines[i].replace(find, replace);
+      return lines.join('\n');
+    }
+  }
+  return null;                       // 没找到 —— 由调用方判成失败
+}
+
+const MUTATIONS = [
+  ['validate-pr.yml', '      contents: read', '      contents: write', 'job 权限改成 write'],
+  ['validate-pr.yml', '--reserved base-tools/', '--reserved pr/', '保留名单改成从 PR 读'],
+  ['validate-pr.yml', 'base-tools/registry/maintainers.json', 'pr/registry/maintainers.json', '维护者名单从 PR 读'],
+  ['validate-pr.yml', 'base-tools/scripts/submission/run-gates.mjs', 'pr/scripts/submission/run-gates.mjs', '校验器改成从 PR 跑'],
+  ['validate-pr.yml', 'persist-credentials: false', 'persist-credentials: true', 'checkout 带上凭据'],
+  ['validate-pr.yml', 'ref: ${{ github.event.pull_request.base.sha }}', 'ref: main', 'checkout 不钉 sha'],
+  ['validate-pr.yml', '--no-renames ', '', '去掉 --no-renames'],
+  ['validate-pr.yml', '  pull_request:', '  pull_request_target:', '换成 pull_request_target'],
+  ['validate-pr.yml', 'permissions:', 'permissions: write-all #', 'permissions 写成 write-all'],
+  ['promote.yml', "    paths: ['submissions/**']", "    paths: ['submissions/**']\n  workflow_dispatch:", 'promote 多一个触发'],
+  ['promote.yml', 'cancel-in-progress: false', 'cancel-in-progress: true', 'promote 允许取消'],
+  ['promote.yml', 'git push origin "$branch"', 'git push origin main', 'promote 直推 main'],
+  ['promote.yml', '--diff-filter=d ', '', '去掉 --diff-filter=d'],
+  ['promote.yml', 'node --no-warnings scripts/submission/pr-classify.mjs', 'true #', 'promote 不再调 router'],
+];
+
+test('🔴🔴 变异自检：每一处改坏都必须让上面的断言变红', { skip: IN_MUTATION_CHILD }, () => {
+  const self = fileURLToPath(import.meta.url);
+  const survivors = [];
+  for (const [file, find, replace, label] of MUTATIONS) {
+    const dir = mkdtempSync(join(tmpdir(), 'geoly-wfmut-'));
+    try {
+      cpSync(WF_DIR, dir, { recursive: true });
+      const mutated = mutateRealLine(readFileSync(join(dir, file), 'utf8'), find, replace);
+      if (mutated === null) { survivors.push(`${label}：非注释行里找不到 ${JSON.stringify(find)}`); continue; }
+      writeFileSync(join(dir, file), mutated);
+
+      // 🔴 必须清掉 node:test 自己的上下文变量，否则子进程会报
+      //    「run() is being called recursively」**并直接跳过、退出 0** ——
+      //    那会让每一个变异都「活下来」，而这个测试看起来只是失败得很整齐。
+      const env = { ...process.env, GEOLY_WF_DIR: dir };
+      delete env.NODE_TEST_CONTEXT;
+      delete env.NODE_OPTIONS;
+      const r = spawnSync(process.execPath, ['--test', self], { encoding: 'utf8', env });
+      if (r.status === 0) survivors.push(`${label}：改坏了但测试仍然绿`);
+      // 子进程「一个断言都没跑」也要算失败 —— 那和「全绿」看起来一样
+      if (!/^\u2139 fail \d+/m.test(r.stdout ?? '')) {
+        survivors.push(`${label}：子进程没有产出测试结果（${(r.stderr ?? '').slice(0, 120)}）`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  assert.deepEqual(survivors, [],
+    `这些改动没有被任何断言抓到：\n${survivors.map((s) => `  · ${s}`).join('\n')}\n`
+    + '  🔴 一条抓不到对应改动的断言，等于没有这条断言。');
 });
