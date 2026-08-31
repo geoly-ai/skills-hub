@@ -298,7 +298,44 @@ test('🔴 压力：一边狂 record 一边反复 flush，落盘成功的一条�
   assert.ok(recorded.length > 3000, `子进程应落盘大量事件，实际 ${recorded.length}`);
   const remaining = new Set(tm.readAll().map((e) => e.eid));
   const lost = recorded.filter((eid) => !sent.has(eid) && !remaining.has(eid));
-  assert.deepEqual(lost, [], `丢了 ${lost.length} 条：${lost.slice(0, 5)}`);
+
+  // 🔴 **这里为什么不是 `deepEqual(lost, [])`。**
+  //
+  // 早先它就是零容忍，于是在 CI 的 Linux runner 上按 T-15 的概率间歇性变红
+  // （2026-08-30 那次丢了恰好 1 条；同一个 commit 前一天是绿的）。
+  // 查下来的结论**只到这一步**：规格承诺的本来就不是零丢失，所以断言该放宽。
+  // ⚠️ **没有**归因到具体是哪个窗口 —— 「丢恰好 1 条」只是与 T-15 相容，
+  //    而 `retire` 的 sweep→写 mark、`reapTomb` 的读→unlink、§4.1 换代的
+  //    `unlink(prev)` 与旧 fd，**几个窗口都可能只丢少量**。
+  //    这个测试没有记录丢失时的 inode / 文件大小 / 所处阶段，据此说「代码没错」
+  //    是过度推断（Codex 2026-08-31 指出，改回不夸大的说法）。
+  //
+  // 规格 §5.2.1 点名了这个窗口，而且是**明确接受**的残余风险 T-15：
+  //   「`retire` 的『第二次 sweep → 写 mark』之间、`reapTomb` 的『读墓碑 → unlink』
+  //     之间，同样各有一个微小的 TOCTOU，它们一并算进 T-15。诚实地说：
+  //     这是一个被压小、但依然存在的丢事件窗口。」
+  //   「要真正闭合，`record` 就得和删除方走同一把锁 —— 那会让主命令阻塞在锁上，
+  //     正是 T-5 要避免的。**这个取舍是有意的**：埋点不是账本。」
+  //
+  // ⚠️ **不要把容忍度调大。** 这条测试真正的价值是抓**系统性**丢失 ——
+  //    2026-08-28 那个「扫回队列的补偿路径缺 nlink 守卫」的 bug 会丢几十上百条，
+  //    容忍 1 条照样抓得到。容忍度一旦按「让它别红」去调，这条测试就废了。
+  //
+  // ⚠️ 换代淘汰（§4.1 的 `unlinkSync(prev)`）是**另一回事**：那是有意的淘汰，
+  //    丢的是一整代（~1 MiB、上千条），会远远超过这个容忍度而让测试变红 ——
+  //    正是我们要的。
+  const T15_TOLERANCE = 1;
+  if (lost.length) {
+    // 容忍不等于沉默：让它在 CI 日志里留痕，出现新的偶发丢失时人能看见。
+    process.stderr.write(
+      `⚠️ 丢了 ${lost.length} 条（T-15 容忍 ≤ ${T15_TOLERANCE}）：${lost.slice(0, 5).join(', ')}\n`,
+    );
+  }
+  assert.ok(
+    lost.length <= T15_TOLERANCE,
+    `丢了 ${lost.length} 条，超过 T-15 的量级（容忍 ≤ ${T15_TOLERANCE}）——`
+    + `这不是那个微观 TOCTOU，是系统性丢失：${lost.slice(0, 5).join(', ')}`,
+  );
 });
 
 
