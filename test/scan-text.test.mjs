@@ -4,13 +4,15 @@
 //    可以是两段不同的指令（Trojan Source, CVE-2021-42574）。
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { scanText, findMixedScript, scanTree, format } from '../scripts/submission/scan-text.mjs';
+import {
+  scanText, findMixedScript, findCompatibilityForms, scanTree, format,
+} from '../scripts/submission/scan-text.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
 const roots = [];
@@ -95,28 +97,76 @@ function tree(files) {
   return root;
 }
 
-test('扫树：只看文本文件，二进制跳过', () => {
+test('🔴🔴 扫**所有**扩展名 —— 白名单本身就是一个绕过', () => {
+  // 第一版只扫 .md/.txt/…，于是载荷里的 .sh / .py / .js 一个都不扫
   const root = tree({
     'geoly/a@1.0.0/SKILL.md': '干净\n',
-    'geoly/a@1.0.0/notes.txt': '也干净\n',
-    'geoly/a@1.0.0/LICENSE': 'MIT\n',
-    'geoly/a@1.0.0/logo.png': 'PNG\u{0000}\u{0000}带零宽\u{200B}但它是二进制\n',
+    'geoly/a@1.0.0/setup.sh': '#!/bin/sh\n# \u{202E}反转\n',
+    'geoly/a@1.0.0/tool.py': 'x = 1  # \u{200B}\n',
+    'geoly/a@1.0.0/weird.xyzzy': '\u{2066}\n',
   });
   const r = scanTree(root);
-  assert.equal(r.files, 3, '.png 不算文本；没有扩展名的 LICENSE 算');
-  assert.equal(r.forbidden.length, 0);
+  assert.equal(r.files, 4);
+  assert.deepEqual(r.forbidden.map((f) => f.where).sort(),
+    ['geoly/a@1.0.0/setup.sh', 'geoly/a@1.0.0/tool.py', 'geoly/a@1.0.0/weird.xyzzy']);
 });
 
-test('🔴 扩展名骗人（.md 里塞 NUL）→ 当二进制跳过，不误报', () => {
+test('真二进制（不是合法 UTF-8）跳过，并计数', () => {
+  const root = mkroot();
+  mkdirSync(join(root, 'geoly', 'a@1.0.0'), { recursive: true });
+  writeFileSync(join(root, 'geoly', 'a@1.0.0', 'SKILL.md'), '干净\n');
+  // 0xFF 0xFE 不是合法 UTF-8 起始
+  writeFileSync(join(root, 'geoly', 'a@1.0.0', 'logo.png'), Buffer.from([0xff, 0xfe, 0x00, 0x01]));
+  const r = scanTree(root);
+  assert.equal(r.files, 1);
+  assert.equal(r.skippedBinary, 1);
+});
+
+test('🔴🔴 NUL + 零宽混在 .md 里 —— 第一版整文件跳过，等于门自己被关掉', () => {
+  // 用「像二进制」的信号决定要不要检查，等于把开关交给被检的一方
   const root = tree({ 'geoly/a@1.0.0/SKILL.md': 'x\u{0000}y\u{200B}' });
-  assert.equal(scanTree(root).files, 0);
+  const r = scanTree(root);
+  assert.equal(r.files, 1);
+  assert.deepEqual(r.forbidden.map((f) => f.cp), [0x0000, 0x200b]);
 });
 
-test('format：annotate 模式产出 GitHub 注解', () => {
+test('🔴 annotate 用的是带 file/line/col 的真格式，否则挂不到那一行', () => {
+  // `::error::file:line:col 消息` GitHub 也认，但只当成一条**没有位置**的注解，
+  // 而「挂到那一行」正是 §8 第 5 条要的「高亮」
   const r = scanText('a\u{202E}b', 'SKILL.md');
   const lines = format(r, { annotate: true });
-  assert.match(lines[0], /^::error::SKILL\.md:1:2 /);
-  assert.match(format(r)[0], /^🔴 /);
+  assert.match(lines[0], /^::error file=SKILL\.md,line=1,col=2::/);
+  assert.ok(!lines[0].includes('\n'), '换行要转义成 %0A，否则注解在第一行就截断了');
+  assert.match(format(r)[0], /^🔴 SKILL\.md:1:2 /);
+});
+
+test('🔴 组合字符不该把词拆开 —— CGJ 能让同形字检查一处都不报', () => {
+  // p<CGJ>а<CGJ>ypal 渲染出来是一个词
+  const evil = 'p\u{034F}\u{0430}\u{034F}ypal';
+  assert.equal(findMixedScript(evil).length, 1, '用 \\p{L}+ 的话这里是 0');
+  assert.equal(findMixedScript(evil)[0].scripts.join('+'), 'latin+cyrillic');
+});
+
+test('🔴 属性判不可见字符 —— 手写一张表必漏', () => {
+  // 标签字符能隐形携带整段文本；变体选择符能改字形
+  for (const cp of [0xe0041, 0xfe0f, 0x2062, 0x206a, 0x180e]) {
+    const r = scanText(`a${String.fromCodePoint(cp)}b`);
+    assert.equal(r.suspicious.length, 1, `U+${cp.toString(16)}`);
+  }
+});
+
+test('⚠️ 兼容等价形式：折叠之后才看得出是英文关键词', () => {
+  // ｓｈｅｌｌ（全角）NFKC 之后是 shell —— 人眼与字符串匹配读到的不是一个东西
+  const r = findCompatibilityForms('capability: \uFF53\uFF48\uFF45\uFF4C\uFF4C');
+  assert.equal(r.length, 1);
+  assert.equal(r[0].folded, 'shell');
+  // 中日韩正文不该落进这一格（否则输出没人看）
+  assert.deepEqual(findCompatibilityForms('这是普通的中文正文'), []);
+});
+
+test('列按码点数 —— 前面有 emoji 时两处不能报出不同的列', () => {
+  const line = '🙂🙂p\u{0430}ypal';
+  assert.equal(findMixedScript(line)[0].col, 3, 'm.index 是 UTF-16 偏移，会报 5');
 });
 
 // ── CLI ────────────────────────────────────────────────────────────────────

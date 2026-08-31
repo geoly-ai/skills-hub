@@ -142,6 +142,11 @@ jobs:
     if: ${{ needs.route.outputs.kind == 'submission' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 🔴 只读。列 reviews 需要 pull-requests: read —— 这不是 secret，
+    #    也不给写权限，所以不违反 §5「不给能 checkout fork head 的 job 任何 secret」。
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: 检出 base 的校验器（可信）
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -181,6 +186,31 @@ jobs:
           set -euo pipefail
           node --no-warnings base-tools/scripts/submission/scan-text.mjs \
             --submissions pr/submissions --annotate
+
+      # 🔴 §7 的审批人数门，**跑在合并之前**。
+      #    分支保护的 Required approvals 是静态数字，配不出「按载荷内容决定」；
+      #    而一个必需的 check 失败，PR 就合不了 —— 用门的成败表达动态人数。
+      #    ⚠️ 早先我把这一半推给 promote 时判，并说「效果一样」。那是错的：
+      #    「进了 main 但没发布」和「从来没进过 main」是两回事，
+      #    main 上的内容会被 clone、被 fork（Codex 2026-08-31）。
+      - name: §7 Tier 审批人数（合并前）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          AUTHOR: ${{ github.event.pull_request.user.node_id }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+            | jq -s 'add // [] | map({
+                userId: .user.node_id, userLogin: .user.login,
+                state: .state, commitId: .commit_id, submittedAt: .submitted_at
+              })' > reviews.json
+          # 名单来自 **base**（既有事实），不是被检的 PR
+          ids=$(jq -r '.maintainers | map(.id) | join(",")' base-tools/registry/maintainers.json)
+          node --no-warnings base-tools/scripts/submission/tier-gate.mjs \
+            --submissions pr/submissions --reviews reviews.json \
+            --pr-head-sha "$HEAD" --maintainer-ids "$ids" --author-id "$AUTHOR"
 
   # ── promotion PR 的确定性复算（§4）──────────────────────────────────────
   promotion-gates:

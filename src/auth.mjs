@@ -73,10 +73,24 @@ export function authFilePath({ env = process.env, home = homedir() } = {}) {
  *    文件已存在时它一声不吭地沿用旧权限。一个之前被 chmod 成 0644 的
  *    auth.json 会一直是 0644。
  */
-export function writeTokenFile(token, { path = authFilePath(), now = () => new Date() } = {}) {
+export function writeTokenFile(token, {
+  path = authFilePath(), now = () => new Date(), warn = null,
+} = {}) {
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);                       // 目录已存在时 mkdir 的 mode 不生效
+  // 🔴 目录已存在时 mkdir 的 mode 不生效，所以要显式 chmod。
+  //    ⚠️ 但**不能因为 chmod 失败就不存 token**：目录可能不归我们所有
+  //    （用户把路径指到了一个共享目录），那时 chmod 抛 EPERM。
+  //    文件本身的 0600 才是保护内容的那一道 —— 目录权限管的是能不能列目录。
+  //    所以这里降级成告警。
+  try {
+    chmodSync(dir, 0o700);
+  } catch (e) {
+    if (warn !== null) {
+      warn(`⚠️ 收紧 ${dir} 的权限失败（${e.code}）—— 它可能不归你所有。\n`
+        + '   token 文件本身仍然是 0600，别人读不到内容，但能看到这个文件存在。');
+    }
+  }
   const body = `${JSON.stringify({
     schema: 'geoly.skills.auth/1',
     token,
@@ -84,7 +98,9 @@ export function writeTokenFile(token, { path = authFilePath(), now = () => new D
     created_at: now().toISOString(),
   }, null, 2)}\n`;
   writeFileSync(path, body, { mode: 0o600 });
-  chmodSync(path, 0o600);                      // 文件已存在时 writeFileSync 的 mode 不生效
+  // 🔴 文件已存在时 writeFileSync 的 mode 不生效 —— 这一处**不降级**：
+  //    收紧不了文件权限就等于把明文 token 摊开，宁可失败。
+  chmodSync(path, 0o600);
   return path;
 }
 
@@ -173,4 +189,102 @@ export function assertNotNpxGit(moduleDir, command) {
     + '  让这种形态的进程拿到你的 GitHub token，等于把「谁能改那个 ref」\n'
     + '  变成「谁能拿到你的 token」。装 skill（只读）容忍它，发凭据不容忍。\n'
     + `  改用装好的 CLI：\`npm i -g skills-hub && geoly-skills ${command}\`。`);
+}
+
+// ── OS keychain（§9：**优先** keychain，不可用才落文件）────────────────────
+
+/**
+ * 每个平台的 keychain 命令。
+ *
+ * 🔴 **token 一律走 stdin，不进 argv。** 进程的命令行参数在同机器上是可见的
+ *    （Linux 的 `/proc/<pid>/cmdline` 全用户可读；macOS 上同用户可见），
+ *    把 token 写进 argv 等于让它出现在任何一次 `ps` 里，
+ *    还会进 shell 历史。这是「用 keychain 存」这件事的第一个前提 ——
+ *    存得再安全，取的路上漏了也白搭。
+ *
+ * ⚠️ macOS 的 `security add-generic-password` **没有**从 stdin 读密码的选项，
+ *    只有 `-w <value>`。所以那一条只能走 argv —— 这是平台限制，不是选择。
+ *    缓解：macOS 上非 root 用户看不到**别的用户**的进程参数；
+ *    同用户的进程本来就能直接读 keychain。**如实记在这里，不假装没有。**
+ */
+const KEYCHAIN = {
+  darwin: {
+    // -U：已存在就更新，否则 add 会以 45 号错误失败
+    set: (service, account, token) =>
+      ({ cmd: 'security', args: ['add-generic-password', '-U', '-s', service, '-a', account, '-w', token] }),
+    get: (service, account) =>
+      ({ cmd: 'security', args: ['find-generic-password', '-s', service, '-a', account, '-w'] }),
+    del: (service, account) =>
+      ({ cmd: 'security', args: ['delete-generic-password', '-s', service, '-a', account] }),
+  },
+  linux: {
+    // secret-tool 从 stdin 读值 —— token 不进 argv
+    set: (service, account) =>
+      ({ cmd: 'secret-tool', args: ['store', '--label', service, 'service', service, 'account', account], stdin: true }),
+    get: (service, account) =>
+      ({ cmd: 'secret-tool', args: ['lookup', 'service', service, 'account', account] }),
+    del: (service, account) =>
+      ({ cmd: 'secret-tool', args: ['clear', 'service', service, 'account', account] }),
+  },
+};
+
+export const KEYCHAIN_SERVICE = 'geoly-skills';
+export const KEYCHAIN_ACCOUNT = 'github-token';
+
+/**
+ * 统一的存取。**keychain 优先，失败就落文件** —— 两条路都要能用：
+ * CI、容器、没有 keyring 的服务器上 keychain 根本不存在。
+ *
+ * 🔴 **keychain 不可用是「换一条路」，不是「报错」。** 但要**说出来** ——
+ *    用户有权知道自己的 token 是躺在 keychain 里还是躺在一个文件里。
+ *
+ * @param {object} deps
+ * @param {(cmd:string, args:string[], input:string|null) => {status:number, stdout:string, stderr:string}} deps.run
+ */
+export function makeAuthStore({ run, platform = process.platform, path = null, warn = null } = {}) {
+  const kc = KEYCHAIN[platform] ?? null;
+  const file = path ?? authFilePath();
+  const note = (s) => { if (warn !== null) warn(s); };
+
+  const tryKeychain = (make, input = null) => {
+    if (kc === null || typeof run !== 'function') return null;
+    const spec = make(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, input);
+    let r;
+    try { r = run(spec.cmd, spec.args, spec.stdin ? input : null); } catch { return null; }
+    // 命令不存在 / 没有 keyring daemon：status 非 0 或抛错，一律当「不可用」
+    if (r === null || r === undefined || r.status !== 0) return null;
+    return r;
+  };
+
+  return {
+    /** @returns {'keychain'|'file'} 实际存到了哪儿 */
+    save(token) {
+      if (tryKeychain((s, a) => kc.set(s, a, token), token) !== null) return 'keychain';
+      note(`⚠️ 系统 keychain 不可用，token 落在 ${file}（0600）。`
+        + '\n   它是一个明文文件 —— 这台机器上能读它的人就能用你的身份投稿。');
+      writeTokenFile(token, { path: file, warn });
+      return 'file';
+    },
+    /** @returns {{token:string, from:'keychain'|'file'}|null} */
+    load() {
+      const r = tryKeychain((s, a) => kc.get(s, a));
+      if (r !== null) {
+        const token = r.stdout.replace(/\n$/, '');
+        if (token !== '') return { token, from: 'keychain' };
+      }
+      const d = readTokenFile({ path: file, warn });
+      return d === null ? null : { token: d.token, from: 'file' };
+    },
+    /**
+     * 🔴 **两处都要清。** 只清 keychain 的话，一个早先落过盘的 auth.json
+     *    会留在原地 —— 用户以为 logout 了，token 还躺在那儿。
+     * @returns {string[]} 实际清掉了哪几处
+     */
+    clear() {
+      const cleared = [];
+      if (tryKeychain((s, a) => kc.del(s, a)) !== null) cleared.push('keychain');
+      if (deleteTokenFile({ path: file })) cleared.push('file');
+      return cleared;
+    },
+  };
 }

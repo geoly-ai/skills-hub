@@ -26,9 +26,9 @@
 //
 // 🔴 **不执行载荷**（§5）：这里只 `readFileSync` + 遍历码点。
 
-import { readFileSync, readdirSync, statSync, realpathSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { join, relative, extname } from 'node:path';
+import { join, relative } from 'node:path';
 
 class ScanError extends Error {
   constructor(code, msg) { super(msg); this.name = 'ScanError'; this.code = code; }
@@ -45,13 +45,41 @@ const FORBIDDEN = new Map([
   [0x200b, 'ZWSP 零宽空格'], [0x200c, 'ZWNJ 零宽不连字'],
   [0x200d, 'ZWJ 零宽连字'], [0x2060, 'WJ word joiner'],
   [0xfeff, 'BOM / 零宽不换行空格'],
+  // 🔴 NUL 单列。它让 `file(1)` 判整个文件为二进制、`grep -I` 整文件跳过 ——
+  //    「这个文件里没有那段话」于是变成一句静默的谎。本仓库两次踩过
+  //    （src/pack.mjs、test/scan-text.test.mjs 自己）。
+  [0x0000, 'NUL —— 会让整个文件被当成二进制而被跳过'],
 ]);
 
-/** 只报告的码点。 */
-const SUSPICIOUS = new Map([
+/**
+ * 只报告的码点：**按 Unicode 属性判**，不是手写一张表。
+ *
+ * 🔴 手写表必漏（Codex 2026-08-31 点名了一串：标签字符 U+E0020–E007F、
+ *    U+2061–2064、U+206A–206F、U+180E、U+FFF9–FFFB、变体选择符
+ *    U+FE00–FE0F 与 U+E0100–E01EF、U+034F CGJ……）。这些都能隐形携带内容、
+ *    改变字形或破坏字符串匹配。**枚举打不过属性。**
+ *
+ * `Default_Ignorable_Code_Point` 正好就是「不该被渲染出来」那一类；
+ * `Cf`（格式控制）覆盖其余。两者取并集，减去已经在 FORBIDDEN 里的。
+ */
+const RE_INVISIBLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/u;
+// 组合字符：能堆叠、能零宽地插在词中间（U+034F 是典型）
+const RE_MARK = /\p{M}/u;
+
+const NAMED = new Map([
   [0x200e, 'LRM 从左至右标记'], [0x200f, 'RLM 从右至左标记'],
   [0x061c, 'ALM 阿拉伯字母标记'], [0x00ad, 'SHY 软连字符'],
+  [0x034f, 'CGJ 组合字位连接符'], [0x180e, 'MONGOLIAN VOWEL SEPARATOR'],
+  [0xe0001, 'LANGUAGE TAG'],
 ]);
+const describe = (cp) => {
+  const n = NAMED.get(cp);
+  if (n !== undefined) return n;
+  if (cp >= 0xfe00 && cp <= 0xfe0f) return '变体选择符 VS1–VS16';
+  if (cp >= 0xe0100 && cp <= 0xe01ef) return '变体选择符补充区';
+  if (cp >= 0xe0020 && cp <= 0xe007f) return '标签字符（能隐形携带整段文本）';
+  return '不可见 / 格式控制字符';
+};
 
 // 同形字：只判「拉丁 × 西里尔/希腊」。
 // 🔴 **不判「汉字 × 拉丁」** —— 中文文档里 `SKILL.md 的写法` 到处都是，
@@ -77,29 +105,69 @@ export function scanText(text, where = '<text>') {
     const f = FORBIDDEN.get(cp);
     if (f !== undefined) {
       forbidden.push({ where, line, col, cp, name: f });
-    } else {
-      const s = SUSPICIOUS.get(cp);
-      if (s !== undefined) suspicious.push({ where, line, col, cp, name: s });
+    } else if (RE_INVISIBLE.test(ch) || RE_MARK.test(ch)) {
+      // 组合字符本身合法（重音、声调），但**零宽**地插在词里能拆开匹配 ——
+      // 报出来让人看一眼，不拦。
+      if (RE_INVISIBLE.test(ch) || cp === 0x034f) {
+        suspicious.push({ where, line, col, cp, name: describe(cp) });
+      }
     }
     col++;
   }
-  return { forbidden, suspicious, mixedScript: findMixedScript(text, where) };
+  return {
+    forbidden, suspicious,
+    mixedScript: findMixedScript(text, where),
+    compatibility: findCompatibilityForms(text, where),
+  };
 }
 
 /**
  * 同一个「词」里混用拉丁与西里尔/希腊。
- * 词 = 连续的字母（含各脚本的字母），被空白与标点切开。
+ *
+ * 🔴 **词里要允许组合字符**（Codex 2026-08-31）：用 `\p{L}+` 的话，
+ *    `p\u034Fа\u034Fypal` 渲染出来是一个词，却被 CGJ 拆成三个**纯脚本**的词，
+ *    一处都不报。判据必须和**渲染成一个词**对齐，所以是 `[\p{L}\p{M}]+`。
+ *
+ * 🔴 **列按码点数**，与 `scanText` 一致。`m.index` 是 UTF-16 码元偏移 ——
+ *    前面有 emoji 时两者会报出不同的列，读的人对不上。
  */
 export function findMixedScript(text, where = '<text>') {
   const out = [];
   let line = 1;
   for (const raw of text.split('\n')) {
-    // \p{L} 需要 u 标志；这里的「词」不含数字与标点
-    for (const m of raw.matchAll(/\p{L}+/gu)) {
+    for (const m of raw.matchAll(/[\p{L}\p{M}]+/gu)) {
       const word = m[0];
       const kinds = SCRIPTS.filter(([, re]) => re.test(word)).map(([k]) => k);
       if (kinds.length > 1) {
-        out.push({ where, line, col: m.index + 1, word, scripts: kinds });
+        out.push({ where, line, col: [...raw.slice(0, m.index)].length + 1, word, scripts: kinds });
+      }
+    }
+    line++;
+  }
+  return out;
+}
+
+/**
+ * 兼容等价形式：原文与 NFKC / 大小写折叠之后**不一样**的词。
+ *
+ * 🔴 同形字不止「换一个脚本的字母」这一种形状（Codex 2026-08-31）：
+ *    `K`（U+212A KELVIN SIGN）折叠后是 `k`、全角 `ｓｈｅｌｌ` NFKC 后是 `shell`、
+ *    `ﬁ` 展开成 `fi`。这些在 `capability` 之类的关键词上尤其要紧 ——
+ *    人眼读到的是 `shell`，字符串匹配读到的不是。
+ *
+ * ⚠️ 只**报告**：中日韩正文里 NFKC 会动到的字很多，拒会误伤一大片。
+ */
+export function findCompatibilityForms(text, where = '<text>') {
+  const out = [];
+  let line = 1;
+  for (const raw of text.split('\n')) {
+    for (const m of raw.matchAll(/[\p{L}\p{M}\p{N}]+/gu)) {
+      const word = m[0];
+      const folded = word.normalize('NFKC').toLowerCase();
+      // 只报「折叠后变了、且折叠结果是纯 ASCII」的 —— 那才是伪装成
+      // 英文关键词的形状；中日韩正文的 NFKC 变化不落进这一格。
+      if (folded !== word.toLowerCase() && /^[\x21-\x7e]+$/.test(folded)) {
+        out.push({ where, line, col: [...raw.slice(0, m.index)].length + 1, word, folded });
       }
     }
     line++;
@@ -109,51 +177,94 @@ export function findMixedScript(text, where = '<text>') {
 
 // ── 扫一棵树 ───────────────────────────────────────────────────────────────
 
-// 只扫文本文件：二进制里出现这些字节没有「渲染出来骗人」的含义。
-// ⚠️ 没有扩展名的文件（LICENSE、README）也算文本 —— 它们照样会被人读。
-const TEXT_EXT = new Set(['', '.md', '.markdown', '.txt', '.json', '.yml', '.yaml', '.toml', '.csv']);
-
-/** @returns {{files:number, forbidden:Array, suspicious:Array, mixedScript:Array}} */
+/**
+ * 🔴🔴 **扫所有文件，不按扩展名白名单，也不按 NUL 跳过。**
+ *
+ * 第一版两条都错，而且**两条各自就是一个绕过**（Codex 2026-08-31）：
+ *   · 白名单只收 `.md/.txt/...` —— 载荷里的 `.sh` / `.py` / `.js` 一个都不扫，
+ *     未知扩展名同理。而人要读的恰恰包括那些脚本。
+ *   · 「含 NUL 当二进制跳过」—— 于是 **`NUL` + `U+202E` 放进一个 `.md`，
+ *     整道门直接失效**。用一个「像二进制」的信号去决定要不要检查，
+ *     等于把开关交给被检的一方。
+ *
+ * 现在的判据是**能不能按 UTF-8 严格解码**：
+ *   · 能 → 它就是给人读的文本，扫（NUL 本身已在 FORBIDDEN 里，会被报出来）；
+ *   · 不能 → 真二进制（图片之类），跳过。
+ * 一个刻意构造成合法 UTF-8 的「二进制」文件会被扫，那没有坏处。
+ */
 export function scanTree(root) {
   if (!existsSync(root)) bad('E_SCAN_INPUT', `${root} 不存在`);
-  const all = { files: 0, forbidden: [], suspicious: [], mixedScript: [] };
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const all = {
+    files: 0, skippedBinary: 0, forbidden: [], suspicious: [], mixedScript: [], compatibility: [],
+  };
   const walk = (dir) => {
-    for (const e of readdirSync(dir).sort()) {
-      const full = join(dir, e);
-      const st = statSync(full);
-      if (st.isDirectory()) { walk(full); continue; }
-      if (!st.isFile()) continue;
-      if (!TEXT_EXT.has(extname(e).toLowerCase())) continue;
-      const buf = readFileSync(full);
-      // 含 NUL 的当二进制跳过（扩展名骗人的情况）
-      if (buf.includes(0)) continue;
-      const r = scanText(buf.toString('utf8'), relative(root, full));
+    // 🔴 `lstat`，不是 `stat` —— `stat` 跟随符号链接，独立调用时能扫出根目录之外
+    //    （而载荷里本来就不许有 symlink，见 01-artifacts §5）。
+    for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const full = join(dir, e.name);
+      if (e.isSymbolicLink()) {
+        all.forbidden.push({
+          where: relative(root, full), line: 1, col: 1, cp: -1,
+          name: '符号链接 —— 载荷里不允许（01-artifacts §5），且会让扫描越出根目录',
+        });
+        continue;
+      }
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!e.isFile()) continue;
+      let text;
+      try {
+        text = decoder.decode(readFileSync(full));
+      } catch {
+        all.skippedBinary++;                 // 不是合法 UTF-8 → 真二进制
+        continue;
+      }
+      const r = scanText(text, relative(root, full));
       all.files++;
       all.forbidden.push(...r.forbidden);
       all.suspicious.push(...r.suspicious);
       all.mixedScript.push(...r.mixedScript);
+      all.compatibility.push(...r.compatibility);
     }
   };
   walk(root);
   return all;
 }
 
-/** 把结果排版成人能读的样子。`::warning::` / `::error::` 让它在 PR 上出注解。 */
+/**
+ * 排版。
+ *
+ * 🔴 **注解格式是 `::error file=…,line=…,col=…::消息`**，不是
+ *    `::error::file:line:col 消息`（Codex 2026-08-31）。后者 GitHub 认，
+ *    但只当成一条**没有位置**的普通注解 —— 它不会挂到文件的那一行上，
+ *    而「挂到那一行」正是 §8 第 5 条要的「高亮」。
+ *    ⚠️ 消息里的 `,` 与 `:` 不需要转义，但**换行要**（`%0A`）。
+ */
 export function format(r, { annotate = false } = {}) {
   const lines = [];
-  const tag = (kind, s) => (annotate ? `::${kind}::${s}` : `${kind === 'error' ? '🔴' : '⚠️'} ${s}`);
+  const esc = (s) => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  const tag = (kind, { where, line, col }, msg) => (annotate
+    ? `::${kind} file=${where},line=${line},col=${col}::${esc(msg)}`
+    : `${kind === 'error' ? '🔴' : '⚠️'} ${where}:${line}:${col} ${msg}`);
+  const u = (cp) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+
   for (const f of r.forbidden) {
-    lines.push(tag('error',
-      `${f.where}:${f.line}:${f.col} 有 U+${f.cp.toString(16).toUpperCase().padStart(4, '0')}（${f.name}）`
-      + ' —— 载荷里不允许出现，它能让人读到的与 agent 读到的不是同一段文字'));
+    lines.push(tag('error', f, f.cp === -1
+      ? f.name
+      : `有 ${u(f.cp)}（${f.name}）—— 载荷里不允许出现，`
+        + '它能让人读到的与 agent 读到的不是同一段文字'));
   }
   for (const s of r.suspicious) {
-    lines.push(tag('warning',
-      `${s.where}:${s.line}:${s.col} 有 U+${s.cp.toString(16).toUpperCase().padStart(4, '0')}（${s.name}）—— 请人确认`));
+    lines.push(tag('warning', s, `有 ${u(s.cp)}（${s.name}）—— 请人确认`));
   }
   for (const m of r.mixedScript) {
-    lines.push(tag('warning',
-      `${m.where}:${m.line}:${m.col} 「${m.word}」同一个词里混用了 ${m.scripts.join(' + ')} —— 同形字的典型形状`));
+    lines.push(tag('warning', m,
+      `「${m.word}」同一个词里混用了 ${m.scripts.join(' + ')} —— 同形字的典型形状`));
+  }
+  for (const c of r.compatibility ?? []) {
+    lines.push(tag('warning', c,
+      `「${c.word}」在 NFKC + 大小写折叠之后是「${c.folded}」—— `
+      + '人眼读到的与字符串匹配读到的不是一个东西'));
   }
   return lines;
 }
@@ -199,9 +310,10 @@ export function main(argv) {
       + '   ⚠️ 正文确有排版需要（ZWNJ 之类）的，走人工豁免，不要放宽这道门。\n');
     return 1;
   }
-  const warn = r.suspicious.length + r.mixedScript.length;
+  const warn = r.suspicious.length + r.mixedScript.length + r.compatibility.length;
   process.stderr.write(
     `✔ ${r.files} 个文本文件没有 bidi / 零宽字符`
+    + `${r.skippedBinary ? `（另跳过 ${r.skippedBinary} 个非 UTF-8 的二进制文件）` : ''}`
     + `${warn ? `，另有 ${warn} 处待人确认（见上）` : ''}。\n`);
   return 0;
 }

@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import {
   authFilePath, writeTokenFile, readTokenFile, deleteTokenFile,
   isGitSpec, detectNpxGit, assertNotNpxGit, REQUIRED_SCOPE, SCOPE_DISCLOSURE,
+  makeAuthStore,
 } from '../src/auth.mjs';
 
 const roots = [];
@@ -177,3 +178,103 @@ test('🔴 权限面披露要说清楚「它实际能做什么」，不是只报
   assert.match(SCOPE_DISCLOSURE, /所有\*\*公开仓库/, '「public_repo」这四个字本身不说明任何事');
   assert.match(SCOPE_DISCLOSURE, /不用 `login`/, '要给出「不授权也能投稿」这条路');
 });
+
+// ── keychain 优先，文件兜底（§9）──────────────────────────────────────────
+
+/** 假的命令执行器：记录调用，按脚本返回。 */
+function fakeRun(script) {
+  const calls = [];
+  const run = (cmd, args, input) => {
+    calls.push({ cmd, args, input });
+    const r = script(cmd, args, input);
+    if (r instanceof Error) throw r;
+    return r;
+  };
+  return { run, calls };
+}
+const OK = { status: 0, stdout: '', stderr: '' };
+const FAIL = { status: 1, stdout: '', stderr: 'not found' };
+
+test('keychain 可用 → 存进 keychain，不落盘', () => {
+  const p = join(mkroot(), 'auth.json');
+  const { run, calls } = fakeRun(() => OK);
+  const store = makeAuthStore({ run, platform: 'darwin', path: p });
+  assert.equal(store.save('gho_abc'), 'keychain');
+  assert.equal(existsSync(p), false, '🔴 keychain 存成了还落一份明文，等于白存');
+  assert.equal(calls[0].cmd, 'security');
+  assert.ok(calls[0].args.includes('-U'), 'macOS 上不加 -U，第二次 login 会以 45 号错误失败');
+});
+
+test('🔴 Linux 上 token 走 stdin，不进 argv', () => {
+  const { run, calls } = fakeRun(() => OK);
+  makeAuthStore({ run, platform: 'linux', path: join(mkroot(), 'auth.json') }).save('gho_secret');
+  assert.equal(calls[0].input, 'gho_secret');
+  assert.ok(!calls[0].args.includes('gho_secret'),
+    '🔴 argv 在 /proc/<pid>/cmdline 里全用户可读 —— 存得再安全，取的路上漏了也白搭');
+});
+
+test('⚠️ macOS 的 add-generic-password 没有 stdin 选项，只能走 argv —— 如实记着', () => {
+  // 这是平台限制，不是选择。缓解见 src/auth.mjs 里 KEYCHAIN 的注释。
+  const { run, calls } = fakeRun(() => OK);
+  makeAuthStore({ run, platform: 'darwin', path: join(mkroot(), 'auth.json') }).save('gho_secret');
+  assert.ok(calls[0].args.includes('gho_secret'));
+});
+
+test('keychain 不可用 → 落文件，**并且说出来**', () => {
+  const p = join(mkroot(), 'auth.json');
+  const warnings = [];
+  const { run } = fakeRun(() => FAIL);
+  const store = makeAuthStore({ run, platform: 'linux', path: p, warn: (s) => warnings.push(s) });
+  assert.equal(store.save('gho_abc'), 'file');
+  assert.equal(mode(p), 0o600);
+  assert.match(warnings.join('\n'), /keychain 不可用/, '用户有权知道 token 躺在哪儿');
+  assert.match(warnings.join('\n'), /明文文件/);
+});
+
+test('命令根本不存在（抛错）也算不可用，不是崩', () => {
+  const p = join(mkroot(), 'auth.json');
+  const { run } = fakeRun(() => new Error('ENOENT'));
+  assert.equal(makeAuthStore({ run, platform: 'linux', path: p }).save('x'), 'file');
+});
+
+test('不认识的平台（没有 keychain 实现）→ 直接落文件', () => {
+  const p = join(mkroot(), 'auth.json');
+  const { run, calls } = fakeRun(() => OK);
+  assert.equal(makeAuthStore({ run, platform: 'aix', path: p }).save('x'), 'file');
+  assert.equal(calls.length, 0);
+});
+
+test('load：keychain 有就用 keychain 的', () => {
+  const p = join(mkroot(), 'auth.json');
+  writeTokenFile('文件里的旧的', { path: p });
+  const { run } = fakeRun(() => ({ status: 0, stdout: 'keychain 里的\n', stderr: '' }));
+  const d = makeAuthStore({ run, platform: 'darwin', path: p }).load();
+  assert.deepEqual(d, { token: 'keychain 里的', from: 'keychain' });
+});
+
+test('load：keychain 返回空串不算命中（别把空 token 当登录状态）', () => {
+  const p = join(mkroot(), 'auth.json');
+  writeTokenFile('文件里的', { path: p });
+  const { run } = fakeRun(() => ({ status: 0, stdout: '\n', stderr: '' }));
+  assert.equal(makeAuthStore({ run, platform: 'darwin', path: p }).load().from, 'file');
+});
+
+test('load：两边都没有 → null', () => {
+  const { run } = fakeRun(() => FAIL);
+  assert.equal(makeAuthStore({ run, platform: 'linux', path: join(mkroot(), 'auth.json') }).load(), null);
+});
+
+test('🔴 clear：keychain 与文件**两处都要清**', () => {
+  // 只清 keychain 的话，一个早先落过盘的 auth.json 会留在原地 ——
+  // 用户以为 logout 了，token 还躺在那儿
+  const p = join(mkroot(), 'auth.json');
+  writeTokenFile('落过盘的', { path: p });
+  const { run } = fakeRun(() => OK);
+  assert.deepEqual(makeAuthStore({ run, platform: 'darwin', path: p }).clear(), ['keychain', 'file']);
+  assert.equal(existsSync(p), false);
+});
+
+// ⚠️ **没有覆盖**：目录 chmod 失败（EPERM，目录不归我们所有）那条降级路径。
+//    要造出它得有一个别的用户拥有的目录，测试里造不出来（chmod 自己的目录总是成功）。
+//    行为写在 src/auth.mjs 的 writeTokenFile 注释里：告警但仍然存下 token，
+//    因为文件的 0600 才是保护**内容**的那一道，目录权限管的是能不能列目录。
