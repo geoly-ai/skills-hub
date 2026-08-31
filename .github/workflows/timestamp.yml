@@ -47,6 +47,10 @@ on:
 permissions:
   contents: read
 
+# ⚠️ `concurrency` 只挡住**本 workflow 自己**的并发。别的 workflow 或人工
+#    `gh release upload` 仍可能在我们两次上传之间改动同一批资产 ——
+#    那时回滚会把别人刚传的新版本覆盖掉（Codex 2026-08-31 指出）。
+#    没有更好的办法：Release 资产没有 compare-and-swap。如实记在 R-17 里。
 concurrency:
   group: timestamp
   cancel-in-progress: false
@@ -151,6 +155,14 @@ jobs:
               echo "::error::取到的 prev-timestamp.json 是空的 —— 拒绝在这上面接力"
               exit 1
             }
+            # 🔴 **旧 bundle 也要留一份** —— R-17 的回滚需要**成对**的旧资产。
+            #    只留正文的话，回滚回去的是一对验不过的东西，比不回滚更糟。
+            gh release download timestamp --repo "$GITHUB_REPOSITORY" \
+              --pattern timestamp.json.sigstore.json --output prev-timestamp.json.sigstore.json
+            test -s prev-timestamp.json.sigstore.json || {
+              echo "::error::取到的旧 bundle 是空的 —— 没有可回滚的成对资产，拒绝继续"
+              exit 1
+            }
           else
             echo "::error::查滚动 release 得到 HTTP $code —— 既不是 200 也不是 404，状态未知。"
             echo "::error::**不**按首次处理（见上）。"
@@ -169,6 +181,27 @@ jobs:
           args+=(--valid-days 7)
           [ -n "${MIN_CLI:-}" ] && args+=(--min-cli-version "$MIN_CLI")
           node --no-warnings scripts/release/build-timestamp.mjs "${args[@]}"
+
+      # 🔴 **回滚候选必须先被验成一对。** 不验的话，一次失败的发布会把一对
+      #    **本来就坏**的资产重新传上去 —— 回滚变成了把坏状态固定下来（Codex 2026-08-31）。
+      #    这一步放在 sign job：它有 checkout、有验签器；publish job 刻意不跑仓库里的 JS。
+      # ⚠️ 验不过**不让整个 job 红**：上一对坏了不该阻止我们发一份新的好的 ——
+      #    那反而会让坏状态一直留着。做法是把它从回滚候选里**移除**，并大声告警。
+      - name: 复验上一对（回滚候选）
+        if: ${{ hashFiles('prev-timestamp.json') != '' }}
+        run: |
+          set -uo pipefail
+          if node --no-warnings scripts/release/verify-own-bundle.mjs \
+               --artifact prev-timestamp.json \
+               --bundle prev-timestamp.json.sigstore.json \
+               --identity timestamp; then
+            echo "::notice::上一对验签通过，可作为回滚候选。"
+          else
+            echo "::warning::🔴 线上现有的那一对**验不过** —— 它不能当回滚候选。"
+            echo "::warning::   已移除；本次若失败将没有可回滚的对象（会大声报错，不会乱修）。"
+            echo "::warning::   ⚠️ 这本身就说明线上当前是坏的，请人工查。"
+            rm -f prev-timestamp.json prev-timestamp.json.sigstore.json
+          fi
 
       - name: 装 cosign（版本钉死）
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -240,10 +273,15 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: timestamp-signed
-          if-no-files-found: error
+          # 🔴 `warn` 不是 `error`：首次跑时没有 prev-*（滚动 release 还不存在），
+          #    而 `error` 会因为「清单里有文件没匹配上」直接失败。
+          #    两个必需文件的存在性在下一个 job 里逐个 test -f，判据不靠这里。
+          if-no-files-found: warn
           path: |
             timestamp.json
             timestamp.json.sigstore.json
+            prev-timestamp.json
+            prev-timestamp.json.sigstore.json
 
   # ── 更新滚动 release `timestamp` 的资产（§3.2）─────────────────────────
   # 🔴 **不 commit。** 02-registry.md §3.2 写得很清楚：
@@ -296,9 +334,93 @@ jobs:
             exit 1
           fi
           if [ "$code" = "200" ]; then
-            gh release upload timestamp \
-              --repo "$GITHUB_REPOSITORY" --clobber \
-              timestamp.json.sigstore.json timestamp.json
+            # 🔴 **上传失败不能让脚本当场退出。** `set -e` 下 `gh release upload` 一失败
+            #    就直接退出 —— 而「第二次上传失败」正是本段要补救的那个场景，
+            #    于是补救代码永远走不到（本机实测：线上留下「旧正文 + 新 bundle」，
+            #    退出码 1，但没有回滚）。
+            # 🔴 判据是**回读的结果**，不是上传命令的退出码：上传说成功也可能只落了一半，
+            #    上传说失败也可能其实全落了。只有把线上那一对拉回来比摘要才作数。
+            if ! gh release upload timestamp \
+                   --repo "$GITHUB_REPOSITORY" --clobber \
+                   timestamp.json.sigstore.json timestamp.json; then
+              echo "::warning::上传命令报错 —— 可能只落了一部分。继续走回读比对，由它定夺。"
+            fi
+
+            # ── R-17 的可闭合那一半：**回读比摘要 + 失败即回滚** ──────────────
+            # 🔴 瞬时窗口消不掉（GitHub 没有原子的多资产替换，那要改 §4 的分发形态）。
+            #    但 Codex 2026-08-31 指出的**另一半**可以关掉：第二次上传失败会留下
+            #    「新 bundle + 旧正文」这样一对验不过的资产，而它会**一直留到下次
+            #    cron**（3 天）。那不是一个窄窗口，是一个长期不可用的分发物。
+            #
+            # 🔴 **判据是 sha256，不是重新验签。**
+            #    第一版我在这里调了 `verify-own-bundle.mjs` —— 而这个 job **没有
+            #    checkout**（它持 contents: write，设计上不跑仓库里的任何 JS），
+            #    脚本根本不存在，必然 MODULE_NOT_FOUND → 每次都回滚、刷新永远不成功
+            #    （Codex 2026-08-31）。
+            #    而且验签本来就不该在这里做：**签名在 sign job 里已经对同一份字节
+            #    验过了**。这里要答的是另一个问题 ——「我传上去的两个文件是不是都
+            #    原样落到线上了」，那用 sha256 就够，且不需要 checkout。
+            #    `release.yml` 的挂载资产那一步用的正是同一招，本处照它做。
+            want_body=$(sha256sum timestamp.json | cut -d" " -f1)
+            want_bundle=$(sha256sum timestamp.json.sigstore.json | cut -d" " -f1)
+
+            # 🔴 回读失败 ≠ 线上是坏的。网络抖一下也会失败，而那时我们**不知道**
+            #    线上是什么状态 —— 盲目回滚可能把一次成功的发布撤掉。重试几次，
+            #    仍失败就大声报错并**明确说明没有回滚**。
+            rm -rf verify-back && mkdir -p verify-back
+            got_back=0
+            for attempt in 1 2 3; do
+              if gh release download timestamp --repo "$GITHUB_REPOSITORY" \
+                   --pattern 'timestamp.json' --output verify-back/timestamp.json \
+                 && gh release download timestamp --repo "$GITHUB_REPOSITORY" \
+                   --pattern 'timestamp.json.sigstore.json' --output verify-back/timestamp.json.sigstore.json
+              then got_back=1; break; fi
+              echo "::warning::第 $attempt 次回读失败，重试……"
+              sleep 5
+            done
+            if [ "$got_back" -eq 0 ]; then
+              echo "::error::回读不到线上资产 —— **线上状态未知**。"
+              echo "::error::**没有回滚**：不知道线上是什么就回滚，可能把一次成功的发布撤掉。请人工确认。"
+              exit 1
+            fi
+
+            got_body=$(sha256sum verify-back/timestamp.json | cut -d" " -f1)
+            got_bundle=$(sha256sum verify-back/timestamp.json.sigstore.json | cut -d" " -f1)
+            if [ "$got_body" = "$want_body" ] && [ "$got_bundle" = "$want_bundle" ]; then
+              echo "::notice::回读比对通过 —— 两个资产都原样落到线上了。"
+            else
+              echo "::error::回读比对**失败**：线上那一对不是我们刚传的。"
+              echo "::error::  正文   期望 $want_body 实际 $got_body"
+              echo "::error::  bundle 期望 $want_bundle 实际 $got_bundle"
+              if [ -f prev-timestamp.json ] && [ -f prev-timestamp.json.sigstore.json ]; then
+                echo "::error::正在把上一对传回去（回滚）……"
+                cp prev-timestamp.json.sigstore.json timestamp.json.sigstore.json
+                cp prev-timestamp.json timestamp.json
+                gh release upload timestamp \
+                  --repo "$GITHUB_REPOSITORY" --clobber \
+                  timestamp.json.sigstore.json timestamp.json
+                # 🔴 **回滚本身也是逐文件的，也要复核** —— 否则「回滚了」只是一句话
+                rb_body=$(sha256sum prev-timestamp.json | cut -d" " -f1)
+                rb_bundle=$(sha256sum prev-timestamp.json.sigstore.json | cut -d" " -f1)
+                rm -rf rb-back && mkdir -p rb-back
+                if gh release download timestamp --repo "$GITHUB_REPOSITORY" \
+                     --pattern 'timestamp.json' --output rb-back/timestamp.json \
+                   && gh release download timestamp --repo "$GITHUB_REPOSITORY" \
+                     --pattern 'timestamp.json.sigstore.json' --output rb-back/timestamp.json.sigstore.json \
+                   && [ "$(sha256sum rb-back/timestamp.json | cut -d' ' -f1)" = "$rb_body" ] \
+                   && [ "$(sha256sum rb-back/timestamp.json.sigstore.json | cut -d' ' -f1)" = "$rb_bundle" ]
+                then
+                  echo "::error::已回滚到上一对并复核通过。**本次刷新没有生效**，请查明原因后重跑。"
+                else
+                  echo "::error::🔴 **回滚也没成功** —— 线上现在可能是一对不配套的资产，需**立即人工处置**。"
+                fi
+              else
+                # 🔴 没有可回滚的（首次），**不要**试图「修一修」——
+                #    留着坏状态并大声报错，比替人做一个我们没把握的决定好。
+                echo "::error::没有上一对可回滚（首次发布？）。线上现在是一对**不配套**的资产，需人工处置。"
+              fi
+              exit 1
+            fi
           else
             # 首次：建一个滚动 release。这个 tag **不参与信任** ——
             # CLI 只按签名 identity 与摘要判真伪，不看 tag。
