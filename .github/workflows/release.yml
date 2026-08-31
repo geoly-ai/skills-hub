@@ -251,6 +251,73 @@ jobs:
             --bundle "$TGZ.sigstore.json" \
             --identity release
 
+      # ── 签快照（02-registry.md §1 的第一个签名对象）──────────────────────
+      # 🔴 §1 定了**三个**签名对象：snapshots/hub-<N>.json（release 身份）、
+      #    timestamp.json（timestamp 独立身份）、attestation（release 身份）。
+      #    timestamp.yml 签第二个，下面那步出第三个 —— 而**第一个一直没人签**。
+      #    CLI 的 fetchSnapshot() 要的正是 `<N>.sigstore.json`，没有它整条读取路径
+      #    根本起不来。这一步补的就是那一段。
+      #
+      # 🔴 **只签还没有 bundle 的那些。** 快照是只增不改的（01-artifacts.md §1），
+      #    重签一张已签过的会产出一份**不同字节**的 bundle（Rekor 条目、时间都不同），
+      #    于是同一张快照在不同轮次有两个签名 —— 而「只增不改」正是它的立身之本。
+      - name: 签快照（无快照则跳过）
+        env:
+          COSIGN_YES: "true"
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # 🔴 **直接迭代 glob，不要中间数组。** `set -u` 下 `"${arr[@]}"` 在数组为空时
+          #    会报 `unbound variable`（bash 4.3 及更早，以及 macOS 自带的 3.2）。
+          #    GitHub 的 runner 现在是 bash 5.x、容忍这一条 —— 但那是「换个 runner 就红」
+          #    的依赖，不值得为省一个变量而背上。
+          shopt -s nullglob
+          signed=0
+          for f in registry/snapshots/hub-*.json; do
+            # 🔴 把 bundle 自己剔掉 —— 它叫 `hub-42.json.sigstore.json`（仓库的约定是
+            #    **追加**，同 `$TGZ.sigstore.json` 与 `registry/timestamp.json.sigstore.json`），
+            #    而那个名字本身就匹配 `hub-*.json`。不剔就会去签一份签名。
+            [ "${f%.sigstore.json}" = "$f" ] || continue
+            if [ -f "$f.sigstore.json" ]; then
+              # 🔴 **已有 bundle 要真的验一遍，不能只看文件在不在。**
+              #    一份损坏 / 陈旧 / 用错身份签的 bundle 同样满足 `-f`，然后会被
+              #    原样挂到 Release 上 —— 那是一个「看起来可验签」的分发物。
+              #    🔴 验不过就**硬失败**，不重签：重签会把一次真实的完整性事件
+              #    悄悄抹平成一次正常发布。
+              echo "::notice::$f 已经有 bundle —— 复验它（不重签：快照只增不改）"
+              node --no-warnings scripts/release/verify-own-bundle.mjs \
+                --artifact "$f" --bundle "$f.sigstore.json" --identity release
+              continue
+            fi
+            # 🔴 dry_run 下**不签真快照**。cosign 会把条目写进 Rekor 公共透明日志，
+            #    那是**不可撤销的公开记录**；而 dry_run 产出的 bundle 既不会进 Release
+            #    也不会进仓库，等于留下一条「这张快照发布过」的假痕迹。
+            #    签发链本身已经由上面的 canary 步骤验过了（同一个 cosign、同一个身份）。
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "::notice::dry_run：跳过对 $f 的真实签名（不往 Rekor 写不可撤销的条目）"
+              continue
+            fi
+            signed=$((signed + 1))
+            echo "── 签 $f"
+            cosign sign-blob \
+              --new-bundle-format \
+              --rekor-url https://rekor.sigstore.dev \
+              --bundle "$f.sigstore.json" \
+              "$f"
+            # 🔴 自验：我们自己的验签器必须收自己签出来的东西，且身份是 **release**
+            node --no-warnings scripts/release/verify-own-bundle.mjs \
+              --artifact "$f" --bundle "$f.sigstore.json" --identity release
+            # 🔴 交叉证伪：拿 **timestamp 身份** 去验**必须失败，且必须是因为身份不匹配**。
+            #    §1 要求两个身份不可互换；只证「release 身份能验过」在「身份判定退化成
+            #    恒真」时也成立。只判非零退出同样不够 —— 文件不存在、验签器坏了也非零。
+            node --no-warnings scripts/release/verify-own-bundle.mjs \
+              --artifact "$f" --bundle "$f.sigstore.json" \
+              --identity timestamp --expect-failure E_IDENTITY_MISMATCH
+          done
+          if [ "$signed" -eq 0 ]; then
+            echo "::notice::没有待签的快照（registry/snapshots/ 为空，或都已经有 bundle）。"
+          fi
+
       # ── attestation（02-registry.md §1.1）───────────────────────────────
       # 🔴 只在**快照存在**时才做。现在仓库里没有 registry/snapshots/，
       #    所以这一步会被跳过 —— 如实跳过，不造一个假的 subject 出来凑。
@@ -261,13 +328,31 @@ jobs:
           COSIGN_YES: "true"
         run: |
           set -euo pipefail
-          if ! ls registry/snapshots/hub-*.json >/dev/null 2>&1; then
+          # 🔴 **必须把 bundle 从候选里剔掉。** 它叫 `hub-42.json.sigstore.json`，
+          #    既匹配 `hub-*.json`，又在 `sort -V` 里排在 `hub-42.json` **后面** ——
+          #    `tail -1` 会选中它，于是 attestation 去签了一份**签名**而不是快照，
+          #    而 subject 的名字看起来还挺像回事。
+          #    （这是「签快照」那一步引入的回归：在此之前目录里根本没有 .sigstore.json。）
+          # ⚠️ 顺带：glob 展开是**字典序**，而快照号是 `hub-<N>` —— `hub-10` 会排在
+          #    `hub-2` 前面。所以按**数字**取最大，不靠 glob 顺序、也不靠 `sort -V`。
+          # 🔴 **这里不能用 `case … in *.sigstore.json) … ;; esac`。**
+          #    bash 3.2 在 `$( )` 里解析 `case` 的模式收尾 `)` 时会把它当成命令替换
+          #    的结尾 —— 报 `syntax error near unexpected token ';;'`（本机实测）。
+          #    runner 现在是 bash 5.x 不会踩，但这是发布关键路径，不值得赌 bash 版本。
+          #    `[ "${f%.sigstore.json}" = "$f" ]` 只用参数展开，哪个 shell 都一样。
+          shopt -s nullglob
+          newest=$(for f in registry/snapshots/hub-*.json; do
+                     [ "${f%.sigstore.json}" = "$f" ] || continue
+                     n=${f##*/hub-}; echo "${n%.json} $f"
+                   done | sort -n -k1,1 | tail -1 | cut -d" " -f2-)
+          if [ -z "$newest" ]; then
             echo "::notice::registry/snapshots/ 不存在 —— 本轮没有快照可签，跳过 attestation。"
             echo "::notice::制品（skill tar.gz）与快照的签发链**尚不存在**，packer 是 M2 的范围。"
             exit 0
           fi
+          echo "attestation 的 subject：$newest"
           node --no-warnings scripts/release/build-attestation.mjs \
-            --snapshot "$(ls -1 registry/snapshots/hub-*.json | sort -V | tail -1)" \
+            --snapshot "$newest" \
             --source-commit "$GITHUB_SHA" \
             --out predicate.json
           cosign attest-blob \
@@ -276,7 +361,7 @@ jobs:
             --predicate predicate.json \
             --type https://geoly.ai/skills-hub/release/v1 \
             --bundle attestation.sigstore.json \
-            "$(ls -1 registry/snapshots/hub-*.json | sort -V | tail -1)"
+            "$newest"
           # 🔴 再把 **cosign 真正写出来的那份 envelope** 解析一遍。
           #    build-attestation.mjs 的自检用的是我们自己拼的**占位** envelope，
           #    它证明不了 cosign 最后产出的东西也满足 §1.1 的契约与 E-2 的绑定。
@@ -326,6 +411,7 @@ jobs:
             *.tgz.sigstore.json
             attestation.sigstore.json
             registry/snapshots/hub-*.json
+            registry/snapshots/hub-*.sigstore.json
 
   # ── ④ 离线引导用的资产（02-registry.md §8.2）───────────────────────────
   # 「不接受 npm 这个信任锚的使用者，从 GitHub Release 直接取 CLI tarball 与其 bundle，
@@ -374,11 +460,24 @@ jobs:
           # 🔴 **不用 glob**。glob 会把目录里任何多出来的 .tgz 一并发出去，
           #    而「多出来一个 .tgz」正是出问题时最可能的形态。
           assets=("$TGZ" "$TGZ.sigstore.json")
-          # 快照与 attestation 现在还不存在（packer 属于 M2）。等它们存在了，
-          # §8.2 的离线资产清单要把它们一并挂上来 —— 所以这里按存在与否追加，
-          # 而不是等 M2 再回来改一次。
-          for extra in attestation.sigstore.json hub-*.json; do
-            [ -f "$extra" ] && assets+=("$extra")
+          [ -f attestation.sigstore.json ] && assets+=(attestation.sigstore.json)
+
+          # 🔴 **快照在 `registry/snapshots/` 下，不在根目录。**
+          #    upload-artifact 是按全部匹配项的最近公共祖先保留目录结构的，
+          #    所以 download 下来是 `registry/snapshots/hub-42.json`。
+          #    早先这里写的是根目录的 `hub-*.json` —— 匹配不上、`[ -f ]` 为假、
+          #    循环**静默跳过**，快照就这么不会被挂上去。而这条路径今天不会红：
+          #    仓库里还没有快照，谁也发现不了。
+          shopt -s nullglob
+          for f in registry/snapshots/hub-*.json; do
+            [ "${f%.sigstore.json}" = "$f" ] || continue
+            # 🔴 **有快照没 bundle 就直接失败。** 挂一张验不了签的快照上去，
+            #    比不挂更糟：它看起来是可用的分发物。
+            if [ ! -f "$f.sigstore.json" ]; then
+              echo "::error::$f 没有对应的 .sigstore.json —— 拒绝挂载一张验不了签的快照"
+              exit 1
+            fi
+            assets+=("$f" "$f.sigstore.json")
           done
           printf '挂载资产：%s\n' "${assets[@]}"
           gh release create "$TAG" \
