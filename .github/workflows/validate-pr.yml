@@ -1,0 +1,226 @@
+name: Validate PR
+
+# ══════════════════════════════════════════════════════════════════════════
+# 06-submission.md §4（两个验证入口）、§5（权限边界）、§6（结构门）。
+#
+# 🔴 **禁止 `pull_request_target`**（§5）。它会用 base 分支的 workflow 定义
+#    去跑、并且能拿到 secrets —— 而我们要 checkout 的是 fork 的 head。
+#    这里用 `pull_request`：fork 的 PR 拿到的是只读、无 secret 的 token。
+#
+# 🔴🔴 **本文件最要紧的一条：可信代码 + 不可信数据。**
+#    `pull_request` 事件下 `actions/checkout` 默认检出的是**合并树** ——
+#    里面**包含 PR 自己对校验器的修改**。第一版就是这么写的，于是：
+#    攻击者在同一个 PR 里把 `pr-classify.mjs` 改成恒返回 submission、
+#    再把 `run-gates.mjs` 改成恒返回 0，顺带改 `.github/`，**整道门直接通过**
+#    —— 门用的是攻击者控制的校验器（Codex 2026-08-31）。
+#
+#    所以：**校验器一律从 `base` 检出**（那是已合并、已审的代码），
+#    PR 的内容检出到另一个目录、**只当数据读**，永远不执行。
+#    `npm ci` 也只在 base 那棵树里跑、用 base 的 lockfile ——
+#    否则 PR 改一行 `package.json` 就能让我们装它指定的依赖。
+#
+# 🔴 **结构门全部是对文件的检查，不执行载荷**（§5）：
+#    `run-gates.mjs` 只 `readFileSync` / `collectTree` / 比字符串，
+#    从不 `import` 投稿目录里的任何东西。
+#
+# ── 与 §4 字面表述的一处偏离，理由写在这里 ──────────────────────────────
+# §4 描述的是**两个** workflow（validate-submission.yml / validate-promotion.yml），
+# 并要求「分支保护要求两个中**恰好一个**通过，且 router 判定的那个必须是它 ——
+# 不能配成『任一通过即可』」。
+#
+# 🔴 **那个要求在 GitHub 上配不出来**：required checks 是一组**静态名字**，
+#    分支保护没有「二选一，且要是运行时算出来的那一个」这种表达。
+#    照字面做成两个 workflow，最后仍然要靠人在设置页里配对 —— 而 §4 担心的
+#    恰恰是配错。
+#
+# ✅ 所以这里用**一个固定名的聚合门** `pr-gate`（与 `ci.yml` 的 `ci-gate` 同款：
+#    「固定名的聚合 job —— 分支保护要钉的是它」）。router 在 job 内部判定，
+#    两条路径互斥且都必须通过聚合门。**误配在构造上就不可能发生** ——
+#    这比两个 workflow + 一份正确的分支保护配置更强，不是更弱。
+#    ⚠️ 这条偏离已记进 docs/m2/00-delivery.md，等规格侧确认。
+# ══════════════════════════════════════════════════════════════════════════
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # 🔴 release bot 的**不可变 node id**，不是 login。login 可以改名、也可以被
+  #    别人重新认领 —— 那是一条实打实的提权路径（见 pr-classify.mjs 的说明）。
+  #    ⚠️ 这个值现在是占位：真的 bot 账号还不存在。填错的后果是**所有** PR 都被
+  #    判成 submission（fail-closed，promotion PR 会被路径白名单拦下并报错），
+  #    不会反过来把投稿放行。
+  RELEASE_BOT_ID: "PLACEHOLDER_RELEASE_BOT_NODE_ID"
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      kind: ${{ steps.classify.outputs.kind }}
+    steps:
+      # ① **可信代码**：base 上那一份（已合并、已审）
+      - name: 检出 base 的校验器（可信）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-tools
+          persist-credentials: false
+
+      # ② **不可信数据**：PR 的内容。只用来算 diff 与读文件，**从不执行**。
+      - name: 检出 PR 内容（不可信 —— 只读）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+
+      - name: 取改动路径（相对 merge-base）
+        id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          cd pr
+          # 🔴 **必须相对 merge-base**，不是 `git diff BASE HEAD`（那是比两棵终态树）。
+          #    base 前进之后：
+          #      · 误报 —— base 上别人改的 docs/x 会被算成本 PR 的改动，投稿被无辜拒掉；
+          #      · 漏报 —— PR 改了 .github/x、而新 base 恰好把它改成同样内容，
+          #        两棵树一致于是**不列出来**，尽管这条路径确实被本 PR 动过。
+          #    三点式 `A...B` 正是「相对 merge-base」（Codex 2026-08-31）。
+          git fetch --no-tags --depth=0 origin "$BASE_SHA" 2>/dev/null || true
+          # 🔴 **必须 `--no-renames`。** 带重命名检测时
+          #    `.github/x.yml → submissions/x.yml` 只列出**新**路径，
+          #    于是「把受保护文件删掉」会从投稿白名单溜过去。
+          git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > ../changed.txt
+          cd ..
+          echo "改动 $(wc -l < changed.txt) 个路径："
+          cat changed.txt
+          {
+            echo 'list<<PATHS_EOF'
+            cat changed.txt
+            echo 'PATHS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 分流 + 路径白名单（§4 / §5）
+        id: classify
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          AUTHOR_ID: ${{ github.event.pull_request.user.node_id }}
+          AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          PATHS: ${{ steps.paths.outputs.list }}
+        run: |
+          set -euo pipefail
+          # 🔴 跑的是 **base-tools/** 里那一份 —— PR 改不动它。
+          kind=$(node --no-warnings base-tools/scripts/submission/pr-classify.mjs \
+            --head-ref "$HEAD_REF" \
+            --head-repo "$HEAD_REPO" \
+            --this-repo "$GITHUB_REPOSITORY" \
+            --author-id "$AUTHOR_ID" \
+            --author "$AUTHOR_LOGIN" \
+            --release-bot-id "$RELEASE_BOT_ID" \
+            --changed-paths "$PATHS")
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "::notice::本 PR 判定为 $kind"
+
+  # ── 投稿 PR 的结构门（§6）────────────────────────────────────────────────
+  submission-gates:
+    needs: route
+    if: ${{ needs.route.outputs.kind == 'submission' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出 base 的校验器（可信）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-tools
+          persist-credentials: false
+      - name: 检出 PR 内容（不可信 —— 只读）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      # 🔴 **只在 base 那棵树里装依赖，用 base 的 lockfile。** 在 PR 树里跑的话，
+      #    改一行 package.json 就能让我们装它指定的依赖 —— 而 `--ignore-scripts`
+      #    只挡 npm 的生命周期钩子，挡不住「随后被 import 的代码」。
+      - run: npm ci --ignore-scripts
+        working-directory: base-tools
+      - name: 结构门（可信代码 × 不可信数据）
+        run: |
+          set -euo pipefail
+          node --no-warnings base-tools/scripts/submission/run-gates.mjs \
+            --submissions pr/submissions \
+            --artifacts base-tools/artifacts \
+            --reserved base-tools/registry/reserved.json
+          # 🔴 `--artifacts` 与 `--reserved` 都指向 **base**：
+          #    「已有哪些制品」「哪些 namespace 是保留的」都是既有事实，
+          #    不能让被检的 PR 自己提供 —— 那等于让它宣布自己没占用版本号。
+
+  # ── promotion PR 的确定性复算（§4）──────────────────────────────────────
+  promotion-gates:
+    needs: route
+    if: ${{ needs.route.outputs.kind == 'promotion' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 🔴 尚未实现 —— 显式失败，不假装通过
+        run: |
+          echo "::error::validate-promotion 的确定性复算尚未实现（§4）："
+          echo "::error::  · 用 PR 里记录的 --created-at 重跑 build-snapshot.mjs，断言字节一致"
+          echo "::error::  · 重跑打包，断言每个资产 sha256 与快照记录一致"
+          echo "::error::  · 不可变性、六项绑定、pack 的 clients/capabilities/degraded 重算一致"
+          echo "::error::在它实现之前，promotion PR **不得合并** —— 一个空过的门比没有门更糟。"
+          exit 1
+
+  # ── 🔴 分支保护要钉的是这一个固定名（同 ci.yml 的 ci-gate）────────────────
+  pr-gate:
+    needs: [route, submission-gates, promotion-gates]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 🔴 router 判定的那条路径必须跑过且通过
+        env:
+          KIND: ${{ needs.route.outputs.kind }}
+          ROUTE: ${{ needs.route.result }}
+          SUB: ${{ needs.submission-gates.result }}
+          PROMO: ${{ needs.promotion-gates.result }}
+        run: |
+          set -euo pipefail
+          echo "route=$ROUTE kind=${KIND:-（无）} submission=$SUB promotion=$PROMO"
+          [ "$ROUTE" = "success" ] || { echo "::error::分流本身没通过"; exit 1; }
+
+          # 🔴 判据是「**router 挑中的那一条**跑过且 success」，而不是「有一条 success」。
+          #    §4 担心的正是后者：配成「任一通过即可」时，投稿 PR 可以伪装成
+          #    promotion 分支去走另一条路。这里两条互斥、且只认 router 的判定。
+          case "$KIND" in
+            submission)
+              [ "$SUB" = "success" ] || { echo "::error::投稿结构门未通过（$SUB）"; exit 1; }
+              [ "$PROMO" = "skipped" ] || { echo "::error::promotion 路径本不该跑，却是 $PROMO"; exit 1; }
+              ;;
+            promotion)
+              [ "$PROMO" = "success" ] || { echo "::error::promotion 复算门未通过（$PROMO）"; exit 1; }
+              [ "$SUB" = "skipped" ] || { echo "::error::投稿路径本不该跑，却是 $SUB"; exit 1; }
+              ;;
+            *)
+              echo "::error::router 没有给出判定（kind=${KIND:-（空）}）"; exit 1 ;;
+          esac
+          echo "::notice::✔ $KIND 路径通过，另一条如预期被跳过。"
