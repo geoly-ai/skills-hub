@@ -60,8 +60,12 @@ skills-hub --help
 - **`--release-frozen` 如实拒绝**（没有按 label 解冻 attic 的导出），不提供假装成功的路径。
 - `cursor` 未验证；`search` 搜不了 description（快照 record 里没有这个字段）。
 
-已知且**明确接受**的残余风险见 [`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)（R-1 … R-11），
+已知且**明确接受**的残余风险见 [`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)（R-1 … R-11）
+与 [`docs/m2/01-residual-risks.md`](docs/m2/01-residual-risks.md)（R-12 … R-16），
 M0 正文的勘误见 [`docs/m0/ERRATA.md`](docs/m0/ERRATA.md)（E-1 … E-8）。
+
+M2 交出了什么、**明确没做到什么**、以及三条待拍板项，见
+[`docs/m2/00-delivery.md`](docs/m2/00-delivery.md)。
 
 ## 从哪读起
 
