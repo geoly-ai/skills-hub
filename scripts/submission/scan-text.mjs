@@ -161,12 +161,15 @@ export function findCompatibilityForms(text, where = '<text>') {
   const out = [];
   let line = 1;
   for (const raw of text.split('\n')) {
-    for (const m of raw.matchAll(/[\p{L}\p{M}\p{N}]+/gu)) {
+    // 🔴 词里要带上 `\p{So}` / `\p{Sk}`：`ⓢⓗⓔⓛⓛ` 属于 So，
+    //    用 `[\p{L}\p{M}\p{N}]+` 的话它整个不成词，一处都不报（Codex 2026-08-31）。
+    for (const m of raw.matchAll(/[\p{L}\p{M}\p{N}\p{So}\p{Sk}]+/gu)) {
       const word = m[0];
-      const folded = word.normalize('NFKC').toLowerCase();
-      // 只报「折叠后变了、且折叠结果是纯 ASCII」的 —— 那才是伪装成
-      // 英文关键词的形状；中日韩正文的 NFKC 变化不落进这一格。
-      if (folded !== word.toLowerCase() && /^[\x21-\x7e]+$/.test(folded)) {
+      const nfkc = word.normalize('NFKC');
+      // 🔴 **NFKC 的差异要在小写化之前判。** 先 toLowerCase 的话，
+      //    `K`（U+212A KELVIN）与 `k` 会先变成同一个，差异就没了。
+      const folded = nfkc.toLowerCase();
+      if (nfkc !== word && /^[\x21-\x7e]+$/.test(folded)) {
         out.push({ where, line, col: [...raw.slice(0, m.index)].length + 1, word, folded });
       }
     }
@@ -192,9 +195,14 @@ export function findCompatibilityForms(text, where = '<text>') {
  *   · 不能 → 真二进制（图片之类），跳过。
  * 一个刻意构造成合法 UTF-8 的「二进制」文件会被扫，那没有坏处。
  */
+// 名字看着就是给人读的 —— 这些**必须**是合法 UTF-8，否则按绕过处理。
+const TEXTY = /\.(md|markdown|txt|json|ya?ml|toml|csv|sh|bash|zsh|py|rb|pl|js|mjs|cjs|ts|ps1)$/i;
+
 export function scanTree(root) {
   if (!existsSync(root)) bad('E_SCAN_INPUT', `${root} 不存在`);
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  // 🔴 `ignoreBOM: true` —— 默认的 TextDecoder 会**吃掉**文件开头的 BOM，
+  //    于是 U+FEFF 永远进不了 FORBIDDEN，那一格形同虚设（Codex 2026-08-31）。
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
   const all = {
     files: 0, skippedBinary: 0, forbidden: [], suspicious: [], mixedScript: [], compatibility: [],
   };
@@ -212,14 +220,33 @@ export function scanTree(root) {
       }
       if (e.isDirectory()) { walk(full); continue; }
       if (!e.isFile()) continue;
+      const rel = relative(root, full);
       let text;
       try {
         text = decoder.decode(readFileSync(full));
       } catch {
-        all.skippedBinary++;                 // 不是合法 UTF-8 → 真二进制
+        // 🔴🔴 **「不是合法 UTF-8 就跳过」本身又是一个绕过**（Codex 2026-08-31）：
+        //    在一个塞了 RLO 的 .md 里多放一个非法字节，整文件就不扫了。
+        //    所以按文件名分两路：
+        //    · 名字就是给人读的（.md / .sh / .json…）→ **直接拒**。
+        //      一个不是合法 UTF-8 的 SKILL.md 不是「二进制资源」，是规避。
+        //    · 其余（图片之类）→ 跳过，但**计数并报出来**，不静默。
+        if (TEXTY.test(e.name)) {
+          all.forbidden.push({
+            where: rel, line: 1, col: 1, cp: -1,
+            name: '不是合法 UTF-8 —— 文本文件必须能解码，'
+              + '否则「跳过不扫」就成了藏 bidi / 零宽字符的地方',
+          });
+        } else {
+          all.skippedBinary++;
+          all.suspicious.push({
+            where: rel, line: 1, col: 1, cp: -1,
+            name: '非 UTF-8 的二进制文件，**没有**逐字符扫过 —— 请人确认它确实是资源文件',
+          });
+        }
         continue;
       }
-      const r = scanText(text, relative(root, full));
+      const r = scanText(text, rel);
       all.files++;
       all.forbidden.push(...r.forbidden);
       all.suspicious.push(...r.suspicious);

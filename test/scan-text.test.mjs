@@ -205,3 +205,51 @@ test('🔴 CLI 拒拼错的选项', () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /\[E_SCAN_INPUT\]/);
 });
+
+// ── Codex 2026-08-31 第二轮 ───────────────────────────────────────────────
+
+test('🔴🔴 非法 UTF-8 的 .md → **拒**，不是跳过', () => {
+  // 「不是合法 UTF-8 就跳过」本身又是一个绕过：在塞了 RLO 的 .md 里
+  // 多放一个非法字节，整文件就不扫了
+  const root = mkroot();
+  mkdirSync(join(root, 'geoly', 'a@1.0.0'), { recursive: true });
+  writeFileSync(join(root, 'geoly', 'a@1.0.0', 'SKILL.md'),
+    Buffer.concat([Buffer.from('正常'), Buffer.from([0xff]), Buffer.from('\u{202E}反转')]));
+  const r = scanTree(root);
+  assert.equal(r.forbidden.length, 1);
+  assert.match(r.forbidden[0].name, /不是合法 UTF-8/);
+});
+
+test('非 UTF-8 的图片：跳过但**报出来**，不静默', () => {
+  const root = mkroot();
+  mkdirSync(join(root, 'geoly', 'a@1.0.0'), { recursive: true });
+  writeFileSync(join(root, 'geoly', 'a@1.0.0', 'logo.png'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+  const r = scanTree(root);
+  assert.equal(r.forbidden.length, 0);
+  assert.equal(r.skippedBinary, 1);
+  assert.equal(r.suspicious.length, 1, '「没扫过」这件事本身要让人知道');
+});
+
+test('🔴 BOM 不能被 TextDecoder 吃掉', () => {
+  // 默认的 TextDecoder 会剥掉开头的 BOM，于是 U+FEFF 永远进不了 FORBIDDEN
+  const root = mkroot();
+  mkdirSync(join(root, 'geoly', 'a@1.0.0'), { recursive: true });
+  writeFileSync(join(root, 'geoly', 'a@1.0.0', 'SKILL.md'),
+    Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('# 标题\n')]));
+  const r = scanTree(root);
+  assert.deepEqual(r.forbidden.map((f) => f.cp), [0xfeff]);
+});
+
+test('🔴 兼容形：NFKC 差异要在小写化**之前**判', () => {
+  // K（U+212A KELVIN）先 toLowerCase 的话会与 k 变成同一个，差异就没了
+  const r = findCompatibilityForms('\u{212A}elvin');
+  assert.equal(r.length, 1);
+  assert.equal(r[0].folded, 'kelvin');
+});
+
+test('🔴 带圈字母属于 So，词正则要收得住', () => {
+  // \u{24E2}\u{24D7}\u{24D4}\u{24DB}\u{24DB} 用 [\p{L}\p{M}\p{N}]+ 的话整个不成词，一处都不报
+  const r = findCompatibilityForms('capability: \u{24E2}\u{24D7}\u{24D4}\u{24DB}\u{24DB}');
+  assert.equal(r.length, 1);
+  assert.equal(r[0].folded, 'shell');
+});

@@ -42,6 +42,12 @@ name: Validate PR
 
 on:
   pull_request:
+  # 🔴🔴 **审批被撤回时必须重跑**（Codex 2026-08-31）：
+  #    一张 Tier 2 的 PR 拿到两票、`pr-gate` 跑绿之后，第二票被 dismiss
+  #    或改成非 APPROVED —— 旧的绿**留在那里**，而分支保护静态只要求一票，
+  #    于是 PR 能合。§7 的「两名」就这么没了。
+  pull_request_review:
+    types: [submitted, dismissed, edited]
 
 permissions:
   contents: read
@@ -49,6 +55,21 @@ permissions:
 concurrency:
   group: validate-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
+# 🔴 **`pull_request_review` 与 `pull_request` 不是一回事，这里必须说清楚。**
+#    `pull_request_review` 用的是 **base 分支的 workflow 定义**、跑在 base 的
+#    上下文里 —— 和 §5 明令禁止的 `pull_request_target` 是同一类。
+#    它之所以在这里可以用，是因为**本文件对 fork 内容的处理方式本来就没变**：
+#      · 顶层 `permissions` 已经收成只读，下面的 job 也只加 `pull-requests: read`；
+#      · 校验器一律从 base 检出，PR 内容检出到 `pr/` **只当数据读，从不执行**；
+#      · 没有任何 secret。
+#    🔴 **不要在这个 workflow 里加任何写权限或 secret** —— 那一刻它就变成了
+#       一个 `pull_request_target`，而 §5 禁止它的理由会全部生效。
+#
+# ⚠️ 已知噪音：PR **合并之后**仍然可以评审，那会再跑一次本 workflow。
+#    结果无意义但也无害（不写任何东西）。没有加 `state == 'open'` 的守卫，
+#    因为那会让 `route` 被跳过，而 `pr-gate` 判的是「router 挑中的那条跑过且
+#    success」—— 一个被跳过的 route 会让聚合门失败，那才是真的误报。
 
 env:
   # 🔴 release bot 的**不可变 node id**，不是 login。login 可以改名、也可以被
