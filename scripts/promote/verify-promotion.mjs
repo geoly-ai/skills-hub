@@ -28,8 +28,9 @@
 //    · `repo` —— 自举，但读取端把它对着内置常量判，实际拦得住。
 //    历史制品的这些字段则**在**覆盖范围内：不可变门逐字比上一张快照。
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, readdirSync, lstatSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
 
 import { stringify } from '../../src/canonical-json.mjs';
 import { parseSnapshot } from '../../src/snapshot.mjs';
@@ -136,11 +137,25 @@ export function assertArtifactsImmutable({ previousSnapshot, snapshot }) {
  * @param {string} a.artifactsRoot     promotion PR 里的 `artifacts/`
  * @param {Buffer} a.committedBytes    promotion PR 里的 `registry/snapshots/hub-<N>.json`
  * @param {Buffer|null} a.previousBytes  **base 上**的 `hub-<N-1>.json`（不可变判据）
+ * @param {string|null} a.expectFile  被验快照的文件名（要与内容里的 `snapshot` 一致）
  * @returns {{snapshot:number, artifacts:number, immutable:number}}
  */
-export function verifyPromotionSnapshot({ artifactsRoot, committedBytes, previousBytes = null }) {
+export function verifyPromotionSnapshot({
+  artifactsRoot, committedBytes, previousBytes = null, expectFile = null,
+}) {
   // 🔴 先过**读取端**：一张读不回来的快照根本谈不上复算。
   const snap = parseSnapshot(committedBytes);
+
+  // 🔴 文件名 ↔ 内容绑定。缺了这一条，`hub-900.json` 里写 `snapshot: 42`
+  //    在本门是自洽的，到 release 阶段才炸（Codex 2026-08-31）。
+  if (expectFile !== null && expectFile !== `hub-${snap.snapshot}.json`) {
+    bad('E_FILENAME_MISMATCH',
+      `文件名 ${expectFile} 与内容里的 snapshot=${snap.snapshot} 对不上`
+      + `（应为 hub-${snap.snapshot}.json）。`);
+  }
+
+  // 🔴 制品树里不许有符号链接 —— 见 assertNoSymlinks 的说明。
+  assertNoSymlinks(artifactsRoot, { label: 'pr/artifacts' });
 
   // 🔴 `previousBytes` **只在创世快照 0 上可以缺**（`previous` 是 uint，不是 null；
   //    快照 0 是唯一允许 `previous >= snapshot` 的一张，见 snapshot.mjs 的 E_SNAPSHOT_PREV）。
@@ -208,11 +223,96 @@ function firstDifference(a, b) {
     + `    复算的：${ctx(b)}`;
 }
 
+// ── 文件层的门（这一层的判据是**盘上的东西**，不是 JSON 里的字段）────────────
+
+// 🔴 与 `build-timestamp.mjs` 用的是**同一条**正则。松一格就会分叉：
+//    `hub-01.json` 与 `hub-1.json` 会算出同一个 N，谁赢取决于目录顺序。
+const RE_SNAPSHOT_FILE = /^hub-(0|[1-9]\d*)\.json$/;
+
+/**
+ * 🔴🔴 **拒绝任何 symlink**（Codex 2026-08-31）。
+ *
+ * 这一条是「可信代码 × 不可信数据」那套的**前提**，不是锦上添花：
+ * `readdirSync` / `readFileSync` / `cmp` 全都跟随符号链接。PR 只要把
+ * `artifacts/skills/geoly/foo` 链到 CI 上并排放着的 `base-tools/.../foo`，
+ * **校验器看到的就是 base 上那份没被改的内容**，全绿通过；
+ * 合并之后链接指向的目录不存在，制品当场坏掉。
+ * 历史快照同理 —— 一个链接就能骗过逐字节比对。
+ *
+ * 判据只能是 `lstatSync`（不跟随），且要**逐层**查：只查叶子的话，
+ * 中间目录换成链接一样能生效。
+ */
+export function assertNoSymlinks(root, { label = root } = {}) {
+  if (!existsSync(root)) return 0;
+  let n = 0;
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      const st = lstatSync(full);
+      if (st.isSymbolicLink()) {
+        bad('E_SYMLINK',
+          `${label}/${relative(root, full)} 是符号链接 —— 一律拒绝。\n`
+          + '  🔴 校验器读文件时会跟随链接，于是它看到的可以不是合并后真正存在的内容。');
+      }
+      n++;
+      if (st.isDirectory()) walk(full);
+      else if (!st.isFile()) {
+        bad('E_NOT_REGULAR', `${label}/${relative(root, full)} 不是普通文件或目录。`);
+      }
+    }
+  };
+  walk(root);
+  return n;
+}
+
+/**
+ * `registry/snapshots/` 这一层：历史快照逐字节不变、本次**恰好**新增一张、
+ * 且**文件名与内容里的 `snapshot` 严格一致**。
+ *
+ * 🔴 最后那一条不是形式主义（Codex 2026-08-31）：编号连续性判的是 JSON 里的
+ *    `snapshot`/`previous`，而 workflow 是**按文件名**挑上一张的。
+ *    提交一个叫 `hub-900.json`、内容却是 `snapshot: 42` 的文件，两边各自都自洽 ——
+ *    直到 release 阶段 `build-timestamp.mjs` 在文件名与内容不一致上炸掉。
+ *
+ * @returns {{newFile:string, previousFile:string|null}}
+ */
+export function auditSnapshotsDir({ prSnapshotsDir, baseSnapshotsDir }) {
+  assertNoSymlinks(prSnapshotsDir, { label: 'pr/registry/snapshots' });
+
+  const list = (d) => (existsSync(d) ? readdirSync(d).filter((f) => RE_SNAPSHOT_FILE.test(f)) : []);
+  const baseFiles = list(baseSnapshotsDir);
+  const prFiles = list(prSnapshotsDir);
+
+  // ① 历史快照一个字节都不能变（也不能删）
+  for (const f of baseFiles) {
+    const before = readFileSync(join(baseSnapshotsDir, f));
+    let after;
+    try { after = readFileSync(join(prSnapshotsDir, f)); } catch {
+      bad('E_SNAPSHOT_REMOVED', `历史快照 ${f} 在 PR 里没了 —— 快照不可变。`);
+    }
+    if (!before.equals(after)) bad('E_SNAPSHOT_MUTATED', `历史快照 ${f} 被改动了 —— 快照不可变。`);
+  }
+
+  // ② 本次恰好新增一张
+  const added = prFiles.filter((f) => !baseFiles.includes(f));
+  if (added.length !== 1) {
+    bad('E_SNAPSHOT_COUNT',
+      `promotion PR 必须**恰好**新增一张快照，实际 ${added.length} 张：${added.join('、') || '（无）'}`);
+  }
+
+  // ③ 上一张 = base 上编号最大的那一张
+  const nums = baseFiles.map((f) => Number(RE_SNAPSHOT_FILE.exec(f)[1]));
+  const previousFile = nums.length === 0 ? null : `hub-${Math.max(...nums)}.json`;
+  return { newFile: added[0], previousFile };
+}
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 
 // 🔴 **白名单 + 拒重复。** 只拒非 `--` 开头的话，`--previuos x`（拼错）会被静默
 //    忽略，于是不可变门在**没人察觉**的情况下变成空门（Codex 2026-08-31）。
-const KNOWN = ['artifacts', 'snapshot', 'previous'];
+// `--pr` / `--base` 是**目录**，不是文件：被验的是哪一张、上一张是哪一张，
+// 都由本脚本自己从两棵树的差集算出来。让调用方指定等于让它替我们做判断。
+const KNOWN = ['pr', 'base'];
 
 function parseArgs(argv) {
   const o = {};
@@ -233,19 +333,40 @@ function parseArgs(argv) {
 
 export function main(argv) {
   const o = parseArgs(argv);
-  for (const k of ['artifacts', 'snapshot']) if (o[k] === undefined) bad('E_VERIFY_INPUT', `缺少 --${k}`);
-  // `--previous` 的必需性由 verifyPromotionSnapshot 判（快照 1 之外一律要）。
+  for (const k of ['pr', 'base']) if (o[k] === undefined) bad('E_VERIFY_INPUT', `缺少 --${k}`);
+
+  const prSnapshotsDir = join(o.pr, 'registry', 'snapshots');
+  const baseSnapshotsDir = join(o.base, 'registry', 'snapshots');
+  const { newFile, previousFile } = auditSnapshotsDir({ prSnapshotsDir, baseSnapshotsDir });
+
+  // 🔴 **创世豁免要卡死。** 「base 上没有快照」不足以证明这是创世 ——
+  //    base 上可能已经有 artifacts/（比如迁移中途），那时把一次普通 promotion
+  //    包装成快照 0，就完全没有历史判据可比了（Codex 2026-08-31）。
+  //    所以再要一条：创世时 base 的 artifacts/ 必须是空的。
+  if (previousFile === null) {
+    const baseArtifacts = join(o.base, 'artifacts');
+    const n = existsSync(baseArtifacts) ? readdirSync(baseArtifacts).length : 0;
+    if (n !== 0) {
+      bad('E_NOT_GENESIS',
+        `base 上没有任何快照，却已经有 ${n} 项 artifacts/ —— 这不是创世。\n`
+        + '  🔴 没有上一张快照就没有不可变门的判据；这种状态要走显式的迁移流程，\n'
+        + '     不能当成一次普通 promotion 放行。');
+    }
+  }
+
   const r = verifyPromotionSnapshot({
-    artifactsRoot: o.artifacts,
-    committedBytes: readFileSync(o.snapshot),
-    previousBytes: o.previous === undefined ? null : readFileSync(o.previous),
+    artifactsRoot: join(o.pr, 'artifacts'),
+    committedBytes: readFileSync(join(prSnapshotsDir, newFile)),
+    previousBytes: previousFile === null ? null : readFileSync(join(baseSnapshotsDir, previousFile)),
+    expectFile: newFile,
   });
 
   process.stderr.write(
-    `✔ 快照 ${r.snapshot} 复算逐字节一致（${r.artifacts} 个制品），`
-    + `${r.immutable} 个历史制品记录未被改动。\n`
-    + '⚠️ 覆盖的是**派生**那一半；owner / review / created_at 是从这份快照读出来再喂回去的，\n'
-    + '   它们由 promote 的重新验证与人工比对来守（见本文件头部）。\n',
+    `✔ ${newFile} 复算逐字节一致（${r.artifacts} 个制品），`
+    + `${r.immutable} 个历史制品记录未被改动`
+    + `${previousFile === null ? '（创世快照，base 的 artifacts/ 已确认为空）' : `，上一张 ${previousFile}`}。\n`
+    + '⚠️ 覆盖的是**派生**那一半；新增记录的 owner / review / created_at 是从这份快照\n'
+    + '   读出来再喂回去的，它们由 promote 的重新验证与人工比对来守（见本文件头部）。\n',
   );
   return 0;
 }
@@ -263,7 +384,11 @@ function invokedDirectly() {
 if (invokedDirectly()) {
   try { process.exit(main(process.argv.slice(2))); } catch (e) {
     // 🔴 错误码要打出来 —— workflow 的日志里只有 stderr。
-    process.stderr.write(`${e.code ? `[${e.code}] ` : ''}${e.message}\n`);
+    //    ⚠️ 三种错误三种形状：本模块用 `code`，`WireError` 的语义码在 `violation`
+    //    （它的 `code` 是数值退出码 1），`build-snapshot` 的 `PromotionError`
+    //    两样都没有 —— 退回 `name`（Codex 2026-08-31）。
+    const tag = e.violation ?? (typeof e.code === 'string' ? e.code : null) ?? e.name;
+    process.stderr.write(`${tag ? `[${tag}] ` : ''}${e.message}\n`);
     process.exit(1);
   }
 }

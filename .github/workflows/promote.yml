@@ -1,0 +1,231 @@
+name: Promote
+
+# ══════════════════════════════════════════════════════════════════════════
+# 06-submission.md §3（promote 不是自动发布）、§5（权限边界）。
+#
+# 🔴 **只产出一张 promotion PR，不直接写 main。** 阶段 A 的全部产物
+#    （制品文件、资产字节、快照 JSON 含 created_at）都在那张 PR 里，
+#    **全部可被人复算** —— `validate-pr.yml` 的 promotion-gates 就是复算它。
+#
+# 🔴 **绝不 checkout fork。** 这个 workflow 有 `contents: write`；
+#    它读的只有「已经合并到 main 的内容」（§5）。
+#
+# ── 🔴 为什么合并了还要重新验证一遍（§3）────────────────────────────────
+# 「已 merge」这个事实本身不够。分支保护可以配 stale-approval dismissal，
+# 但那是**仓库设置**，不是我们能证明的东西 —— 设置被改、或某次绕过，都会让一个
+# 「approve 之后又推了一版」的 PR 带着旧审批走到这里。§3 要求四项：
+#   1. approve 挂在被合并的 head SHA 上          → verify-merged-pr.mjs
+#   2. 变更路径只有 submissions/**               → pr-classify.mjs
+#   3. 载荷重跑一遍全部结构门                     → submission/run-gates.mjs
+#   4. 版本号从未被使用过（含已 yank）            → stage-submissions.mjs（判盘上的目录）
+#
+# ⚠️ **审批人数的分级门不在这里**：capability tier 要读载荷里的 manifest 才知道，
+#    由 `build-inputs.mjs` 的 `assertApprovalsSatisfyTier` 判（它同时是写进
+#    `review.capability_tier` 的那一处，两者共用一个来源就不会分叉）。
+#    这里只判「至少 1 条有效 approve」这个下限。
+# ══════════════════════════════════════════════════════════════════════════
+
+on:
+  push:
+    branches: [main]
+    paths: ['submissions/**']
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# 🔴 **串行，且不许取消。** 两张 promotion PR 从同一基线各自判过「版本号没占用」，
+#    并发就会双双通过（verify-merged-pr.mjs 里记的那个 TOCTOU）。
+#    `cancel-in-progress: false` —— 取消一个跑到一半的 promote 会留下半棵树。
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      - run: npm ci --ignore-scripts
+
+      # ── 取被合并的那张投稿 PR 的事实 ────────────────────────────────────
+      - name: 取 PR 事实（GitHub API）
+        id: facts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # 🔴 **恰好一张**。一个 push 关联到 0 张（直推）或多张（同时合并）
+          #    都说明前提不成立 —— 那时「这批投稿是谁审的」没有唯一答案。
+          gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" > pulls.json
+          n=$(jq 'length' pulls.json)
+          if [ "$n" != "1" ]; then
+            echo "::error::这个 push 关联到 $n 张 PR，必须恰好 1 张。"
+            echo "::error::  0 张 = 有人直推 main（分支保护该拦住）；>1 张 = 无法确定审批归属。"
+            exit 1
+          fi
+          echo "pr=$(jq -r '.[0].number'        pulls.json)" >> "$GITHUB_OUTPUT"
+          # 🔴 head.sha，**不是** merge_commit_sha：squash/rebase 会生成新 commit，
+          #    而 review 的 commit_id 挂在原 head 上（verify-merged-pr.mjs 里那条）。
+          echo "head=$(jq -r '.[0].head.sha'    pulls.json)" >> "$GITHUB_OUTPUT"
+          echo "base=$(jq -r '.[0].base.sha'    pulls.json)" >> "$GITHUB_OUTPUT"
+          # 🔴 作者用不可变 node id，不是 login
+          echo "author=$(jq -r '.[0].user.node_id' pulls.json)" >> "$GITHUB_OUTPUT"
+          echo "author_login=$(jq -r '.[0].user.login' pulls.json)" >> "$GITHUB_OUTPUT"
+
+      - name: §3 第 1 项 —— approve 未失效
+        id: approvals
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.facts.outputs.pr }}
+          HEAD: ${{ steps.facts.outputs.head }}
+          AUTHOR: ${{ steps.facts.outputs.author }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+            | jq -s 'add | map({
+                userId: .user.node_id, userLogin: .user.login,
+                state: .state, commitId: .commit_id, submittedAt: .submitted_at
+              })' > reviews.json
+          # 🔴 名单为空时 verify-merged-pr.mjs 会直接拒 —— fail-closed 是故意的：
+          #    不限定的话，一个 dependabot[bot] 的 APPROVED 就能满足审批门。
+          ids=$(jq -r '.maintainers | map(.id) | join(",")' registry/maintainers.json)
+          approvers=$(node --no-warnings scripts/promote/verify-merged-pr.mjs \
+            --reviews reviews.json --pr-head-sha "$HEAD" \
+            --maintainer-ids "$ids" --needed 1 --author-id "$AUTHOR")
+          echo "approvers=$approvers" >> "$GITHUB_OUTPUT"
+
+      - name: §3 第 2 项 —— 变更路径只有 submissions/**
+        env:
+          BASE: ${{ steps.facts.outputs.base }}
+          HEAD: ${{ steps.facts.outputs.head }}
+          AUTHOR: ${{ steps.facts.outputs.author }}
+          AUTHOR_LOGIN: ${{ steps.facts.outputs.author_login }}
+          # 🔴 与 validate-pr.yml 里那个是**同一个占位**：真的 bot 账号还不存在。
+          #    这里只用来证明「投稿 PR 不是 release bot 开的」，填错会把投稿判成
+          #    promotion 并被路径白名单拦下 —— fail-closed。
+          RELEASE_BOT_ID: "PLACEHOLDER_RELEASE_BOT_NODE_ID"
+        run: |
+          set -euo pipefail
+          # 三点式 = 相对 merge-base；--no-renames 见 validate-pr.yml 里的说明
+          paths=$(git diff --no-renames --name-only "$BASE...$HEAD")
+          node --no-warnings scripts/submission/pr-classify.mjs \
+            --head-ref submission --head-repo "$GITHUB_REPOSITORY" \
+            --this-repo "$GITHUB_REPOSITORY" \
+            --author-id "$AUTHOR" --author "$AUTHOR_LOGIN" \
+            --release-bot-id "$RELEASE_BOT_ID" \
+            --changed-paths "$paths"
+
+      - name: §3 第 3 项 —— 结构门全部重跑
+        run: |
+          set -euo pipefail
+          # 🔴 与投稿 PR 上跑的是**同一份**代码、同一份 reserved.json ——
+          #    另写一份「promote 侧的结构门」就是给自己造两个真值。
+          node --no-warnings scripts/submission/run-gates.mjs \
+            --submissions submissions --artifacts artifacts \
+            --reserved registry/reserved.json
+
+      # ── 阶段 A：搬运 → inputs → 快照 ──────────────────────────────────
+      - name: §3 第 4 项 + 搬进 artifacts/
+        id: stage
+        run: |
+          set -euo pipefail
+          # 版本号是否仍然空着，判据是**盘上真实的目录**（stage-submissions 里 ①）
+          ids=$(node --no-warnings scripts/promote/stage-submissions.mjs)
+          echo "new_ids=$ids" >> "$GITHUB_OUTPUT"
+
+      - name: 算 promotion inputs（owner / review / provenance）
+        env:
+          PR: ${{ steps.facts.outputs.pr }}
+          HEAD: ${{ steps.facts.outputs.head }}
+          AUTHOR: ${{ steps.facts.outputs.author }}
+          APPROVERS: ${{ steps.approvals.outputs.approvers }}
+          NEW_IDS: ${{ steps.stage.outputs.new_ids }}
+        run: |
+          set -euo pipefail
+          prev=$(ls registry/snapshots 2>/dev/null | grep -E '^hub-(0|[1-9][0-9]*)\.json$' \
+            | sed 's/[^0-9]//g' | sort -n | tail -1 || true)
+          # capability tier 的审批人数门在这一步里判（见文件头的说明）
+          node --no-warnings scripts/promote/build-inputs.mjs \
+            --artifacts artifacts --new-ids "$NEW_IDS" \
+            --pr "$PR" --head-sha "$HEAD" --approved-by "$APPROVERS" --author "$AUTHOR" \
+            --owners registry/owners.json \
+            ${prev:+--previous-snapshot "registry/snapshots/hub-$prev.json"} \
+            --out /tmp/inputs.json
+          echo "PREV=${prev:-}" >> "$GITHUB_ENV"
+
+      - name: 建快照（阶段 A 的最后一步）
+        id: snapshot
+        run: |
+          set -euo pipefail
+          # 🔴 创世时 N=0；否则 N = 上一张 + 1。
+          #    编号必须连续 —— validate-promotion 会再判一次（E_SNAPSHOT_JUMP）。
+          if [ -z "${PREV:-}" ]; then n=0; else n=$((PREV + 1)); fi
+          mkdir -p registry/snapshots
+          # 🔴 `created_at` 在**这里**定死并写进快照（§2 阶段 A）。
+          #    它必须写进 promotion PR 的描述，由人比对 —— 复算门覆盖不了它。
+          created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          node --no-warnings scripts/build-snapshot.mjs \
+            --artifacts artifacts --inputs /tmp/inputs.json \
+            --snapshot "$n" ${PREV:+--previous "$PREV"} \
+            --created-at "$created" --repo "$GITHUB_REPOSITORY" \
+            --out "registry/snapshots/hub-$n.json"
+          echo "n=$n" >> "$GITHUB_OUTPUT"
+          echo "created=$created" >> "$GITHUB_OUTPUT"
+
+      # ── 自检：把 validate-promotion 会跑的那道门先在本地跑一遍 ──────────
+      - name: 自检（开 PR 之前先自己过一遍复算门）
+        run: |
+          set -euo pipefail
+          # 🔴 开一张注定被自己的门拒掉的 PR，只会让维护者去查 CI 而不是查这里。
+          #    `--base` 指向 push 之前的那棵树。
+          git worktree add /tmp/base "${{ github.event.before }}"
+          node --no-warnings scripts/promote/verify-promotion.mjs --pr . --base /tmp/base
+          git worktree remove --force /tmp/base
+
+      - name: 开 promotion PR（**不直推 main**）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.snapshot.outputs.n }}
+          CREATED: ${{ steps.snapshot.outputs.created }}
+          PR: ${{ steps.facts.outputs.pr }}
+          NEW_IDS: ${{ steps.stage.outputs.new_ids }}
+          APPROVERS: ${{ steps.approvals.outputs.approvers }}
+        run: |
+          set -euo pipefail
+          # 🔴 分支名形如 `promotion/hub-<N>` —— router 认的就是它 + 作者身份（§4）
+          branch="promotion/hub-$N"
+          git config user.name  "geoly-release-bot"
+          git config user.email "release-bot@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add artifacts registry/snapshots submissions
+          git commit -m "promote: 快照 $N（来自 #$PR）"
+          git push origin "$branch"
+          # 🔴 §2.2 要求 created_at 写进描述，由**人**比对 ——
+          #    它是复算的输入之一，而复算是拿它当既定事实的，覆盖不了它自己。
+          gh pr create --base main --head "$branch" \
+            --title "promote: 快照 $N（来自 #$PR）" \
+            --body "$(printf '%s\n' \
+              "自动生成的 promotion PR —— 阶段 A 的全部产物都在这里，**可被人复算**。" \
+              "" \
+              "| 字段 | 值 |" \
+              "| --- | --- |" \
+              "| 快照 | \`hub-$N.json\` |" \
+              "| \`created_at\` | \`$CREATED\` |" \
+              "| 来源投稿 PR | #$PR |" \
+              "| 本次新增 | $NEW_IDS |" \
+              "| 有效 approve | $APPROVERS |" \
+              "" \
+              "🔴 **\`created_at\` 请人工比对**：它是确定性复算的**输入**，" \
+              "复算是拿它当既定事实的，因此覆盖不了它自己（06-submission §2.2）。" \
+              "" \
+              "复算与不可变门由 \`validate-pr.yml\` 的 \`promotion-gates\` 跑。")"

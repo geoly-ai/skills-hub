@@ -5,7 +5,7 @@
 //    它验的是「快照与它声称的那棵 artifacts/ 树自洽」。
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync, renameSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -322,37 +322,99 @@ test('inputsFromSnapshot：yanked / degraded 还原成 published', () => {
   assert.equal(i.yanked.length, 1);
 });
 
-test('🔴 CLI 真调用：不一致时非零退出（入口守卫）', () => {
+/** 摆出 `--pr` / `--base` 那两棵树的形状。 */
+function trees(s, { prSnap, prName, baseSnaps = [] }) {
+  const pr = mkroot(); const base = mkroot();
+  mkdirSync(join(pr, 'registry', 'snapshots'), { recursive: true });
+  mkdirSync(join(base, 'registry', 'snapshots'), { recursive: true });
+  cpSync(s.artifactsRoot, join(pr, 'artifacts'), { recursive: true });
+  for (const [name, bytes] of baseSnaps) {
+    writeFileSync(join(base, 'registry', 'snapshots', name), bytes);
+    writeFileSync(join(pr, 'registry', 'snapshots', name), bytes);
+  }
+  writeFileSync(join(pr, 'registry', 'snapshots', prName), prSnap);
+  return { pr, base };
+}
+const run = (t) => spawnSync(process.execPath, [
+  join(REPO_ROOT, 'scripts/promote/verify-promotion.mjs'), '--pr', t.pr, '--base', t.base,
+], { encoding: 'utf8' });
+
+test('🔴 CLI 真调用：创世快照 0（base 的 artifacts/ 为空）通过', () => {
   const s = scene();
-  const snapFile = join(s.root, 'hub-0.json');
-  writeFileSync(snapFile, s.bytes);
-  const ok = spawnSync(process.execPath, [
-    join(REPO_ROOT, 'scripts/promote/verify-promotion.mjs'),
-    '--artifacts', s.artifactsRoot, '--snapshot', snapFile,
-  ], { encoding: 'utf8' });
+  const ok = run(trees(s, { prSnap: s.bytes, prName: 'hub-0.json' }));
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stderr, /逐字节一致/);
+});
 
-  writeFileSync(snapFile, tamper(s.doc, (d) => { d.artifacts[0].asset.size += 1; }));
-  const bad = spawnSync(process.execPath, [
-    join(REPO_ROOT, 'scripts/promote/verify-promotion.mjs'),
-    '--artifacts', s.artifactsRoot, '--snapshot', snapFile,
-  ], { encoding: 'utf8' });
+test('🔴 CLI：复算不一致 → 非零退出 + 打出错误码', () => {
+  const s = scene();
+  const bad = run(trees(s, {
+    prSnap: tamper(s.doc, (d) => { d.artifacts[0].asset.size += 1; }), prName: 'hub-0.json',
+  }));
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /字节不一致/);
   assert.match(bad.stderr, /\[E_NOT_REPRODUCIBLE\]/, 'workflow 日志里只有 stderr —— 错误码要打出来');
 });
 
-test('🔴 CLI 拒拼错的选项 —— 静默忽略 --previuos 等于把不可变门关掉', () => {
+test('🔴 CLI：文件名与内容里的 snapshot 对不上 → 拒', () => {
+  // hub-900.json 里写 snapshot: 0 —— 两边各自都自洽，到 release 阶段才炸
   const s = scene();
-  const snapFile = join(s.root, 'hub-0.json');
-  writeFileSync(snapFile, s.bytes);
-  for (const extra of [['--previuos', snapFile], ['--snapshot', snapFile]]) {
+  const r = run(trees(s, { prSnap: s.bytes, prName: 'hub-900.json' }));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[E_FILENAME_MISMATCH\]/);
+});
+
+test('🔴 CLI：历史快照被改 → 拒', () => {
+  const s = scene();
+  const prev = Buffer.from(stringify(s.build(41, 40)), 'utf8');
+  const t = trees(s, {
+    prSnap: Buffer.from(stringify(s.build(42, 41)), 'utf8'), prName: 'hub-42.json',
+    baseSnaps: [['hub-41.json', prev]],
+  });
+  writeFileSync(join(t.pr, 'registry', 'snapshots', 'hub-41.json'), Buffer.concat([prev, Buffer.from(' ')]));
+  const r = run(t);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[E_SNAPSHOT_MUTATED\]/);
+});
+
+test('🔴🔴 CLI：symlink 一律拒 —— 它能让校验器读到 base 上那份没被改的内容', () => {
+  const s = scene();
+  const t = trees(s, { prSnap: s.bytes, prName: 'hub-0.json' });
+  const victim = join(t.pr, 'artifacts', 'skills', 'geoly', 'alpha');
+  const real = join(t.pr, 'artifacts', 'skills', 'geoly', 'alpha-real');
+  renameSync(victim, real);
+  symlinkSync(real, victim);
+  const r = run(t);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[E_SYMLINK\]/);
+});
+
+test('🔴 CLI：base 没有快照但已经有 artifacts/ → 不是创世，拒', () => {
+  const s = scene();
+  const t = trees(s, { prSnap: s.bytes, prName: 'hub-0.json' });
+  mkdirSync(join(t.base, 'artifacts', 'skills'), { recursive: true });
+  const r = run(t);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[E_NOT_GENESIS\]/);
+});
+
+test('🔴 CLI：新增不止一张快照 → 拒', () => {
+  const s = scene();
+  const t = trees(s, { prSnap: s.bytes, prName: 'hub-0.json' });
+  writeFileSync(join(t.pr, 'registry', 'snapshots', 'hub-1.json'), s.bytes);
+  const r = run(t);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[E_SNAPSHOT_COUNT\]/);
+});
+
+test('🔴 CLI 拒拼错的选项 —— 静默忽略 --bse 等于把不可变门关掉', () => {
+  const s = scene();
+  const t = trees(s, { prSnap: s.bytes, prName: 'hub-0.json' });
+  for (const argv of [['--pr', t.pr, '--bse', t.base], ['--pr', t.pr, '--base', t.base, '--base', t.base]]) {
     const r = spawnSync(process.execPath, [
-      join(REPO_ROOT, 'scripts/promote/verify-promotion.mjs'),
-      '--artifacts', s.artifactsRoot, '--snapshot', snapFile, ...extra,
+      join(REPO_ROOT, 'scripts/promote/verify-promotion.mjs'), ...argv,
     ], { encoding: 'utf8' });
-    assert.equal(r.status, 1, `${extra[0]} 应当被拒`);
+    assert.equal(r.status, 1, argv.join(' '));
     assert.match(r.stderr, /\[E_VERIFY_INPUT\]/);
   }
 });
