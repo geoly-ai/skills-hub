@@ -181,14 +181,77 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: 🔴 尚未实现 —— 显式失败，不假装通过
+      - name: 检出 base 的校验器（可信）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-tools
+          persist-credentials: false
+      - name: 检出 PR 内容（不可信 —— 只读）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      # 🔴 同 submission 那条：依赖只在 base 树里装、用 base 的 lockfile。
+      - run: npm ci --ignore-scripts
+        working-directory: base-tools
+
+      # 🔴 **被验的那张快照必须由我们自己挑，不能让 PR 描述指定。**
+      #    判据：`pr/registry/snapshots/` 里有、而 `base` 上没有的那一张。
+      #    一次 promotion 恰好新增一张；0 张或 ≥2 张都是异常，直接拒。
+      - name: 定位本次新增的快照
+        id: pick
         run: |
-          echo "::error::validate-promotion 的确定性复算尚未实现（§4）："
-          echo "::error::  · 用 PR 里记录的 --created-at 重跑 build-snapshot.mjs，断言字节一致"
-          echo "::error::  · 重跑打包，断言每个资产 sha256 与快照记录一致"
-          echo "::error::  · 不可变性、六项绑定、pack 的 clients/capabilities/degraded 重算一致"
-          echo "::error::在它实现之前，promotion PR **不得合并** —— 一个空过的门比没有门更糟。"
-          exit 1
+          set -euo pipefail
+          new=$(comm -13 \
+            <(ls base-tools/registry/snapshots 2>/dev/null | sort) \
+            <(ls pr/registry/snapshots       2>/dev/null | sort) \
+            | grep -E '^hub-[0-9]+\.json$' || true)
+          n=$(printf '%s' "$new" | grep -c . || true)
+          if [ "$n" != "1" ]; then
+            echo "::error::promotion PR 必须**恰好**新增一张快照，实际 $n 张：$(printf '%s' "$new" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "file=pr/registry/snapshots/$new" >> "$GITHUB_OUTPUT"
+          # 🔴 不可变门的判据：**base 上**编号最大的那一张。它必须来自 base ——
+          #    从 PR 里取等于让被检的 PR 自己提供「历史事实」。
+          prev=$(ls base-tools/registry/snapshots 2>/dev/null \
+            | grep -E '^hub-[0-9]+\.json$' | sed 's/[^0-9]//g' | sort -n | tail -1 || true)
+          if [ -n "$prev" ]; then
+            echo "previous=base-tools/registry/snapshots/hub-$prev.json" >> "$GITHUB_OUTPUT"
+          fi
+          echo "::notice::被验快照 $new，上一张 ${prev:-（创世，无）}"
+
+      # 🔴 已存在的快照**一个字节都不能变** —— 制品与快照都不可变（02-registry §2.1）。
+      - name: 历史快照不可变
+        run: |
+          set -euo pipefail
+          for f in base-tools/registry/snapshots/*.json; do
+            [ -e "$f" ] || continue
+            b=$(basename "$f")
+            if ! cmp -s "$f" "pr/registry/snapshots/$b"; then
+              echo "::error::历史快照 $b 被改动或删除了 —— 快照不可变"
+              exit 1
+            fi
+          done
+
+      - name: 确定性复算（§4）
+        # 🔴 走 env，不把 `${{ }}` 直接插进脚本体 —— 同 route 里那几步。
+        env:
+          SNAP: ${{ steps.pick.outputs.file }}
+          PREV: ${{ steps.pick.outputs.previous }}
+        run: |
+          set -euo pipefail
+          # 🔴 校验器来自 base（可信），artifacts/ 与快照来自 PR（数据）。
+          # ⚠️ `--previous` 缺席只有创世快照 0 允许 —— 别处缺了脚本自己会拒，
+          #    所以这里**不需要**在 shell 里再判一次（判两次容易判歪）。
+          node --no-warnings base-tools/scripts/promote/verify-promotion.mjs \
+            --artifacts pr/artifacts --snapshot "$SNAP" \
+            ${PREV:+--previous "$PREV"}
 
   # ── 🔴 分支保护要钉的是这一个固定名（同 ci.yml 的 ci-gate）────────────────
   pr-gate:

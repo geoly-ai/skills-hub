@@ -145,8 +145,9 @@ export function assertApprovalsCurrent({ reviews, prHeadSha, maintainerIds, need
  *
  * ⚠️ **并发 promotion 仍有 TOCTOU**：两张 promotion PR 从同一基线各自判过「没占用」，
  *    P1 先合并之后 P2 带着过期判定也能合并。闭合要靠 `promote.yml` 的 concurrency
- *    串行化 + `validate-promotion` 在**最终 base** 上再判一次。前者已配，
- *    后者随确定性复算一起做（那一步现在显式失败，见 validate-pr.yml）。
+ *    串行化 + `validate-promotion` 在**最终 base** 上再判一次。前者已配；
+ *    后者由 `verify-promotion.mjs` 的**不可变门**承担 —— 它拿 base 上编号最大的
+ *    那张快照当判据，重用一个已发布版本号会表现为 `E_ARTIFACT_MUTATED`。
  */
 export function assertVersionsStillFree({ newIds, existingIds }) {
   if (!Array.isArray(newIds) || newIds.length === 0) {
