@@ -38,8 +38,9 @@ const REPO = dirname(fileURLToPath(new URL('.', import.meta.url).href)).replace(
 //    它把 workflows 复制到临时目录、改坏一处、再把本文件当子进程跑一遍，
 //    断言必须红。仓库里的文件**一个字节都不动**。
 const WF_DIR = process.env.GEOLY_WF_DIR ?? join(REPO, '.github', 'workflows');
-// 子进程里跳过变异自检本身，否则无限递归
-const IN_MUTATION_CHILD = process.env.GEOLY_WF_DIR !== undefined;
+// 🔴 跳过标记用**独立**的变量：与目录 override 复用同一个的话，
+//    CI 上任何人设了 GEOLY_WF_DIR，变异自检就整个被跳过（Codex 2026-08-31）。
+const IN_MUTATION_CHILD = process.env.GEOLY_WF_MUTATION_CHILD === '1';
 
 // 🔴 `.yaml` 也要收。GitHub 两种扩展名都加载 —— 只扫 `.yml` 的话，
 //    一个 `evil.yaml` 会对本文件**完全隐形**（Codex 2026-08-31）。
@@ -126,29 +127,105 @@ test('至少有一个 workflow —— 空目录会让下面每一条都空转', 
 // 第 0 道：写法子集。超出的写法一律拒绝，不给「没匹配到 = 没问题」留口子
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * 哪些行属于 `run:` 块的**块体**（那里是 shell，规则不一样）。
+ * 🔴 只认 `run: |`、`run: |-`、`run: >`、`run: >-` —— 早先只认 `run: |`，
+ *    于是 `run: |-` 的块体被当成普通 YAML 行，而块体里的 shell 注释、引号
+ *    会把下面的规则全部搅乱（Codex 2026-08-31）。
+ */
+/** `jobs:` 下每个 job 的整块文本。 */
+function jobBlocks(body) {
+  const lines = body.split('\n');
+  const jobs = new Map();
+  const start = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+  if (start === -1) return jobs;
+  let name = null;
+  let buf = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const m = /^ {2}([\w-]+):\s*$/.exec(lines[i]);
+    if (m !== null) {
+      if (name !== null) jobs.set(name, buf.join('\n'));
+      name = m[1]; buf = [];
+      continue;
+    }
+    if (name !== null) buf.push(lines[i]);
+  }
+  if (name !== null) jobs.set(name, buf.join('\n'));
+  return jobs;
+}
+
+/** `on:` 块里的每一行（去缩进、去空行）。 */
+function onBlock(body) {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => /^on:\s*$/.test(l));
+  if (start === -1) return ['(没有块式的 on:)'];
+  const out = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].trim() === '') continue;
+    if (!/^\s/.test(lines[i])) break;
+    out.push(lines[i].trim());
+  }
+  return out;
+}
+
+function runBodyLines(lines) {
+  const inRun = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(\s*)run:\s*[|>][-+]?\s*$/.exec(lines[i]);
+    if (m === null) continue;
+    const need = m[1].length + 1;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === '') { inRun.add(j); continue; }
+      const indent = lines[j].length - lines[j].trimStart().length;
+      if (indent < need) break;
+      inRun.add(j);
+    }
+  }
+  return inRun;
+}
+
 /** @returns {string[]} 违反子集的行（带行号） */
 function nonCanonical(body) {
   const bad = [];
   const lines = body.split('\n');
+  const inRun = runBodyLines(lines);
   lines.forEach((ln, i) => {
     const at = `第 ${i + 1} 行：${ln.trim().slice(0, 70)}`;
-    if (/\t/.test(ln)) bad.push(`${at}  ← 有 TAB（YAML 不允许，且会打乱缩进判断）`);
-    // 顶层 key 必须是裸写的块式
-    if (/^["'](on|permissions|jobs|env|concurrency)["']\s*:/.test(ln)) {
-      bad.push(`${at}  ← 顶层 key 被引号包了，本测试按裸写匹配`);
+    if (/\t/.test(ln)) bad.push(`${at}  ← 有 TAB`);
+    if (/\r/.test(ln)) bad.push(`${at}  ← 有 CR（CRLF 会让按行判的规则错位）`);
+    if (/^(---|\.\.\.)\s*$/.test(ln)) bad.push(`${at}  ← 多文档标记，本测试只读单文档`);
+    if (inRun.has(i)) return;                     // 块体是 shell，下面的规则不适用
+
+    // 🔴🔴 **行尾注释一律拒**（run 块体除外）。
+    //    `issues: write # temporary` 会让「权限全是 read」那条继续匹配到
+    //    原有的三行，同时拿到写权限；
+    //    `ref: main # ref: ${{ …base.sha }}` 会让 checkout 那条匹配到注释里的
+    //    那一段 —— 注释成了绕过工具（Codex 2026-08-31）。
+    const s2 = ln.replace(/^\s+/, '');
+    // ⚠️ **只放行 `uses:` 行上的行尾注释** —— 那是钉死 SHA 之后标版本号的既定写法
+    //    （`@<40hex> # v7.0.1`），而且 `uses:` 的值按 `\S+` 取，注释进不到值里。
+    //    其余一律拒。
+    if (s2 !== '' && !s2.startsWith('#') && /\s#/.test(ln) && !/^-?\s*uses\s*:/.test(s2)) {
+      bad.push(`${at}  ← 行尾注释。YAML 注释请单独成行（只有 uses: 的版本号注释例外；`
+        + 'run 块体里的 shell 注释不受此限）');
     }
-    // 流式映射 / 序列作为值
+    // 🔴 key 必须是**裸写**的。`"\x70ull_request_target":` 解码后就是
+    //    `pull_request_target`，却既不命中字面禁令、也不命中顶层引号检查。
+    // ⚠️ 缩进要在 dash **之外**：写成 `(\s*-\s*)?["']` 的话，
+    //    没有 dash 时那一组匹配空串，引号就必须出现在第 0 列 —— 于是
+    //    `  "\x70ull_request_target":` 这种（有缩进、无 dash）整个漏掉。
+    const key = /^\s*(-\s*)?["']/.exec(ln);
+    if (key !== null && /:\s*($|\S)/.test(ln)) {
+      bad.push(`${at}  ← key 被引号包了（转义写法能表达出任何字面禁令都拦不住的 key）`);
+    }
+    if (/^\s*\?\s/.test(ln)) bad.push(`${at}  ← 显式 key 写法（问号开头），本测试读不懂`);
     if (/^\s*[\w.-]+:\s*\{/.test(ln)) bad.push(`${at}  ← 流式映射 {…}，请改块式`);
-    // 锚点 / 别名 / 合并键
-    if (/^\s*[\w.-]+:\s*[&*]/.test(ln)) bad.push(`${at}  ← YAML 锚点/别名，本测试读不懂`);
-    if (/^\s*<<\s*:/.test(ln)) bad.push(`${at}  ← 合并键 <<，本测试读不懂`);
-    // permissions 必须是块，不能是 write-all / read-all / 流式
+    if (/^\s*[\w.-]+:\s*[&*]/.test(ln)) bad.push(`${at}  ← YAML 锚点/别名`);
+    if (/^\s*<<\s*:/.test(ln)) bad.push(`${at}  ← 合并键 <<`);
     if (/^\s*permissions\s*:\s*\S/.test(ln)) {
-      bad.push(`${at}  ← permissions 必须写成块式（每个权限一行），`
-        + '不接受 write-all / read-all / 流式 —— 那几种会绕过逐键检查');
+      bad.push(`${at}  ← permissions 必须写成块式，不接受 write-all / read-all / 流式`);
     }
-    // on: 必须是块式（不能是数组或裸标量）
-    if (/^on\s*:\s*\S/.test(ln)) bad.push(`${at}  ← on: 必须写成块式，不接受数组或裸标量`);
+    if (/^on\s*:\s*\S/.test(ln)) bad.push(`${at}  ← on: 必须写成块式`);
   });
   return bad;
 }
@@ -197,8 +274,9 @@ const VALIDATE = () => read('validate-pr.yml');
 test('🔴🔴 validate-pr.yml 一个 secret 都不能引用', () => {
   // 它检出的是 fork 的 head。给它任何 secret，`pull_request_review` 这条触发
   // （跑在 base 上下文）就会把它变成一个真正的 pull_request_target。
-  assert.ok(!/secrets\./.test(VALIDATE()),
-    'validate-pr.yml 引用了 secrets —— 它检出 fork 的 head，§5 不允许');
+  // 🔴 `secrets.` 太窄：`${{ secrets['TOKEN'] }}` 与 `${{ toJSON(secrets) }}` 都能绕
+  assert.ok(!/\bsecrets\b/.test(VALIDATE()),
+    'validate-pr.yml 提到了 secrets —— 它检出 fork 的 head，§5 不允许');
 });
 
 test('🔴 validate-pr.yml 里没有任何一处 write 权限', () => {
@@ -214,11 +292,17 @@ test('🔴 validate-pr.yml 里没有任何一处 write 权限', () => {
 test('🔴 每个 job 都显式声明 permissions —— 不能吃仓库默认值', () => {
   // 仓库默认可能是「读写」。job 不声明就跟着 workflow 顶层走，顶层不声明就跟着
   // 仓库默认走 —— 这条链上任何一环缺失，权限就不是我们说了算。
+  // ⚠️ 这条原来只数了 job 名字、**根本没逐 job 检查**（Codex 2026-08-31）——
+  //    标题说的和做的不是一回事，是另一种「看起来被守住了」。
   const body = VALIDATE();
   assert.match(body, /^permissions:\s*\n\s+contents:\s*read/m, '顶层 permissions 缺失');
-  const jobs = [...body.matchAll(/^ {2}([\w-]+):\s*$/gm)].map((m) => m[1])
-    .filter((j) => !['permissions', 'concurrency', 'env', 'on'].includes(j));
-  assert.ok(jobs.length >= 4, `只找到 job：${jobs.join(', ')}`);
+  const jobs = jobBlocks(body);
+  assert.ok(jobs.size >= 4, `只找到 job：${[...jobs.keys()].join(', ')}`);
+  const naked = [...jobs].filter(([, b]) => !/^\s{4}permissions:\s*$/m.test(b)).map(([n]) => n);
+  assert.deepEqual(naked, [],
+    `这些 job 没有自己的 permissions 块：${naked.join(', ')}\n`
+    + '  🔴 job 不声明就跟着 workflow 顶层走，顶层不声明就跟着仓库默认走 ——\n'
+    + '     这条链上任何一环缺失，权限就不是我们说了算。');
 });
 
 test('🔴 三处 checkout 各自钉死 sha，且都不带凭据', () => {
@@ -251,6 +335,39 @@ test('🔴 校验器一律从 base-tools 跑，PR 那棵树只当数据', () => 
   assert.ok(!/\bnode\s+["']?\$/.test(body), '不要用变量间接指定脚本路径 —— 那绕过了 base-tools 检查');
   assert.ok(!/\bnode\s+-e\b/.test(body), '不要用 node -e —— 同上');
   assert.ok(!/working-directory:\s*pr\b/.test(body), '不能在 PR 那棵树里跑任何东西');
+
+  // 🔴🔴 **`pr/` 的每一次出现都要在白名单里。**
+  //    点名去堵是堵不完的（Codex 2026-08-31 举了几个）：
+  //      · `node --require=pr/evil.cjs … base-tools/scripts/…`
+  //        —— 文本上「跑的是 base 脚本」，Node 却先执行了 PR 的代码；
+  //      · `bash pr/x.sh`、`pushd pr`、`cd ./pr`；
+  //      · `uses: ./pr/.github/actions/evil` —— 本地 action，我原先无条件放行。
+  //    所以反过来：列出 `pr/` **允许**出现的形态，其余一律拒。
+  // 一行里只要出现 `pr/` 或 `cd pr`，这一行就必须落在下面这张白名单里。
+  const ALLOWED_PR_LINES = [
+    /^- ?path: pr$/,                                  // checkout 的落点
+    /^path: pr$/,
+    /^--submissions pr\/submissions( --annotate)?$/,  // 当数据读
+    /^--submissions pr\/submissions --reviews reviews\.json$/,
+    /^--pr pr --base base-tools$/,                    // verify-promotion 的入参
+    /^cd pr$/,                                        // 只为算 diff
+  ];
+  const offenders = [];
+  for (const raw of body.split('\n')) {
+    const t = raw.trim().replace(/\s*\\$/, '');       // 去掉续行的反斜杠
+    if (!/(^|[\s"'=])\.?\/?pr\//.test(t) && !/^cd\s+\.?\/?pr$/.test(t)) continue;
+    if (!ALLOWED_PR_LINES.some((re) => re.test(t))) offenders.push(t.slice(0, 90));
+  }
+  assert.deepEqual(offenders, [],
+    `这些地方碰了 PR 那棵树，而它不在白名单里：\n${offenders.map((o) => `  · ${o}`).join('\n')}\n`
+    + '  🔴 PR 的内容只能当**数据**读，永远不执行。白名单之外一律拒 ——\n'
+    + '     点名去堵堵不完：--require=pr/x.cjs、bash pr/x.sh、pushd pr、\n'
+    + '     uses: ./pr/.github/actions/evil 都是「文本上看着没问题」的形状。');
+
+  // 本地 composite action 也不能来自 PR
+  for (const m of body.matchAll(/uses:\s*(\S+)/g)) {
+    assert.ok(!m[1].startsWith('./pr'), `uses: ${m[1]} —— 那是 PR 提供的 action`);
+  }
   // 🔴 `cd pr` 之后再跑 node/npm 同样绕过上面那条 —— 逐个 run 块判。
   //    ⚠️ 我第一次把这条写成了 `assert.ok(… || true)`，那是**永远为真**的 ——
   //    同一个文件里我已经犯过一次（`|| v === 'pr/artifacts'`）。写完断言要问一句：
@@ -319,19 +436,25 @@ test('🔴🔴 promote.yml 绝不 checkout fork —— 它有 contents: write', 
   const body = PROMOTE();
   assert.ok(!/pull_request\.head/.test(body),
     'promote.yml 提到了 pull_request.head —— §5：它只读已经合并到 main 的内容');
-  assert.ok(!/repository:\s*\$\{\{/.test(body),
+  // 🔴 只禁表达式不够：`repository: attacker/repo` 是字面量（Codex 2026-08-31）
+  assert.ok(!/^\s*repository:/m.test(body),
     'checkout 带 repository: —— 那能把别的仓库（含 fork）检出来');
+  assert.ok(!/refs\/pull\//.test(body), 'ref 指向 refs/pull/… 就是在检出 PR 的内容');
   assert.ok(!/\bgit\s+clone\b/.test(body), '不要用 git clone 绕过 actions/checkout 的约束');
 });
 
 test('🔴 promote.yml 只由 push 到 main 的 submissions/** 触发 —— 一个多余的触发就是洞', () => {
+  // 🔴 **白名单**，不是黑名单。列举「不许出现的事件」必然漏
+  //    （`repository_dispatch`、`issues`、`pull_request_review`…），
+  //    而且在既有 `push:` 下加一行 `tags: ['*']` 就能绕开 paths 过滤
+  //    —— tag push 不受 paths filter 限制（Codex 2026-08-31）。
   const body = PROMOTE();
-  assert.match(body, /^on:\s*\n\s+push:\s*\n\s+branches:\s*\[main\]\s*\n\s+paths:\s*\['submissions\/\*\*'\]\s*\n/m);
-  // 🔴 加一个 `pull_request:` 会把 contents: write 带到不可信 PR 上
-  for (const evt of ['pull_request', 'workflow_dispatch', 'workflow_run', 'issue_comment', 'schedule']) {
-    assert.ok(!new RegExp(`^\\s{2}${evt}\\s*:`, 'm').test(body),
-      `promote.yml 多了一个 ${evt} 触发 —— 它有写权限，触发面必须只有这一个`);
-  }
+  const on = onBlock(body);
+  assert.deepEqual(on, [
+    'push:',
+    "branches: [main]",
+    "paths: ['submissions/**']",
+  ], `promote.yml 的 on: 块必须**恰好**是这三行，实际：\n  ${on.join('\n  ')}`);
 });
 
 test('🔴 promote 串行且不许取消，且没有 job 级 concurrency 覆盖它', () => {
@@ -342,10 +465,13 @@ test('🔴 promote 串行且不许取消，且没有 job 级 concurrency 覆盖�
 });
 
 test('🔴 promote 不直推 main（§3：promote 只产出一张 PR）', () => {
+  // 🔴 只看两个 token 拦不住 `git push --force origin main`，也拦不住
+  //    `git push origin "$branch":refs/heads/main`（Codex 2026-08-31）。
+  //    改成**只允许那一条**。
   const body = PROMOTE();
-  for (const m of body.matchAll(/git push\s+(\S+)\s+(\S+)/g)) {
-    assert.ok(!/^(main|HEAD)/.test(m[2]), `promote.yml 直推了 ${m[2]} —— §3 只允许开 PR`);
-  }
+  const pushes = [...body.matchAll(/^\s*git push\b[^\n]*/gm)].map((m) => m[0].trim());
+  assert.deepEqual(pushes, ['git push origin "$branch"'],
+    `promote.yml 里的 git push 必须只有推分支那一条，实际：\n  ${pushes.join('\n  ')}`);
   assert.match(body, /gh pr create/, 'promote 必须开 PR');
 });
 
@@ -433,16 +559,19 @@ test('🔴 维护者名单：state 与内容必须自洽', () => {
 //    「写完断言把它守的东西改坏一次」这个习惯，靠自觉是不够的，所以写进测试。
 
 /** 只改**非注释行**上的第一处 —— 注释在匹配前已被剥掉，改它等于什么都没改。 */
-function mutateRealLine(body, find, replace) {
+function mutateRealLine(body, find, replace, { last = false } = {}) {
   const lines = body.split('\n');
+  const hits = [];
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trimStart().startsWith('#')) continue;
-    if (lines[i].includes(find)) {
-      lines[i] = lines[i].replace(find, replace);
-      return lines.join('\n');
-    }
+    if (lines[i].includes(find)) hits.push(i);
   }
-  return null;                       // 没找到 —— 由调用方判成失败
+  if (hits.length === 0) return null;
+  // 🔴 `last` 是为了证明「**每一处** checkout 都还受保护」——
+  //    永远只改第一处的话，后面几处退化了也看不出来（Codex 2026-08-31）。
+  const i = last ? hits[hits.length - 1] : hits[0];
+  lines[i] = lines[i].replace(find, replace);
+  return lines.join('\n');
 }
 
 /**
@@ -467,26 +596,65 @@ const MUTATIONS = [
   ['promote.yml', 'git push origin "$branch"', 'git push origin main', 'promote 直推 main', '不直推 main'],
   ['promote.yml', '--diff-filter=d ', '', '去掉 --diff-filter=d', '分流用的是 router'],
   ['promote.yml', 'node --no-warnings scripts/submission/pr-classify.mjs', 'true #', 'promote 不再调 router', '分流用的是 router'],
+
+  // ── Codex 2026-08-31 第二轮点名的形状 ────────────────────────────────
+  ['validate-pr.yml', '      contents: read', '      contents: read\n      issues: write # temporary', '行尾注释掩护下加写权限', '块式子集'],
+  ['validate-pr.yml', 'ref: ${{ github.event.pull_request.head.sha }}', 'ref: main # ref: ${{ github.event.pull_request.head.sha }}', '行尾注释伪装 ref', '块式子集'],
+  ['validate-pr.yml', '  pull_request:', '  "\\x70ull_request_target":', '转义 key 表达出被禁事件', '块式子集'],
+  ['validate-pr.yml', 'node --no-warnings base-tools/scripts/submission/scan-text.mjs', 'node --require=pr/evil.cjs base-tools/scripts/submission/scan-text.mjs', '--require 先跑 PR 的代码', 'PR 那棵树只当数据'],
+  ['validate-pr.yml', '- uses: actions/setup-node@', '- uses: ./pr/.github/actions/evil # actions/setup-node@', 'uses 指向 PR 提供的 action', 'PR 那棵树只当数据'],
+  ['validate-pr.yml', 'GH_TOKEN: ${{ github.token }}', 'GH_TOKEN: ${{ secrets[\'TOKEN\'] }}', 'secrets[…] 索引写法', '一个 secret 都不能引用'],
+  ['promote.yml', '    branches: [main]', '    branches: [main]\n    tags: [\'*\']', 'push 加 tags（不受 paths 过滤）', '只由 push'],
+  ['promote.yml', 'git push origin "$branch"', 'git push --force origin "$branch":refs/heads/main', '多 refspec 直推 main', '不直推 main'],
+  ['promote.yml', '          persist-credentials: true', '          repository: attacker/repo', 'checkout 别的仓库', '绝不 checkout fork'],
 ];
+
+/** 需要改**最后**一处而不是第一处的变异（证明每一处 checkout 都还受保护）。 */
+const LAST_OCCURRENCE = new Set(['末处 checkout 去掉凭据守卫']);
+MUTATIONS.push(['validate-pr.yml', 'persist-credentials: false', 'persist-credentials: true',
+  '末处 checkout 去掉凭据守卫', 'checkout']);
 
 test('🔴🔴 变异自检：每一处改坏都必须让上面的断言变红', { skip: IN_MUTATION_CHILD }, () => {
   const self = fileURLToPath(import.meta.url);
+  const childEnv = (dir) => {
+    const e = { ...process.env, GEOLY_WF_DIR: dir, GEOLY_WF_MUTATION_CHILD: '1' };
+    delete e.NODE_TEST_CONTEXT;
+    delete e.NODE_OPTIONS;
+    return e;
+  };
+
+  // 🔴 **先跑一次没被改过的 control。** 子进程要是本来就红（环境不同、
+  //    路径不同、别的什么），那么每个变异都会「被抓到」，而其实一条断言
+  //    都没在起作用（Codex 2026-08-31）。
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'geoly-wfctl-'));
+    try {
+      cpSync(WF_DIR, dir, { recursive: true });
+      const c = spawnSync(process.execPath, ['--test', self], { encoding: 'utf8', env: childEnv(dir) });
+      assert.equal(c.status, 0,
+        `control（没改过的副本）在子进程里就是红的 —— 那么下面每个变异都会被误判成「抓到了」。\n${
+          (c.stdout ?? '').split('\n').filter((l) => l.startsWith('\u2716')).join('\n')}`);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+
   const survivors = [];
   for (const [file, find, replace, label, expect] of MUTATIONS) {
     const dir = mkdtempSync(join(tmpdir(), 'geoly-wfmut-'));
     try {
       cpSync(WF_DIR, dir, { recursive: true });
-      const mutated = mutateRealLine(readFileSync(join(dir, file), 'utf8'), find, replace);
+      const mutated = mutateRealLine(readFileSync(join(dir, file), 'utf8'), find, replace,
+        { last: LAST_OCCURRENCE.has(label) });
       if (mutated === null) { survivors.push(`${label}：非注释行里找不到 ${JSON.stringify(find)}`); continue; }
       writeFileSync(join(dir, file), mutated);
 
       // 🔴 必须清掉 node:test 自己的上下文变量，否则子进程会报
       //    「run() is being called recursively」**并直接跳过、退出 0** ——
       //    那会让每一个变异都「活下来」，而这个测试看起来只是失败得很整齐。
-      const env = { ...process.env, GEOLY_WF_DIR: dir };
-      delete env.NODE_TEST_CONTEXT;
-      delete env.NODE_OPTIONS;
-      const r = spawnSync(process.execPath, ['--test', self], { encoding: 'utf8', env });
+      const r = spawnSync(process.execPath, ['--test', self], { encoding: 'utf8', env: childEnv(dir) });
+      if (r.signal !== null || r.error !== undefined) {
+        survivors.push(`${label}：子进程异常退出（signal=${r.signal}）`);
+        continue;
+      }
       const out = r.stdout ?? '';
       // 子进程「一个断言都没跑」也要算失败 —— 那和「全绿」看起来一样
       if (!/^\u2139 fail \d+/m.test(out)) {

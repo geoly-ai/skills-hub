@@ -83,6 +83,11 @@ jobs:
   route:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # 🔴 每个 job 都显式声明 —— 不声明就跟着 workflow 顶层走，
+    #    顶层不声明就跟着仓库默认走（可能是读写）。这条链上任何一环缺失，
+    #    权限就不是我们说了算。
+    permissions:
+      contents: read
     outputs:
       kind: ${{ steps.classify.outputs.kind }}
     steps:
@@ -239,6 +244,11 @@ jobs:
     if: ${{ needs.route.outputs.kind == 'promotion' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # 🔴 每个 job 都显式声明 —— 不声明就跟着 workflow 顶层走，
+    #    顶层不声明就跟着仓库默认走（可能是读写）。这条链上任何一环缺失，
+    #    权限就不是我们说了算。
+    permissions:
+      contents: read
     steps:
       - name: 检出 base 的校验器（可信）
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -278,6 +288,11 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # 🔴 每个 job 都显式声明 —— 不声明就跟着 workflow 顶层走，
+    #    顶层不声明就跟着仓库默认走（可能是读写）。这条链上任何一环缺失，
+    #    权限就不是我们说了算。
+    permissions:
+      contents: read
     steps:
       - name: 🔴 router 判定的那条路径必须跑过且通过
         env:
