@@ -1,0 +1,5 @@
+{
+  "_comment": "namespace → owner 的权威表 —— 06-submission.md §6、05-lifecycle.md §7。judgement 用不可变 node id，login 只用来给人看。🔴 所有权转让与失联接管都是**改这张表**完成的：转让 = 现 owner 与新 owner 在同一张 PR 里各自签字；接管 = 维护者改表，git 历史就是 §7 要求的公开记录。不要另造一条能改 owner 的路径 —— 多一条就多一处要证明「它和这张表不会分叉」。⚠️ 现在是空的：还没有任何 namespace 被注册。空表不是错误状态，resolveOwner 会要求首次注册时给出 --claim-owner（而 promote.yml 现在还没有地方拿它，见 R-19）。",
+  "schema": "geoly.skills.owners/1",
+  "namespaces": {}
+}
