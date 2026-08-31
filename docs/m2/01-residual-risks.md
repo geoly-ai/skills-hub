@@ -225,3 +225,61 @@ workflow 的 shell 里一步都不做 —— shell 没有 `lstat` 语义。
 **闭合方向**：让 `promote.yml` 把它取到的 PR 事实（approver id、head sha、PR 号）
 作为一份独立的、与快照分开签名的凭据落盘，`validate-promotion` 拿它对照快照里的
 `review` 字段。这需要规格侧先定这份凭据的形状 —— **待拍板**。
+
+
+---
+
+## R-19 · 首次注册 namespace 与所有 pack，promote 现在跑不通（2026-08-31）
+
+`build-inputs.mjs` 要两份**只有 PR 侧才有**的事实：
+
+| 事实 | 谁需要 | 为什么不在载荷里 |
+| --- | --- | --- |
+| `--claim-owner` | 首次注册一个 namespace | `owner` 不在 manifest 的键集里（键集是精确的） |
+| `--provenance-of` | **所有** pack | `pack.json` 的键集里没有 `provenance`（03-packs §2） |
+
+`promote.yml` 两个都没传，于是这两类投稿走到那一步会被 `build-inputs` 按设计拒掉
+（Codex 2026-08-31 点出）。**skill 的续版本不受影响** —— 它的 `provenance` 在
+`skill.json` 里，owner 从 `owners.json` 查。
+
+🔴 **不要为了让它跑起来就在 workflow 里编一个默认值。** `owner` 与 `provenance`
+是要**签进快照**的，写错了事后改不动（制品不可变），而「谁拥有这个 namespace」
+「这个 pack 是原创还是搬运」恰恰是审的人要看的两件事。
+
+**待拍板**：这两份事实从投稿的哪儿来？三个方向 ——
+① 投稿目录里放一份 `PROMOTION.json`（投稿者写，维护者审）；
+② 从 PR 描述里的固定字段解析（投稿者可控，但审的人看得见）；
+③ 首次注册与 pack 一律走维护者手工开 promotion PR（最保守，也最慢）。
+在定下来之前，registry 只能接受「已注册 namespace 下的 skill 续版本」。
+
+---
+
+## R-20 · `promote.yml` 用 `GITHUB_TOKEN` 开的 PR，router 认不出、CI 也不会跑（2026-08-31）
+
+Codex 点出的阻断项，两条都成立：
+
+1. **PR 作者会是 `github-actions[bot]`**。`git config user.name geoly-release-bot`
+   只改 commit 的 author，不改 PR 的 author，而 `validate-pr.yml` 的 router 比的是
+   `pull_request.user.node_id`。
+2. **`GITHUB_TOKEN` 触发的事件不会再启动 workflow**（GitHub 防循环的既定行为）。
+   于是 promotion PR 上**根本不会跑** `validate-pr` / `pr-gate` ——
+   一张没有任何门的 PR。
+
+⚠️ 现在这两条都被更前面的 fail-closed 挡着（`RELEASE_BOT_ID` 是占位、
+`maintainers.json` 是空的），所以**跑不到**这一步。但一旦把那两个填上，
+这条就会立刻变成实打实的洞。
+
+**闭合方式**（需要仓库侧的动作，不是代码能解决的）：
+建一个真的 release bot（GitHub App 或专用账号），用它的 token 开 PR，
+把它的 **node id** 填进 `validate-pr.yml` / `promote.yml` 的 `RELEASE_BOT_ID`。
+🔴 **顺序不能反**：先填 id、后建 bot，中间那段时间 promotion PR 会以
+`github-actions[bot]` 的身份被判成 submission，然后被路径白名单拒 —— 那是安全的；
+反过来（先用真 bot 开 PR、id 还没填）才是危险的。
+
+### 附带的一条（低）：权限拿得比需要的久
+
+整个 job 从头到尾持有 `contents: write` + `pull-requests: write`，
+包括 `npm ci` 和全部脚本执行期间，而实际只有最后开 PR 那一步需要写。
+拆成「只读构建 job → 最小写权限 job」更符合最小权限原则；
+现在没拆，因为两个 job 之间要传一整棵改过的工作树（artifact 上传下载），
+那条路自己也有完整性问题。**记在这里，等 bot 的事定了一起做。**

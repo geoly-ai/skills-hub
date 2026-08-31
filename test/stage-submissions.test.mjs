@@ -139,3 +139,70 @@ test('🔴 CLI 拒拼错的选项', () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /\[E_STAGE_INPUT\]/);
 });
+
+// ── Codex 2026-08-31 的四条 ────────────────────────────────────────────────
+
+test('🔴 `alpha@.` / `alpha@..` 会映射到同一个目标 → 在预检就拒', () => {
+  for (const version of ['.', '..']) {
+    const root = mkroot();
+    submit(root, { name: 'alpha', version });
+    expectCode('E_BAD_SEGMENT',
+      () => planStaging({ submissionsRoot: join(root, 'submissions'), artifactsRoot: artRoot(root) }));
+  }
+});
+
+test('🔴 同 namespace 内 skill 与 pack 同名 → 拒（01-artifacts §2）', () => {
+  const root = mkroot();
+  // 目录名不带 kind，所以 `foo@1.0.0` 与 `foo@2.0.0` 可以一个是 skill 一个是 pack
+  submit(root, { name: 'foo', version: '1.0.0', kind: 'skill' });
+  submit(root, { name: 'foo', version: '2.0.0', kind: 'pack' });
+  expectCode('E_NAME_TAKEN',
+    () => planStaging({ submissionsRoot: join(root, 'submissions'), artifactsRoot: artRoot(root) }));
+});
+
+test('🔴 已经作为另一种 kind 存在于 artifacts/ → 拒', () => {
+  const root = mkroot();
+  submit(root, { name: 'foo', version: '1.0.0', kind: 'skill' });
+  mkdirSync(join(artRoot(root), 'packs', 'geoly', 'foo', '9.0.0'), { recursive: true });
+  expectCode('E_NAME_TAKEN',
+    () => planStaging({ submissionsRoot: join(root, 'submissions'), artifactsRoot: artRoot(root) }));
+});
+
+test('🔴🔴 积压：submissions/ 里有上一次没搬走的，会被错误标成本次 PR 审过的', () => {
+  const root = mkroot();
+  submit(root, { name: 'alpha', version: '1.0.0' });   // 本次 PR 带来的
+  submit(root, { name: 'stale', version: '0.1.0' });   // 上一次 promote 没跑完
+  const args = { submissionsRoot: join(root, 'submissions'), artifactsRoot: artRoot(root) };
+
+  // 不给 --only 时它就这么一起搬走了 —— 这正是要拦的
+  assert.equal(planStaging(args).length, 2);
+
+  const e = expectCode('E_SUBMISSIONS_MISMATCH',
+    () => planStaging({ ...args, only: ['geoly/alpha@1.0.0'] }));
+  assert.match(e.message, /geoly\/stale@0\.1\.0/, '要指名道姓，否则没人知道积压的是哪个');
+
+  // 名单里有、盘上没有 —— 同样是前提不成立
+  expectCode('E_SUBMISSIONS_MISMATCH',
+    () => planStaging({ ...args, only: ['geoly/alpha@1.0.0', 'geoly/stale@0.1.0', 'geoly/ghost@1.0.0'] }));
+  // 对得上就放行
+  assert.equal(planStaging({ ...args, only: ['geoly/alpha@1.0.0', 'geoly/stale@0.1.0'] }).length, 2);
+});
+
+test('🔴 搬到一半失败 → 已经搬好的要撤掉，不留半棵树', () => {
+  const root = mkroot();
+  submit(root, { name: 'alpha', version: '1.0.0' });
+  submit(root, { name: 'beta', version: '1.0.0' });
+  // beta 的目标父目录被一个**普通文件**占着 → mkdir 会 ENOTDIR。
+  // 预检看的是 `<...>/beta/1.0.0` 存不存在，所以这一步是过得去的 ——
+  // 「预检通过 ≠ 搬得动」正是这条要钉的。
+  mkdirSync(join(artRoot(root), 'skills', 'geoly'), { recursive: true });
+  writeFileSync(join(artRoot(root), 'skills', 'geoly', 'beta'), '不是目录\n');
+  const plan = planStaging({ submissionsRoot: join(root, 'submissions'), artifactsRoot: artRoot(root) });
+  assert.equal(plan.length, 2);
+
+  assert.throws(() => stageSubmissions({
+    submissionsRoot: join(root, 'submissions'), artifactsRoot: artRoot(root),
+  }));
+  assert.ok(!existsSync(join(artRoot(root), 'skills', 'geoly', 'alpha')),
+    '🔴 alpha 已经搬好了，必须撤掉 —— 下一步 build-snapshot 会把半棵树当成完整事实');
+});

@@ -228,6 +228,8 @@ function firstDifference(a, b) {
 // 🔴 与 `build-timestamp.mjs` 用的是**同一条**正则。松一格就会分叉：
 //    `hub-01.json` 与 `hub-1.json` 会算出同一个 N，谁赢取决于目录顺序。
 const RE_SNAPSHOT_FILE = /^hub-(0|[1-9]\d*)\.json$/;
+// `hub-<N>.json.sigstore.json` 自己也以 `.json` 结尾 —— 单列一条，别让它落进上面那条
+const RE_SNAPSHOT_BUNDLE = /^hub-(0|[1-9]\d*)\.json\.sigstore\.json$/;
 
 /**
  * 🔴🔴 **拒绝任何 symlink**（Codex 2026-08-31）。
@@ -243,7 +245,15 @@ const RE_SNAPSHOT_FILE = /^hub-(0|[1-9]\d*)\.json$/;
  * 中间目录换成链接一样能生效。
  */
 export function assertNoSymlinks(root, { label = root } = {}) {
-  if (!existsSync(root)) return 0;
+  // 🔴 **根自己也要 lstat。** `existsSync` 跟随符号链接 —— 整棵
+  //    `pr/artifacts` 是个链接时，只查内部的写法会一路遍历过去、全绿通过
+  //    （Codex 2026-08-31）。外层的路径白名单是缓解，不是本函数的保证。
+  let rootStat;
+  try { rootStat = lstatSync(root); } catch { return 0; }   // 不存在：交给调用方判
+  if (rootStat.isSymbolicLink()) {
+    bad('E_SYMLINK', `${label} 本身就是符号链接 —— 一律拒绝。`);
+  }
+  if (!rootStat.isDirectory()) bad('E_NOT_REGULAR', `${label} 不是目录。`);
   let n = 0;
   const walk = (dir) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -279,12 +289,28 @@ export function assertNoSymlinks(root, { label = root } = {}) {
 export function auditSnapshotsDir({ prSnapshotsDir, baseSnapshotsDir }) {
   assertNoSymlinks(prSnapshotsDir, { label: 'pr/registry/snapshots' });
 
-  const list = (d) => (existsSync(d) ? readdirSync(d).filter((f) => RE_SNAPSHOT_FILE.test(f)) : []);
-  const baseFiles = list(baseSnapshotsDir);
-  const prFiles = list(prSnapshotsDir);
+  // 🔴 **这个目录里不许有别的东西。** 早先的写法是「过滤出 hub-N.json，
+  //    其余静默忽略」—— 于是 `HUB-1.JSON`、随手放的文件、甚至子目录都能混进来，
+  //    而且已有的非 hub 文件可以被改被删，谁也不知道（Codex 2026-08-31）。
+  //    大小写折叠的文件系统上，`HUB-1.JSON` 还会和 `hub-1.json` 撞。
+  const listAll = (d) => (existsSync(d) ? readdirSync(d).sort() : []);
+  const check = (d, where) => {
+    const files = listAll(d);
+    for (const f of files) {
+      if (!RE_SNAPSHOT_FILE.test(f) && !RE_SNAPSHOT_BUNDLE.test(f)) {
+        bad('E_SNAPSHOTS_DIR_DIRTY',
+          `${where}/${f} 不是快照文件 —— registry/snapshots/ 只放 hub-<N>.json`
+          + '（及其 .sigstore.json）。别的东西放进来，「只许新增」这条就没法判了。');
+      }
+    }
+    return files;
+  };
+  const baseAll = check(baseSnapshotsDir, 'base/registry/snapshots');
+  const prAll = check(prSnapshotsDir, 'pr/registry/snapshots');
+  const baseFiles = baseAll.filter((f) => RE_SNAPSHOT_FILE.test(f));
 
-  // ① 历史快照一个字节都不能变（也不能删）
-  for (const f of baseFiles) {
+  // ① 历史文件（含 bundle）一个字节都不能变，也不能删
+  for (const f of baseAll) {
     const before = readFileSync(join(baseSnapshotsDir, f));
     let after;
     try { after = readFileSync(join(prSnapshotsDir, f)); } catch {
@@ -293,8 +319,14 @@ export function auditSnapshotsDir({ prSnapshotsDir, baseSnapshotsDir }) {
     if (!before.equals(after)) bad('E_SNAPSHOT_MUTATED', `历史快照 ${f} 被改动了 —— 快照不可变。`);
   }
 
-  // ② 本次恰好新增一张
-  const added = prFiles.filter((f) => !baseFiles.includes(f));
+  // ② 本次恰好新增一张**快照**（bundle 由 release 阶段另开 PR 归档，这里不该出现）
+  const added = prAll.filter((f) => !baseAll.includes(f));
+  const addedBundles = added.filter((f) => RE_SNAPSHOT_BUNDLE.test(f));
+  if (addedBundles.length) {
+    bad('E_SNAPSHOTS_DIR_DIRTY',
+      `promotion PR 里不该出现签名 bundle：${addedBundles.join('、')}。\n`
+      + '  🔴 签名是阶段 C 的产物（merge 之后），归档走它自己的 PR（§5）。');
+  }
   if (added.length !== 1) {
     bad('E_SNAPSHOT_COUNT',
       `promotion PR 必须**恰好**新增一张快照，实际 ${added.length} 张：${added.join('、') || '（无）'}`);
@@ -388,7 +420,10 @@ if (invokedDirectly()) {
     //    （它的 `code` 是数值退出码 1），`build-snapshot` 的 `PromotionError`
     //    两样都没有 —— 退回 `name`（Codex 2026-08-31）。
     const tag = e.violation ?? (typeof e.code === 'string' ? e.code : null) ?? e.name;
-    process.stderr.write(`${tag ? `[${tag}] ` : ''}${e.message}\n`);
+    // ⚠️ `WireError` 的 message 里已经带了 `[violation]` —— 再加一次就成了
+    //    `[E_WIRE_PARSE] [E_WIRE_PARSE] …`，读日志的人会以为是两个错。
+    const prefix = tag && !e.message.startsWith(`[${tag}]`) ? `[${tag}] ` : '';
+    process.stderr.write(`${prefix}${e.message}\n`);
     process.exit(1);
   }
 }

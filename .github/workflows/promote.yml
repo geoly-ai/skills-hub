@@ -73,17 +73,48 @@ jobs:
             echo "::error::  0 张 = 有人直推 main（分支保护该拦住）；>1 张 = 无法确定审批归属。"
             exit 1
           fi
+          ref=$(jq -r '.[0].head.ref' pulls.json)
+          headrepo=$(jq -r '.[0].head.repo.full_name' pulls.json)
+
+          # 🔴🔴 **promotion PR 合并会再触发这个 workflow。** 它删掉
+          #    `submissions/**`，而删除同样匹配 `paths:` 过滤器（Codex 2026-08-31）。
+          #    不短路的话，第二次运行会带着 artifacts/ 与 registry/ 的改动去撞
+          #    §3 第 2 项的路径白名单，表现为一次莫名其妙的失败。
+          #    ⚠️ 判据要带上 **head repo 是本仓库**：分支名投稿者可控，
+          #    一个 fork 上叫 `promotion/hub-1` 的分支不该让它自己被跳过。
+          #    promotion 分支只可能推在本仓库里。
+          case "$ref:$headrepo" in
+            promotion/hub-*:"$GITHUB_REPOSITORY")
+              echo "::notice::这是 promotion PR（$ref）自己合并触发的，跳过。"
+              echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+
+          # 🔴 **「关联到一张 PR」不等于「那张 PR 合并进了 main」**（Codex 2026-08-31）：
+          #    cherry-pick 过来的 commit、或一次绕过保护的直推，都能关联上一张
+          #    从未合并的 PR，于是「这批投稿是谁审的」会被错误归属。
+          merged=$(jq -r '.[0].merged_at // "null"' pulls.json)
+          baseref=$(jq -r '.[0].base.ref' pulls.json)
+          if [ "$merged" = "null" ] || [ "$baseref" != "main" ]; then
+            echo "::error::关联到的 #$(jq -r '.[0].number' pulls.json) 并没有合并进 main"
+            echo "::error::  merged_at=$merged base.ref=$baseref"
+            exit 1
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "pr=$(jq -r '.[0].number'        pulls.json)" >> "$GITHUB_OUTPUT"
           # 🔴 head.sha，**不是** merge_commit_sha：squash/rebase 会生成新 commit，
           #    而 review 的 commit_id 挂在原 head 上（verify-merged-pr.mjs 里那条）。
           echo "head=$(jq -r '.[0].head.sha'    pulls.json)" >> "$GITHUB_OUTPUT"
           echo "base=$(jq -r '.[0].base.sha'    pulls.json)" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "head_repo=$(jq -r '.[0].head.repo.full_name' pulls.json)" >> "$GITHUB_OUTPUT"
           # 🔴 作者用不可变 node id，不是 login
           echo "author=$(jq -r '.[0].user.node_id' pulls.json)" >> "$GITHUB_OUTPUT"
           echo "author_login=$(jq -r '.[0].user.login' pulls.json)" >> "$GITHUB_OUTPUT"
 
       - name: §3 第 1 项 —— approve 未失效
         id: approvals
+        if: ${{ steps.facts.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ steps.facts.outputs.pr }}
@@ -105,11 +136,17 @@ jobs:
           echo "approvers=$approvers" >> "$GITHUB_OUTPUT"
 
       - name: §3 第 2 项 —— 变更路径只有 submissions/**
+        if: ${{ steps.facts.outputs.skip == 'false' }}
         env:
           BASE: ${{ steps.facts.outputs.base }}
           HEAD: ${{ steps.facts.outputs.head }}
           AUTHOR: ${{ steps.facts.outputs.author }}
           AUTHOR_LOGIN: ${{ steps.facts.outputs.author_login }}
+          # 🔴 **传 API 返回的真实 head.ref / head.repo**，不是写死的字面量：
+          #    router 的判定依据就是这两个 + 作者身份，写死等于在这一侧假装了
+          #    一个和真相无关的前提（Codex 2026-08-31）。
+          HEAD_REF: ${{ steps.facts.outputs.head_ref }}
+          HEAD_REPO: ${{ steps.facts.outputs.head_repo }}
           # 🔴 与 validate-pr.yml 里那个是**同一个占位**：真的 bot 账号还不存在。
           #    这里只用来证明「投稿 PR 不是 release bot 开的」，填错会把投稿判成
           #    promotion 并被路径白名单拦下 —— fail-closed。
@@ -119,13 +156,14 @@ jobs:
           # 三点式 = 相对 merge-base；--no-renames 见 validate-pr.yml 里的说明
           paths=$(git diff --no-renames --name-only "$BASE...$HEAD")
           node --no-warnings scripts/submission/pr-classify.mjs \
-            --head-ref submission --head-repo "$GITHUB_REPOSITORY" \
+            --head-ref "$HEAD_REF" --head-repo "$HEAD_REPO" \
             --this-repo "$GITHUB_REPOSITORY" \
             --author-id "$AUTHOR" --author "$AUTHOR_LOGIN" \
             --release-bot-id "$RELEASE_BOT_ID" \
             --changed-paths "$paths"
 
       - name: §3 第 3 项 —— 结构门全部重跑
+        if: ${{ steps.facts.outputs.skip == 'false' }}
         run: |
           set -euo pipefail
           # 🔴 与投稿 PR 上跑的是**同一份**代码、同一份 reserved.json ——
@@ -137,13 +175,33 @@ jobs:
       # ── 阶段 A：搬运 → inputs → 快照 ──────────────────────────────────
       - name: §3 第 4 项 + 搬进 artifacts/
         id: stage
+        if: ${{ steps.facts.outputs.skip == 'false' }}
+        env:
+          BASE: ${{ steps.facts.outputs.base }}
+          HEAD: ${{ steps.facts.outputs.head }}
         run: |
           set -euo pipefail
+          # 🔴 **只搬这一次 PR 带来的那几个。** 触发条件是「push 到 main 且动了
+          #    submissions/」，但 submissions/ 是整个目录 —— 上一次 promote 没跑完
+          #    留下的积压会被这一次一并搬走，并在 build-inputs 那里被标成
+          #    「本次 PR 审过的」。复算门对新增 review 是自举的，抓不到这种错误归属。
+          # 🔴 `--diff-filter=d` 排掉**删除**：一张同时删掉别的投稿的 PR，
+          #    删掉的那个会进 want 名单，然后与盘上的实际内容对不上，
+          #    报成「少了 X」—— 而真相是它本来就该没有。
+          only=$(git diff --no-renames --diff-filter=d --name-only "$BASE...$HEAD" \
+            | sed -n 's|^submissions/\([^/]*\)/\([^/]*\)/.*$|\1/\2|p' \
+            | sort -u | paste -sd, -)
+          if [ -z "$only" ]; then
+            echo "::error::这次 push 没有动 submissions/ 下的任何投稿目录 —— 触发条件与内容对不上。"
+            exit 1
+          fi
+          echo "::notice::本次 PR 带来的投稿：$only"
           # 版本号是否仍然空着，判据是**盘上真实的目录**（stage-submissions 里 ①）
-          ids=$(node --no-warnings scripts/promote/stage-submissions.mjs)
+          ids=$(node --no-warnings scripts/promote/stage-submissions.mjs --only "$only")
           echo "new_ids=$ids" >> "$GITHUB_OUTPUT"
 
       - name: 算 promotion inputs（owner / review / provenance）
+        if: ${{ steps.facts.outputs.skip == 'false' }}
         env:
           PR: ${{ steps.facts.outputs.pr }}
           HEAD: ${{ steps.facts.outputs.head }}
@@ -152,8 +210,21 @@ jobs:
           NEW_IDS: ${{ steps.stage.outputs.new_ids }}
         run: |
           set -euo pipefail
-          prev=$(ls registry/snapshots 2>/dev/null | grep -E '^hub-(0|[1-9][0-9]*)\.json$' \
-            | sed 's/[^0-9]//g' | sort -n | tail -1 || true)
+          # 🔴 把「没有快照」和「命令失败」分开：一个 `|| true` 会把读目录、
+          #    grep、sort 的异常一起吞掉，然后**按创世处理** —— 那会绕开不可变门。
+          if [ -d registry/snapshots ]; then
+            prev=$(ls registry/snapshots | { grep -E '^hub-(0|[1-9][0-9]*)\.json$' || test $? = 1; } \
+              | sed 's/[^0-9]//g' | sort -n | tail -1)
+          else
+            prev=""
+          fi
+          # 🔴 **两类投稿现在会在这一步被拒，这是已知缺口、不是 bug**（R-19）：
+          #    · 首次注册一个 namespace —— 需要 `--claim-owner`；
+          #    · 任何 pack —— `pack.json` 的键集里没有 `provenance`（03-packs §2），
+          #      需要 `--provenance-of`。
+          #    两者都是「PR 侧的事实」，而这两份事实从投稿里的哪儿来，规格还没定。
+          #    ⚠️ 不要为了让它跑起来就在这里编一个默认值：owner 与 provenance
+          #    编错了是**签进快照**的，事后改不动。
           # capability tier 的审批人数门在这一步里判（见文件头的说明）
           node --no-warnings scripts/promote/build-inputs.mjs \
             --artifacts artifacts --new-ids "$NEW_IDS" \
@@ -165,6 +236,7 @@ jobs:
 
       - name: 建快照（阶段 A 的最后一步）
         id: snapshot
+        if: ${{ steps.facts.outputs.skip == 'false' }}
         run: |
           set -euo pipefail
           # 🔴 创世时 N=0；否则 N = 上一张 + 1。
@@ -184,15 +256,27 @@ jobs:
 
       # ── 自检：把 validate-promotion 会跑的那道门先在本地跑一遍 ──────────
       - name: 自检（开 PR 之前先自己过一遍复算门）
+        if: ${{ steps.facts.outputs.skip == 'false' }}
         run: |
           set -euo pipefail
           # 🔴 开一张注定被自己的门拒掉的 PR，只会让维护者去查 CI 而不是查这里。
           #    `--base` 指向 push 之前的那棵树。
-          git worktree add /tmp/base "${{ github.event.before }}"
-          node --no-warnings scripts/promote/verify-promotion.mjs --pr . --base /tmp/base
-          git worktree remove --force /tmp/base
+          # 🔴 唯一目录 + trap：失败路径也要清干净，否则重跑时 `worktree add` 会
+          #    因目录已存在而失败（Codex 2026-08-31）。
+          base="$RUNNER_TEMP/promote-base-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          trap 'git worktree remove --force "$base" 2>/dev/null || true' EXIT
+          # ⚠️ `github.event.before` 在「main 刚被创建」时是全零、force-push 之后
+          #    可能已不可达 —— 两种都不该静默按创世处理，直接报错让人来看。
+          before='${{ github.event.before }}'
+          if ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null; then
+            echo "::error::拿不到 push 之前的 commit（$before）—— 无法自检，请人工复核。"
+            exit 1
+          fi
+          git worktree add "$base" "$before"
+          node --no-warnings scripts/promote/verify-promotion.mjs --pr . --base "$base"
 
       - name: 开 promotion PR（**不直推 main**）
+        if: ${{ steps.facts.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
           N: ${{ steps.snapshot.outputs.n }}
@@ -206,10 +290,20 @@ jobs:
           branch="promotion/hub-$N"
           git config user.name  "geoly-release-bot"
           git config user.email "release-bot@users.noreply.github.com"
+          # 🔴 远端已有同名分支 = 上一次跑到一半留下的残骸（push 成功但
+          #    gh pr create 失败，或 PR 被关掉）。**不静默复用**：那会把这一次的
+          #    结果推到一段来历不明的历史上（Codex 2026-08-31）。
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "::error::远端已存在 $branch —— 上一次 promote 留下的残骸。"
+            echo "::error::  请先确认它对应的 PR 状态，删掉分支后重跑。"
+            exit 1
+          fi
           git checkout -b "$branch"
           git add artifacts registry/snapshots submissions
           git commit -m "promote: 快照 $N（来自 #$PR）"
           git push origin "$branch"
+          # push 之后到 PR 创建之间失败的话，分支会留在远端 —— 上面那道门就是
+          # 为了让下一次跑**明确报出来**，而不是接着往上堆。
           # 🔴 §2.2 要求 created_at 写进描述，由**人**比对 ——
           #    它是复算的输入之一，而复算是拿它当既定事实的，覆盖不了它自己。
           gh pr create --base main --head "$branch" \

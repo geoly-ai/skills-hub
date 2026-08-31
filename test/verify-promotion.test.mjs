@@ -418,3 +418,53 @@ test('🔴 CLI 拒拼错的选项 —— 静默忽略 --bse 等于把不可变�
     assert.match(r.stderr, /\[E_VERIFY_INPUT\]/);
   }
 });
+
+// ── Codex 2026-08-31 第三轮 ───────────────────────────────────────────────
+
+test('🔴 根**自己**是符号链接 → 拒（existsSync 会跟随，只查内部的写法漏掉这一格）', () => {
+  const s = scene();
+  const t = trees(s, { prSnap: s.bytes, prName: 'hub-0.json' });
+  const real = join(t.pr, 'artifacts-real');
+  renameSync(join(t.pr, 'artifacts'), real);
+  symlinkSync(real, join(t.pr, 'artifacts'));
+  const r = run(t);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[E_SYMLINK\]/);
+  assert.match(r.stderr, /本身就是符号链接/);
+});
+
+test('🔴 registry/snapshots/ 里混进别的东西 → 拒', () => {
+  // 早先是「过滤出 hub-N.json，其余静默忽略」—— 于是 HUB-1.JSON、随手放的文件、
+  // 子目录都能混进来，已有的非 hub 文件还能被改被删，谁也不知道
+  // ⚠️ 不放 `HUB-0.JSON`：大小写不敏感的文件系统上它压根不是第二个条目，
+  //    而是把 `hub-0.json` 覆盖掉 —— 那条路径由读取端的解析失败拦住，不是本门。
+  //    大小写折叠冲突真正要靠的就是这条「只许 hub-<N>.json」的白名单。
+  for (const junk of ['notes.md', 'hub-00.json', 'hub-1.txt']) {
+    const s = scene();
+    const t = trees(s, { prSnap: s.bytes, prName: 'hub-0.json' });
+    writeFileSync(join(t.pr, 'registry', 'snapshots', junk), 'x');
+    const r = run(t);
+    assert.equal(r.status, 1, junk);
+    assert.match(r.stderr, /\[E_SNAPSHOTS_DIR_DIRTY\]/, junk);
+  }
+});
+
+test('🔴 promotion PR 里出现签名 bundle → 拒（签名是阶段 C 的产物）', () => {
+  const s = scene();
+  const t = trees(s, { prSnap: s.bytes, prName: 'hub-0.json' });
+  writeFileSync(join(t.pr, 'registry', 'snapshots', 'hub-0.json.sigstore.json'), '{}');
+  const r = run(t);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[E_SNAPSHOTS_DIR_DIRTY\]/);
+});
+
+test('base 上已有的 .sigstore.json 可以原样带过来（归档 PR 合并之后就会有）', () => {
+  const s = scene();
+  const prev = Buffer.from(stringify(s.build(41, 40)), 'utf8');
+  const t = trees(s, {
+    prSnap: Buffer.from(stringify(s.build(42, 41)), 'utf8'), prName: 'hub-42.json',
+    baseSnaps: [['hub-41.json', prev], ['hub-41.json.sigstore.json', Buffer.from('{}')]],
+  });
+  const r = run(t);
+  assert.equal(r.status, 0, r.stderr);
+});
