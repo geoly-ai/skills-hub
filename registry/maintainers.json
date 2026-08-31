@@ -1,5 +1,6 @@
 {
-  "_comment": "维护者名单 —— 06-submission.md §7。判据是 GitHub 的**不可变 node id**，不是 login：login 可以改名、也可以被别人重新认领，那是一条实打实的提权路径。login 只用来在日志里让人看懂是谁。⚠️ 现在是空的：真的维护者账号还没定。空名单让 verify-merged-pr.mjs 直接拒（它明确要求 maintainerIds 非空），于是 promote 跑不起来 —— 这正是想要的 fail-closed：宁可 promotion 开不出来，也不能让一个机器人的 approve 满足审批门。",
+  "_comment": "维护者名单 —— 06-submission.md §7。判据是 GitHub 的**不可变 node id**，不是 login：login 可以改名、也可以被别人重新认领，那是一条实打实的提权路径。login 只用来在日志里让人看懂是谁。⚠️ `state` 是显式的：`bootstrap` = 名单必须为空、门 fail-closed；`active` = 已上线、至少两名（Tier 2 要两名且排除投稿者本人，一个人永远满足不了）。🔴 上线时必须在**同一张 PR** 里把 state 改成 active —— 那是一个看得见的动作，而不是「谁填了名单谁顺手把测试改绿」。空名单让 verify-merged-pr.mjs 直接拒（它明确要求 maintainerIds 非空），于是 promote 跑不起来 —— 这正是想要的 fail-closed：宁可 promotion 开不出来，也不能让一个机器人的 approve 满足审批门。",
   "schema": "geoly.skills.maintainers/1",
+  "state": "bootstrap",
   "maintainers": []
 }
