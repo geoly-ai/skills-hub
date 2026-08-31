@@ -505,6 +505,46 @@ for (const [what, re] of [
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// release.yml：代码产什么名字，workflow 就得挂什么名字
+// ════════════════════════════════════════════════════════════════════════════
+
+test('🔴🔴 制品资产的扩展名：workflow 的 glob 必须与 assetFileName 产的一致', async () => {
+  // 这是本轮抓到的一个 P0，而**单测结构上看不见它**：
+  //   `assetFileName` 产 `.tar.gz`，两处 glob 却写的是 `*.tgz` ——
+  //   于是资产建出来了、也比对通过了，然后**一个都没挂上去**；
+  //   而 `if-no-files-found: error` 不会响，因为 npm 自己的 .tgz 在那儿。
+  //   「检查全过，分发全缺」——单测只测脚本，测不到 workflow 的 glob（Codex 2026-08-31）。
+  const { assetFileName } = await import('../scripts/build-snapshot.mjs');
+  // ⚠️ 版本号里带点，所以这里**故意**用一个无点的版本来取扩展名 ——
+  //    `indexOf('.')` 碰上 `1.0.0` 会截出 `.0.0.tar.gz`。
+  const produced = assetFileName({ kind: 'skill', namespace: 'ns', name: 'n', version: '1' });
+  const ext = produced.slice(produced.indexOf('.'));          // `.tar.gz`
+  const body = read('release.yml');
+  // ⚠️ `\S+` 会把 shell 的 `;`（`for f in …/*.tar.gz; do`）一起吃进来
+  const globs = [...body.matchAll(/dist\/assets\/\*(\.[\w.]+)/g)].map((m) => m[1]);
+  assert.ok(globs.length >= 2, `只找到 ${globs.length} 处 dist/assets 的 glob`);
+  for (const g of globs) {
+    assert.equal(g, ext, `workflow 挂的是 *${g}，而 assetFileName 产的是 ${produced}`);
+  }
+});
+
+test('🔴 阶段 C 必须排在签名与 npm publish **之前**', () => {
+  // 排在后面的话，失败时快照已被签、attestation 已生成、npm 已发出去 ——
+  // 三样都撤不回来。这一步只读只算，放最前面没有代价。
+  const body = read('release.yml');
+  const at = (re) => body.search(re);
+  const stageC = at(/name: 重建制品资产并比对/);
+  assert.ok(stageC > 0, '找不到阶段 C 那一步');
+  for (const [what, re] of [
+    ['签快照', /name: 签快照/],
+    ['npm publish', /npm publish /],
+  ]) {
+    const p = at(re);
+    assert.ok(p > stageC, `阶段 C 排在了「${what}」之后 —— 那一步的产物撤不回来`);
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // 占位值：填上之前必须是 fail-closed 的
 // ════════════════════════════════════════════════════════════════════════════
 

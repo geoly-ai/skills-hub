@@ -261,6 +261,29 @@ jobs:
       # 🔴 **只签还没有 bundle 的那些。** 快照是只增不改的（01-artifacts.md §1），
       #    重签一张已签过的会产出一份**不同字节**的 bundle（Rekor 条目、时间都不同），
       #    于是同一张快照在不同轮次有两个签名 —— 而「只增不改」正是它的立身之本。
+      # ── §1 阶段 C：用同一脚本重建资产，断言字节与快照记录一致 ──────────
+      # 🔴 这一步和 validate-promotion 的复算**不是**一回事：那个跑在 promotion PR
+      #    上、重算整张快照；这个跑在 **merge 之后**，判的是「我这一刻从 artifacts/
+      #    打出来的字节，与那张即将被签的快照记录的摘要一致」。
+      #    中间隔着一次 merge —— 合并顺序、rebase、一次「顺手改 typo」的追加提交，
+      #    都会让 main 上的树与被验过的那棵不同。
+      #
+      # 🔴🔴 **位置：必须在签名与 npm publish 之前。**
+      #    早先我把它放在最后，于是失败时快照已经被签、attestation 已经生成、
+      #    npm 也已经发出去 —— 那三样都**撤不回来**（Codex 2026-08-31）。
+      #    这一步只读、只算，放在最前面没有代价。
+      #
+      # ⚠️ 挑哪张快照由脚本自己用 `newestSnapshot()` 决定，**不在 shell 里挑**：
+      #    shell 版接受 `hub-01.json` / `hub-1e3.json`、不查编号重复、
+      #    也不比对文件名与内容里的 snapshot。
+      - name: 重建制品资产并比对（§1 阶段 C）
+        run: |
+          set -euo pipefail
+          node --no-warnings scripts/release/build-release-assets.mjs \
+            --artifacts artifacts \
+            --snapshots-dir registry/snapshots \
+            --out dist/assets
+
       - name: 签快照（无快照则跳过）
         env:
           COSIGN_YES: "true"
@@ -393,35 +416,6 @@ jobs:
           #    不让 npm 再打一次包（再打一次就不保证逐字节相同了）。
           npm publish "$TGZ" --provenance --access public
 
-      # ── §1 阶段 C：用同一脚本重建资产，断言字节与快照记录一致 ──────────
-      # 🔴 这一步和 validate-promotion 的复算**不是**一回事：那个跑在 promotion PR
-      #    上、重算整张快照；这个跑在 **merge 之后**，判的是「我这一刻从 artifacts/
-      #    打出来的字节，与那张即将被签的快照记录的摘要一致」。
-      #    中间隔着一次 merge —— 合并顺序、rebase、一次「顺手改 typo」的追加提交，
-      #    都会让 main 上的树与被验过的那棵不同。
-      #    ⚠️ 签名签的是**快照**，用户下载的是**资产**。两者对不上就是一次静默的
-      #    分发事故：验签过得去，装出来的东西却不是被审过的那个。
-      - name: 重建制品资产并比对（§1 阶段 C）
-        run: |
-          set -euo pipefail
-          # 🔴 与下面 attestation 那一步用**同一个** newest 算法 ——
-          #    两处各写一份「取最新快照」的话，总有一天会取到不同的两张。
-          #    （`.sigstore.json` 也以 `.json` 结尾，必须剔掉；目录序是字典序，
-          #    `hub-10` 会排在 `hub-2` 前面，所以按数字排。）
-          shopt -s nullglob
-          newest=$(for f in registry/snapshots/hub-*.json; do
-                     [ "${f%.sigstore.json}" = "$f" ] || continue
-                     n=${f##*/hub-}; echo "${n%.json} $f"
-                   done | sort -n -k1,1 | tail -1 | cut -d" " -f2-)
-          if [ -z "$newest" ]; then
-            echo "::notice::registry/snapshots/ 里没有快照 —— 本轮没有制品资产要建。"
-            exit 0
-          fi
-          echo "::notice::按 $newest 重建制品资产"
-          mkdir -p dist/assets
-          node --no-warnings scripts/release/build-release-assets.mjs \
-            --artifacts artifacts --snapshot "$newest" --out dist/assets
-
       - name: 回查 registry 真的在供这个版本
         if: ${{ inputs.dry_run == false }}
         env:
@@ -441,7 +435,7 @@ jobs:
             attestation.sigstore.json
             registry/snapshots/hub-*.json
             registry/snapshots/hub-*.sigstore.json
-            dist/assets/*.tgz
+            dist/assets/*.tar.gz
 
   # ── ④ 离线引导用的资产（02-registry.md §8.2）───────────────────────────
   # 「不接受 npm 这个信任锚的使用者，从 GitHub Release 直接取 CLI tarball 与其 bundle，
@@ -496,7 +490,7 @@ jobs:
           #    这些 .tgz 是上一个 job 按快照重建、并逐字节比对过的 ——
           #    挂的就是快照记录的那些字节。
           shopt -s nullglob
-          for f in dist/assets/*.tgz; do assets+=("$f"); done
+          for f in dist/assets/*.tar.gz; do assets+=("$f"); done
 
           # 🔴 **快照在 `registry/snapshots/` 下，不在根目录。**
           #    upload-artifact 是按全部匹配项的最近公共祖先保留目录结构的，

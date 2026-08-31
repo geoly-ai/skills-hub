@@ -23,12 +23,14 @@
 | §7 Tier 门（合并前） | `e6e14c2` `9a87fa8` | `tier-gate.mjs` 挂进 `pr-gate` |
 | §9 token 存储 | `860efd2` | keychain 优先 + 文件兜底、`npx github:` 拒绝 |
 | §10 要人点的那部分 | `dd24121` | `CODEOWNERS`、PR 模板、`docs/m3/00-branch-protection.md` |
+| §1 阶段 C 的资产重建 | `8ea130d` `cd96dac` | `build-release-assets.mjs`：按已定稿的快照重建制品、逐字节比对、写出 `.tgz` 供 Release 挂载 |
+| workflow 的安全不变量 | `585372c` `8a2f2ae` `55847d3` `f93f308` | `workflow-invariants.test.mjs`：写法子集门 + 25 个变异自检 |
 
-全量 **1138/1138** 绿，`check:all` ok。
+全量 **1172/1172** 绿，`check:all` ok。
 
 ---
 
-## 2. 🔴 这一轮**改掉了自己**的五处，都记下来
+## 2. 🔴 这一轮**改掉了自己**的七处，都记下来
 
 这些不是「优化」，是第一版**真的可以被绕过**。写在这里是因为它们共享同一个
 形状：**用一个「看起来像什么」的信号，去决定要不要做检查。**
@@ -40,10 +42,19 @@
 | 「不是合法 UTF-8 就跳过」 | 同上，换一个非法字节就行 |
 | `assertNoSymlinks` 不查根自己 | 整棵 `pr/artifacts` 是个链接时一路遍历过去 |
 | Tier 只按投稿者声明的 capability 算 | 等于让被检的一方决定要几个人审他 |
+| invariants 用正则读 YAML，没匹配到就当没问题 | `permissions: write-all`、引号 key、行尾注释全能绕 |
+| 从 ArtifactId 正则解析出路径 | `.+` 把 `../../etc` 吃进 version，拼进 `join()` 就是穿越 |
 
 🔴 **教训写在这里，不要再犯**：一道门要么检查**全部**输入，要么明确说出
 「哪些没检查、为什么、谁来补」。「看起来是二进制/看起来正常」不是理由 ——
 那个信号本身就在被检方的控制之下。
+
+⚠️ 还有一条是**关于测试自己的**：本轮我写了三处 `assert.ok(… || true)`
+（永远为真的断言），一处在 `commands-install-pack`、两处在 `workflow-invariants`。
+一道永远为真的断言比没有更糟 —— 它让人以为这件事被盯住了。
+所以 `workflow-invariants.test.mjs` 末尾有一节**变异自检**：25 个「改一行就是洞」
+的改动在测试里跑，每一个都必须让**指定的那一条**断言变红。
+把「写完断言就去改坏它一次」从自觉变成机械动作。
 
 ---
 

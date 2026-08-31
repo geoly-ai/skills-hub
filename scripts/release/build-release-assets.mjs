@@ -26,6 +26,8 @@ import { join } from 'node:path';
 
 import { parseSnapshot } from '../../src/snapshot.mjs';
 import { packArtifact } from '../../src/packer.mjs';
+import { assetFileName } from '../build-snapshot.mjs';
+import { newestSnapshot } from './build-timestamp.mjs';
 
 class AssetError extends Error {
   constructor(code, msg) { super(msg); this.name = 'AssetError'; this.code = code; }
@@ -67,7 +69,7 @@ export function resolveArtifactDir(artifactsRoot, recPath) {
  * @param {string} a.artifactsRoot   合并后的 `artifacts/`
  * @param {Buffer} a.snapshotBytes   已定稿的 `hub-<N>.json`
  * @param {string|null} a.outDir     写出 `.tgz` 的目录（null = 只比对不写）
- * @returns {{snapshot:number, built:number, skipped:string[]}}
+ * @returns {{snapshot:number, built:number, files:string[]}}
  */
 export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null }) {
   const snap = parseSnapshot(snapshotBytes);
@@ -83,8 +85,8 @@ export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null
   }
 
   const problems = [];
-  const skipped = [];
   const written = new Set();
+  const files = [];
   let built = 0;
 
   for (const rec of snap.artifacts) {
@@ -122,14 +124,22 @@ export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null
       continue;
     }
 
-    // 🔴 两条 record 写到同一个文件名 = 后一个把前一个覆盖掉，而 Release 上
-    //    只会有一份。`assetFileName` 带了 kind/ns/name/version 且 id 唯一，
-    //    所以理论上撞不了 —— 但「理论上撞不了」正是不该省这一行的理由。
+    // 🔴 `asset.file` 在 `parseSnapshot` 那边**只过了 assertString**，
+    //    所以它可以是 `../../somewhere.tgz`（写出 outDir）、
+    //    `a/../x.tar.gz`（规范化后与别人撞）、或者干脆不是 .tar.gz。
+    //    只用 Set 查重挡不住规范化碰撞与目录穿越（Codex 2026-08-31）。
+    //    判据取最紧的一条：**必须等于由记录自己算出来的那个名字**。
+    const want = assetFileName(rec);
+    if (rec.asset.file !== want) {
+      problems.push(`${rec.id}：asset.file 应为 ${want}，得到 ${JSON.stringify(rec.asset.file)}`);
+      continue;
+    }
     if (written.has(rec.asset.file)) {
       problems.push(`${rec.id}：asset.file 与前面某条重复（${rec.asset.file}）`);
       continue;
     }
     written.add(rec.asset.file);
+    files.push(rec.asset.file);
     if (outDir !== null) writeFileSync(join(outDir, rec.asset.file), packed.bytes);
     built++;
   }
@@ -143,12 +153,16 @@ export function buildReleaseAssets({ artifactsRoot, snapshotBytes, outDir = null
       + '  ⚠️ promotion PR 上验过一次，但那之后隔着一次 merge。合并顺序、rebase、\n'
       + '     一次「顺手改 typo」的追加提交，都会让 main 上的树与被验过的那棵不同。');
   }
-  return { snapshot: snap.snapshot, built, skipped };
+  return { snapshot: snap.snapshot, built, files };
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────
 
-const KNOWN = ['artifacts', 'snapshot', 'out'];
+// 🔴 `--snapshots-dir` 让**脚本自己**挑最新快照，而不是 workflow 在 shell 里挑。
+//    shell 版本接受 `hub-01.json` / `hub-1e3.json`、不查编号重复、也不比对
+//    文件名与内容里的 `snapshot` —— 而 `newestSnapshot()` 三样都做
+//    （Codex 2026-08-31）。两处各写一份「取最新」，迟早取到不同的两张。
+const KNOWN = ['artifacts', 'snapshot', 'snapshots-dir', 'out'];
 
 function parseArgs(argv) {
   const o = {};
@@ -169,10 +183,26 @@ function parseArgs(argv) {
 
 export function main(argv) {
   const o = parseArgs(argv);
-  for (const k of ['artifacts', 'snapshot']) if (o[k] === undefined) bad('E_ASSET_INPUT', `缺少 --${k}`);
+  if (o.artifacts === undefined) bad('E_ASSET_INPUT', '缺少 --artifacts');
+  if ((o.snapshot === undefined) === (o['snapshots-dir'] === undefined)) {
+    bad('E_ASSET_INPUT', '--snapshot 与 --snapshots-dir 必须给且只给一个');
+  }
+  let snapshotPath = o.snapshot;
+  if (snapshotPath === undefined) {
+    const dir = o['snapshots-dir'];
+    // 🔴 **只有「目录根本不存在」才算无事可做**（第一次 promotion 之前就是这样）。
+    //    目录在、里面却没有一张合法快照 —— 那是异常，让 `newestSnapshot()`
+    //    大声抛出来，不要在这里吞成 no-op。
+    if (!existsSync(dir)) {
+      process.stderr.write(`${dir} 不存在 —— 本轮没有制品资产要建。\n`);
+      return 0;
+    }
+    snapshotPath = newestSnapshot(dir).file;
+    process.stderr.write(`按 ${snapshotPath} 重建制品资产。\n`);
+  }
   const r = buildReleaseAssets({
     artifactsRoot: o.artifacts,
-    snapshotBytes: readFileSync(o.snapshot),
+    snapshotBytes: readFileSync(snapshotPath),
     outDir: o.out ?? null,
   });
   process.stderr.write(
