@@ -1,0 +1,23 @@
+{
+  "schema": "geoly.skills.reserved/1",
+  "namespaces": [
+    "admin",
+    "anthropic",
+    "claude",
+    "codex",
+    "cursor",
+    "example",
+    "geoly",
+    "github",
+    "hub",
+    "local",
+    "npm",
+    "official",
+    "openai",
+    "registry",
+    "security",
+    "skills",
+    "system",
+    "test"
+  ]
+}
