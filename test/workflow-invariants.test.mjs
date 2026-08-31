@@ -445,27 +445,34 @@ function mutateRealLine(body, find, replace) {
   return null;                       // 没找到 —— 由调用方判成失败
 }
 
+/**
+ * 每个变异都写明**该由哪一条断言抓住**（`expect` 是那条 test 名字的一段）。
+ *
+ * 🔴 只判「子进程红了」是不够的：一个变异可能被**另一条**断言顺手抓到
+ *    （比如写法子集门），于是我真正关心的那条其实已经失效了，而自检看起来是绿的。
+ *    这正是这份文件反复踩的那个坑的另一个形状 —— 「看起来被守住了」。
+ */
 const MUTATIONS = [
-  ['validate-pr.yml', '      contents: read', '      contents: write', 'job 权限改成 write'],
-  ['validate-pr.yml', '--reserved base-tools/', '--reserved pr/', '保留名单改成从 PR 读'],
-  ['validate-pr.yml', 'base-tools/registry/maintainers.json', 'pr/registry/maintainers.json', '维护者名单从 PR 读'],
-  ['validate-pr.yml', 'base-tools/scripts/submission/run-gates.mjs', 'pr/scripts/submission/run-gates.mjs', '校验器改成从 PR 跑'],
-  ['validate-pr.yml', 'persist-credentials: false', 'persist-credentials: true', 'checkout 带上凭据'],
-  ['validate-pr.yml', 'ref: ${{ github.event.pull_request.base.sha }}', 'ref: main', 'checkout 不钉 sha'],
-  ['validate-pr.yml', '--no-renames ', '', '去掉 --no-renames'],
-  ['validate-pr.yml', '  pull_request:', '  pull_request_target:', '换成 pull_request_target'],
-  ['validate-pr.yml', 'permissions:', 'permissions: write-all #', 'permissions 写成 write-all'],
-  ['promote.yml', "    paths: ['submissions/**']", "    paths: ['submissions/**']\n  workflow_dispatch:", 'promote 多一个触发'],
-  ['promote.yml', 'cancel-in-progress: false', 'cancel-in-progress: true', 'promote 允许取消'],
-  ['promote.yml', 'git push origin "$branch"', 'git push origin main', 'promote 直推 main'],
-  ['promote.yml', '--diff-filter=d ', '', '去掉 --diff-filter=d'],
-  ['promote.yml', 'node --no-warnings scripts/submission/pr-classify.mjs', 'true #', 'promote 不再调 router'],
+  ['validate-pr.yml', '      contents: read', '      contents: write', 'job 权限改成 write', 'write 权限'],
+  ['validate-pr.yml', '--reserved base-tools/', '--reserved pr/', '保留名单改成从 PR 读', '已有事实'],
+  ['validate-pr.yml', 'base-tools/registry/maintainers.json', 'pr/registry/maintainers.json', '维护者名单从 PR 读', '已有事实'],
+  ['validate-pr.yml', 'base-tools/scripts/submission/run-gates.mjs', 'pr/scripts/submission/run-gates.mjs', '校验器改成从 PR 跑', '校验器一律从 base-tools 跑'],
+  ['validate-pr.yml', 'persist-credentials: false', 'persist-credentials: true', 'checkout 带上凭据', 'checkout'],
+  ['validate-pr.yml', 'ref: ${{ github.event.pull_request.base.sha }}', 'ref: main', 'checkout 不钉 sha', 'checkout'],
+  ['validate-pr.yml', '--no-renames ', '', '去掉 --no-renames', 'merge-base'],
+  ['validate-pr.yml', '  pull_request:', '  pull_request_target:', '换成 pull_request_target', 'pull_request_target'],
+  ['validate-pr.yml', 'permissions:', 'permissions: write-all #', 'permissions 写成 write-all', '块式子集'],
+  ['promote.yml', "    paths: ['submissions/**']", "    paths: ['submissions/**']\n  workflow_dispatch:", 'promote 多一个触发', '只由 push'],
+  ['promote.yml', 'cancel-in-progress: false', 'cancel-in-progress: true', 'promote 允许取消', '串行且不许取消'],
+  ['promote.yml', 'git push origin "$branch"', 'git push origin main', 'promote 直推 main', '不直推 main'],
+  ['promote.yml', '--diff-filter=d ', '', '去掉 --diff-filter=d', '分流用的是 router'],
+  ['promote.yml', 'node --no-warnings scripts/submission/pr-classify.mjs', 'true #', 'promote 不再调 router', '分流用的是 router'],
 ];
 
 test('🔴🔴 变异自检：每一处改坏都必须让上面的断言变红', { skip: IN_MUTATION_CHILD }, () => {
   const self = fileURLToPath(import.meta.url);
   const survivors = [];
-  for (const [file, find, replace, label] of MUTATIONS) {
+  for (const [file, find, replace, label, expect] of MUTATIONS) {
     const dir = mkdtempSync(join(tmpdir(), 'geoly-wfmut-'));
     try {
       cpSync(WF_DIR, dir, { recursive: true });
@@ -480,10 +487,17 @@ test('🔴🔴 变异自检：每一处改坏都必须让上面的断言变红',
       delete env.NODE_TEST_CONTEXT;
       delete env.NODE_OPTIONS;
       const r = spawnSync(process.execPath, ['--test', self], { encoding: 'utf8', env });
-      if (r.status === 0) survivors.push(`${label}：改坏了但测试仍然绿`);
+      const out = r.stdout ?? '';
       // 子进程「一个断言都没跑」也要算失败 —— 那和「全绿」看起来一样
-      if (!/^\u2139 fail \d+/m.test(r.stdout ?? '')) {
+      if (!/^\u2139 fail \d+/m.test(out)) {
         survivors.push(`${label}：子进程没有产出测试结果（${(r.stderr ?? '').slice(0, 120)}）`);
+        continue;
+      }
+      if (r.status === 0) { survivors.push(`${label}：改坏了但测试仍然绿`); continue; }
+      // 🔴 还要是**指定的那一条**红了，不能是别的断言顺手抓到的
+      const failed = [...out.matchAll(/^\u2716 (.+?) \(\d/gm)].map((m) => m[1]);
+      if (!failed.some((n) => n.includes(expect))) {
+        survivors.push(`${label}：红的不是「${expect}」那一条，而是 ${failed.join(' / ') || '（没解析到）'}`);
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
