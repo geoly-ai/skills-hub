@@ -4,7 +4,7 @@
 //    是两回事 —— main 上的内容会被 clone、被 fork、被搜索引擎抓。
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -186,4 +186,49 @@ test('🔴 CLI 拒拼错的选项', () => {
   ], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /\[E_TIER_INPUT\]/);
+});
+
+// ── 🔴🔴 声明压不住载荷 ────────────────────────────────────────────────────
+
+test('🔴🔴 声明 network、载荷里全是 .sh → Tier 抬到 2', () => {
+  // 只按声明算，等于让被检的一方决定要几个人审他。
+  // assertCapabilityConsistency 只在声明是 ["none"] 时才比对载荷，
+  // 所以「声明 network、实际带脚本」这条路上一道门都没有。
+  const root = join(mkroot(), 'submissions');
+  const dir = join(root, 'geoly', 'a@1.0.0');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), '# a\n');
+  writeFileSync(join(dir, 'skill.json'), JSON.stringify({ name: 'a', capabilities: ['network'] }));
+  writeFileSync(join(dir, 'setup.sh'), 'echo hi\n');
+
+  const r = quiet(() => batchTier(root));
+  assert.equal(r.tier, 2, '声明说 Tier 1，载荷说 Tier 2 —— 取高的');
+  assert.match(r.why.join('\n'), /声明压不住载荷/);
+  assert.match(r.why.join('\n'), /setup\.sh/, '要指名道姓，否则审的人不知道是哪一处');
+});
+
+test('🔴 shebang 与可执行位同样抬档', () => {
+  for (const [file, content, mode] of [
+    ['tool', '#!/bin/sh\necho hi\n', 0o644],
+    ['plain.md', 'no shebang\n', 0o755],
+  ]) {
+    const root = join(mkroot(), 'submissions');
+    const dir = join(root, 'geoly', 'a@1.0.0');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), '# a\n');
+    writeFileSync(join(dir, 'skill.json'), JSON.stringify({ name: 'a', capabilities: ['none'] }));
+    writeFileSync(join(dir, file), content, { mode });
+    chmodSync(join(dir, file), mode);
+    assert.equal(quiet(() => batchTier(root)).tier, 2, file);
+  }
+});
+
+test('干净的 Tier 0 投稿不会被误抬', () => {
+  const root = join(mkroot(), 'submissions');
+  const dir = join(root, 'geoly', 'a@1.0.0');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), '# a\n\n普通正文。\n');
+  writeFileSync(join(dir, 'skill.json'), JSON.stringify({ name: 'a', capabilities: ['none'] }));
+  writeFileSync(join(dir, 'references.md'), '# 参考\n');
+  assert.equal(quiet(() => batchTier(root)).tier, 0, '误抬的话，所有投稿都要两名 —— 门会被关掉');
 });

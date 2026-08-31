@@ -28,7 +28,9 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 import { parseStrict } from '../../src/canonical-json.mjs';
+import { collectTree } from '../../src/packer.mjs';
 import { scanSubmissions } from './run-gates.mjs';
+import { executableEvidence } from './structural-gates.mjs';
 import { capabilityTier } from '../promote/build-inputs.mjs';
 import { currentApprovers } from '../promote/verify-merged-pr.mjs';
 
@@ -50,6 +52,21 @@ const bad = (code, msg) => { throw new TierError(code, msg); };
  *    真要精确，得让这一步去读 `artifacts/` 里的成员 manifest，那是 base 上的
  *    事实、拿得到，但 pack 还有 R-19 那个更前面的问题（promote 现在根本收不了
  *    pack），所以先按最高档挡着。
+ *
+ * ── 🔴🔴 声明是投稿者写的，所以不能只信声明 ─────────────────────────────
+ * `capabilities` 就在投稿自己的 `skill.json` 里。只按它算 Tier，等于
+ * **让被检的一方决定要几个人审他** —— 写 `["network"]` 就只要一名。
+ *
+ * `assertCapabilityConsistency` 只在声明是 `["none"]` 时才比对载荷，
+ * 所以「声明 network、实际带一堆 .sh」这条路上**一道门都没有**。
+ *
+ * 因此这里另算一个**下限**：载荷里只要有可执行位 / 脚本扩展名 / shebang，
+ * 有效 Tier 至少是 2（那就是 `shell`）。最终 Tier = max(声明, 下限)。
+ * 判据与结构门共用 `executableEvidence`，两处不会分叉。
+ *
+ * ⚠️ 这仍然只是**看得见的**迹象 —— 一段藏在 `SKILL.md` 正文里、让 agent 去
+ *    执行命令的自然语言指令，任何静态判据都认不出来。那一条归 §8 人工门
+ *    第 1、3、7 项。**不要把这道门说成「capability 声明被验证过了」。**
  *
  * @returns {{tier:number, why:string[]}}
  */
@@ -79,8 +96,21 @@ export function batchTier(submissionsRoot) {
       why.push(`${where}：skill.json 读不出来（${e.message.split('\n')[0]}）—— 按最高档处理`);
       continue;
     }
-    const t = capabilityTier(manifest.capabilities);
+    let t = capabilityTier(manifest.capabilities);
     why.push(`${where}：capabilities=${JSON.stringify(manifest.capabilities)} → Tier ${t}`);
+
+    // 🔴 载荷里的可执行迹象 —— 声明压不住它
+    let evidence = [];
+    try {
+      evidence = executableEvidence(collectTree(s.dir));
+    } catch (e) {
+      evidence = [`载荷读不出来（${e.message.split('\n')[0]}）`];
+    }
+    if (evidence.length > 0 && t < 2) {
+      why.push(`${where}：🔴 载荷里有可执行迹象，Tier ${t} → 2（声明压不住载荷）：`
+        + evidence.slice(0, 3).join('；') + (evidence.length > 3 ? `……共 ${evidence.length} 处` : ''));
+      t = 2;
+    }
     if (t > tier) tier = t;
   }
   return { tier, why };

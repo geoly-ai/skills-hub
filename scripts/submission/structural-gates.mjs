@@ -134,7 +134,23 @@ export function assertVersionUnused({ id, existingIds }) {
 // ── ④ capability 一致性 ────────────────────────────────────────────────────
 
 /** 看起来像脚本的扩展名。**不是白名单，是启发式** —— 见下面的诚实边界。 */
-const SCRIPT_EXT = /\.(sh|bash|zsh|py|rb|pl|js|mjs|cjs|ts|ps1)$/i;
+export const SCRIPT_EXT = /\.(sh|bash|zsh|py|rb|pl|js|mjs|cjs|ts|ps1)$/i;
+
+/**
+ * 载荷里**看得见的**可执行迹象：可执行位、脚本扩展名、shebang。
+ * 🔴 单独导出，因为 `tier-gate.mjs` 也要用它 —— 那里判的是
+ *    「审查等级能不能只信投稿者自己填的 capabilities」。
+ *    两处用同一条判据，不会分叉。
+ */
+export function executableEvidence(entries) {
+  const out = [];
+  for (const e of entries) {
+    if ((e.mode & 0o111) !== 0) { out.push(`${e.path}：mode 0${e.mode.toString(8)} 带可执行位`); continue; }
+    if (SCRIPT_EXT.test(e.path)) { out.push(`${e.path}：看起来是脚本（按扩展名）`); continue; }
+    if (e.data.toString('utf8').startsWith('#!')) out.push(`${e.path}：以 shebang 开头`);
+  }
+  return out;
+}
 /** `http://` / `https://`；不含 `https://` 出现在纯文本说明里的情况 —— 分不开，见下。 */
 const RE_EXTERNAL_URL = /\bhttps?:\/\/[^\s)"'<>]+/i;
 
@@ -161,23 +177,10 @@ export function assertCapabilityConsistency({ capabilities, entries }) {
   const declaredNone = uniqCaps !== null && uniqCaps.length === 1 && uniqCaps[0] === 'none';
   if (!declaredNone) return { checked: false, reason: '未声明 none，本门不适用' };
 
-  const problems = [];
+  const problems = executableEvidence(entries);
   const warnings = [];
   for (const e of entries) {
-    if ((e.mode & 0o111) !== 0) {
-      problems.push(`${e.path}：mode 0${e.mode.toString(8)} 带可执行位`);
-      continue;                       // 已经够定性了，不必再往里看
-    }
-    if (SCRIPT_EXT.test(e.path)) {
-      problems.push(`${e.path}：看起来是脚本（按扩展名）`);
-      continue;
-    }
-    const text = e.data.toString('utf8');
-    if (text.startsWith('#!')) {
-      problems.push(`${e.path}：以 shebang 开头`);
-      continue;
-    }
-    const m = RE_EXTERNAL_URL.exec(text);
+    const m = RE_EXTERNAL_URL.exec(e.data.toString('utf8'));
     if (m) warnings.push(`${e.path}：含外部 URL ${m[0].slice(0, 60)}`);
   }
   if (warnings.length) {
