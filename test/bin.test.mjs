@@ -73,7 +73,7 @@ test('🔴 rmtreeFsync 遇到「看不见」不能当成「不存在」', async 
   assert.throws(() => lstatSync(dangling), /ENOENT/, '断链必须被真的删掉，而不是被当成不存在跳过');
 });
 
-test('🔴 src/ 与 scripts/ 里不得出现字面 NUL 字节', async () => {
+test('🔴 src/、scripts/、test/ 里不得出现字面 NUL 字节', async () => {
   // 一个字面 NUL 会让整个源文件被判为**二进制**：`file(1)` 报 `data`，
   // 而带 `-I` 的 grep（ripgrep / ugrep 默认就带）会**整文件跳过**。
   // 后果不是报错，是**静默漏搜** —— `grep 'export' src/pack.mjs` 返回空，
@@ -92,6 +92,10 @@ test('🔴 src/ 与 scripts/ 里不得出现字面 NUL 字节', async () => {
       if (readFileSync(p).includes(0)) hits.push(p.slice(repo.length + 1));
     }
   };
-  for (const sub of ['src', 'scripts']) walk(join(repo, sub));
+  // 🔴 **`test/` 也要扫。** 2026-08-31 在 test/scan-text.test.mjs 上又踩了一次：
+  //    那一份是**专门**测不可见字符的，写用例时手抖落了三个字面 NUL 进去，
+  //    而这道门当时只覆盖 src/ 与 scripts/，一声不吭地放过了。
+  //    「测不可见字符的文件自己被判成二进制」——正是这条门要防的那种沉默。
+  for (const sub of ['src', 'scripts', 'test']) walk(join(repo, sub));
   assert.deepEqual(hits, [], `这些文件里有字面 NUL，会被 grep -I 整文件跳过：${hits.join(', ')}`);
 });

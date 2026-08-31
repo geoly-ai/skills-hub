@@ -15,7 +15,8 @@ name: Promote
 # 但那是**仓库设置**，不是我们能证明的东西 —— 设置被改、或某次绕过，都会让一个
 # 「approve 之后又推了一版」的 PR 带着旧审批走到这里。§3 要求四项：
 #   1. approve 挂在被合并的 head SHA 上          → verify-merged-pr.mjs
-#   2. 变更路径只有 submissions/**               → pr-classify.mjs
+#   2. 变更路径只有 submissions/**               → pr-classify.mjs（在 facts 那一步，
+#                                                   与「这是不是 promotion PR」同一次调用）
 #   3. 载荷重跑一遍全部结构门                     → submission/run-gates.mjs
 #   4. 版本号从未被使用过（含已 yank）            → stage-submissions.mjs（判盘上的目录）
 #
@@ -33,6 +34,11 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+env:
+  # 🔴 与 validate-pr.yml 里那个是**同一个占位**：真的 bot 账号还不存在（R-20）。
+  #    判据是不可变 node id，不是 login —— login 可改名、也可被别人重新认领。
+  RELEASE_BOT_ID: "PLACEHOLDER_RELEASE_BOT_NODE_ID"
 
 # 🔴 **串行，且不许取消。** 两张 promotion PR 从同一基线各自判过「版本号没占用」，
 #    并发就会双双通过（verify-merged-pr.mjs 里记的那个 TOCTOU）。
@@ -75,19 +81,35 @@ jobs:
           fi
           ref=$(jq -r '.[0].head.ref' pulls.json)
           headrepo=$(jq -r '.[0].head.repo.full_name' pulls.json)
+          author=$(jq -r '.[0].user.node_id' pulls.json)
+          authorlogin=$(jq -r '.[0].user.login' pulls.json)
+          basesha=$(jq -r '.[0].base.sha' pulls.json)
+          headsha=$(jq -r '.[0].head.sha' pulls.json)
 
           # 🔴🔴 **promotion PR 合并会再触发这个 workflow。** 它删掉
           #    `submissions/**`，而删除同样匹配 `paths:` 过滤器（Codex 2026-08-31）。
           #    不短路的话，第二次运行会带着 artifacts/ 与 registry/ 的改动去撞
           #    §3 第 2 项的路径白名单，表现为一次莫名其妙的失败。
-          #    ⚠️ 判据要带上 **head repo 是本仓库**：分支名投稿者可控，
-          #    一个 fork 上叫 `promotion/hub-1` 的分支不该让它自己被跳过。
-          #    promotion 分支只可能推在本仓库里。
-          case "$ref:$headrepo" in
-            promotion/hub-*:"$GITHUB_REPOSITORY")
-              echo "::notice::这是 promotion PR（$ref）自己合并触发的，跳过。"
-              echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
-          esac
+          #
+          # 🔴 **判据直接用 router 那一份代码**，不在这里用 shell 复述。
+          #    自己写一遍 `case promotion/hub-*` 的话：`promotion/hub-x`、
+          #    `promotion/hub-1/foo` 都会匹配，而且**漏掉作者必须是 release bot**
+          #    这一条 —— 仓库协作者开一个叫 promotion/hub-9 的普通投稿 PR，
+          #    validate-pr 按 submission 放行、合并后却被这里跳过，
+          #    留下积压并堵住后面所有 promote（Codex 2026-08-31）。
+          #    ⚠️ classifyPr 的三元判据是「严格分支号 + 本仓库 + bot node id」。
+          #
+          #    这一步同时完成 §3 第 2 项（变更路径白名单）—— assertPathsAllowed
+          #    就在 pr-classify 的 CLI 里，判定与路径检查本来就是一件事。
+          paths=$(git diff --no-renames --name-only "$basesha...$headsha")
+          kind=$(node --no-warnings scripts/submission/pr-classify.mjs \
+            --head-ref "$ref" --head-repo "$headrepo" --this-repo "$GITHUB_REPOSITORY" \
+            --author-id "$author" --author "$authorlogin" \
+            --release-bot-id "$RELEASE_BOT_ID" --changed-paths "$paths")
+          if [ "$kind" = "promotion" ]; then
+            echo "::notice::这是 promotion PR（$ref）自己合并触发的，跳过。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
 
           # 🔴 **「关联到一张 PR」不等于「那张 PR 合并进了 main」**（Codex 2026-08-31）：
           #    cherry-pick 过来的 commit、或一次绕过保护的直推，都能关联上一张
@@ -135,33 +157,6 @@ jobs:
             --maintainer-ids "$ids" --needed 1 --author-id "$AUTHOR")
           echo "approvers=$approvers" >> "$GITHUB_OUTPUT"
 
-      - name: §3 第 2 项 —— 变更路径只有 submissions/**
-        if: ${{ steps.facts.outputs.skip == 'false' }}
-        env:
-          BASE: ${{ steps.facts.outputs.base }}
-          HEAD: ${{ steps.facts.outputs.head }}
-          AUTHOR: ${{ steps.facts.outputs.author }}
-          AUTHOR_LOGIN: ${{ steps.facts.outputs.author_login }}
-          # 🔴 **传 API 返回的真实 head.ref / head.repo**，不是写死的字面量：
-          #    router 的判定依据就是这两个 + 作者身份，写死等于在这一侧假装了
-          #    一个和真相无关的前提（Codex 2026-08-31）。
-          HEAD_REF: ${{ steps.facts.outputs.head_ref }}
-          HEAD_REPO: ${{ steps.facts.outputs.head_repo }}
-          # 🔴 与 validate-pr.yml 里那个是**同一个占位**：真的 bot 账号还不存在。
-          #    这里只用来证明「投稿 PR 不是 release bot 开的」，填错会把投稿判成
-          #    promotion 并被路径白名单拦下 —— fail-closed。
-          RELEASE_BOT_ID: "PLACEHOLDER_RELEASE_BOT_NODE_ID"
-        run: |
-          set -euo pipefail
-          # 三点式 = 相对 merge-base；--no-renames 见 validate-pr.yml 里的说明
-          paths=$(git diff --no-renames --name-only "$BASE...$HEAD")
-          node --no-warnings scripts/submission/pr-classify.mjs \
-            --head-ref "$HEAD_REF" --head-repo "$HEAD_REPO" \
-            --this-repo "$GITHUB_REPOSITORY" \
-            --author-id "$AUTHOR" --author "$AUTHOR_LOGIN" \
-            --release-bot-id "$RELEASE_BOT_ID" \
-            --changed-paths "$paths"
-
       - name: §3 第 3 项 —— 结构门全部重跑
         if: ${{ steps.facts.outputs.skip == 'false' }}
         run: |
@@ -171,6 +166,8 @@ jobs:
           node --no-warnings scripts/submission/run-gates.mjs \
             --submissions submissions --artifacts artifacts \
             --reserved registry/reserved.json
+          # §8 第 5 条那道门也重跑 —— 与投稿 PR 上是同一份代码
+          node --no-warnings scripts/submission/scan-text.mjs --submissions submissions
 
       # ── 阶段 A：搬运 → inputs → 快照 ──────────────────────────────────
       - name: §3 第 4 项 + 搬进 artifacts/
@@ -270,6 +267,14 @@ jobs:
           before='${{ github.event.before }}'
           if ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null; then
             echo "::error::拿不到 push 之前的 commit（$before）—— 无法自检，请人工复核。"
+            exit 1
+          fi
+          # 🔴 「对象还在」≠「它是当前 HEAD 的祖先」（Codex 2026-08-31）：
+          #    force-push 之后旧 commit 可能仍被 tag 或别的分支引用，
+          #    `rev-parse --verify` 照样成功 —— 于是自检会拿一条**无关的基线**
+          #    去比，得出一个毫无意义的「通过」。
+          if ! git merge-base --is-ancestor "$before" "$GITHUB_SHA"; then
+            echo "::error::$before 不是 $GITHUB_SHA 的祖先（force-push?）—— 基线不可信，请人工复核。"
             exit 1
           fi
           git worktree add "$base" "$before"

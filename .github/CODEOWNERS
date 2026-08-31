@@ -1,0 +1,32 @@
+# 06-submission.md §10：CODEOWNERS 覆盖 /.github/、/artifacts/、/registry/、
+# /cli/、/scripts/、/docs/。
+#
+# 🔴 **这份文件是分支保护的一半，另一半在仓库设置里**（见
+#    docs/m3/00-branch-protection.md）。CODEOWNERS 自己只决定「谁被请求审查」；
+#    「必须有 owner approve 才能合并」是设置里的 Require review from Code Owners。
+#    只写这份文件、不开那个开关 = 一道摆设。
+#
+# ⚠️ **@geoly-ai/maintainers 现在还不存在。** 指向一个不存在的团队时，
+#    GitHub 不会报错，只是**谁也不会被请求审查** —— 于是「必须 owner approve」
+#    永远满足不了，PR 合不了。合不了比乱合安全，所以就这么放着；
+#    建团队与填 registry/maintainers.json 是同一件事，一起做（R-20）。
+
+# 兜底：其余路径也要有人看
+*                   @geoly-ai/maintainers
+
+# §5 硬拒的那几条路径 —— 投稿 PR 改这里会被 CI 直接拦下，
+# 走到人工审这一步的只可能是 org 成员开的 PR
+/.github/           @geoly-ai/maintainers
+/scripts/           @geoly-ai/maintainers
+/cli/               @geoly-ai/maintainers
+/docs/              @geoly-ai/maintainers
+
+# 🔴 registry/ 与 artifacts/ 是 registry 的**事实本体**：
+#    保留 namespace、维护者名单、owner 表、快照。
+#    promotion PR 改的正是这里，它必须走人工审（§3：promote 不是自动发布）。
+/registry/          @geoly-ai/maintainers
+/artifacts/         @geoly-ai/maintainers
+
+# 投稿目录**不设** owner：投稿 PR 的审批门由 §7 的 capability 分级决定
+# （Tier 0/1 一名、Tier 2 两名），由 promote 侧的 build-inputs 强制，
+# 不靠 CODEOWNERS —— CODEOWNERS 表达不了「按 capability 决定人数」。
