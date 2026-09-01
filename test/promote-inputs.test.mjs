@@ -89,8 +89,36 @@ test('Tier 0/1 一名、Tier 2 两名；同一个人两次不算两名；投稿�
 
 test('首次注册：表里没有该 namespace → 用 PR 侧给的 owner；不给就拒', () => {
   const owners = { schema: OWNERS_SCHEMA, namespaces: {} };
-  assert.deepEqual(resolveOwner({ owners, namespace: 'newns', claimed: OWNER }), OWNER);
-  assert.throws(() => resolveOwner({ owners, namespace: 'newns' }), /--claim-owner/);
+  assert.deepEqual(resolveOwner({ owners, namespace: 'newns', claims: { newns: OWNER } }), OWNER);
+  assert.throws(() => resolveOwner({ owners, namespace: 'newns' }), /claim_owner/);
+});
+
+test('🔴🔴 claims 按 namespace 索引 —— 一个声明不能落到另一个 namespace 上', () => {
+  // 第一版收的是**单个** owner 对象，于是「a/foo 没声明 + b/bar 声明了 b 的 owner」
+  // 会把两个 namespace 都注册到 b 的 owner 名下 —— 一次静默的所有权错配
+  const owners = { schema: OWNERS_SCHEMA, namespaces: {} };
+  const claims = { b: { kind: 'user', login: 'bob', id: 'MDQ6_bob' } };
+  assert.deepEqual(resolveOwner({ owners, namespace: 'b', claims }), claims.b);
+  assert.throws(() => resolveOwner({ owners, namespace: 'a', claims }), /尚未注册/);
+});
+
+test('🔴 已注册的 namespace 要核作者（05-lifecycle §1）', () => {
+  // 「之后该 namespace 下的投稿，PR 作者必须匹配绑定身份，否则需 owner 明确同意」
+  // —— 「明确同意」是人的动作，没有自动判据，所以这里硬拒并指出正路
+  const owners = { schema: OWNERS_SCHEMA, namespaces: { ns: { kind: 'user', login: 'alice', id: 'MDQ6_alice' } } };
+  assert.deepEqual(resolveOwner({ owners, namespace: 'ns', authorId: 'MDQ6_alice' }), owners.namespaces.ns);
+  assert.throws(
+    () => resolveOwner({ owners, namespace: 'ns', authorId: 'MDQ6_mallory' }),
+    /必须匹配绑定身份/,
+  );
+});
+
+test('🔴 已注册的 namespace 再声明 claim_owner → 拒（换 owner 走 §7 转让）', () => {
+  const owners = { schema: OWNERS_SCHEMA, namespaces: { ns: OWNER } };
+  assert.throws(
+    () => resolveOwner({ owners, namespace: 'ns', claims: { ns: OWNER } }),
+    /已经注册过了/,
+  );
 });
 
 test('🔴 已注册的 namespace 一律以 owners.json 为准（转让/接管就是改这张表）', () => {
@@ -100,7 +128,7 @@ test('🔴 已注册的 namespace 一律以 owners.json 为准（转让/接管�
   assert.deepEqual(resolveOwner({ owners: OWNERS, namespace: 'geoly' }), OWNER);
   // 即使 PR 侧传了别的 owner，也以表为准（--claim-owner 只对首次注册有意义）
   assert.deepEqual(
-    resolveOwner({ owners: OWNERS, namespace: 'geoly', claimed: { kind: 'github-user', login: '别人', id: 'X' } }),
+    resolveOwner({ owners: OWNERS, namespace: 'geoly' }),
     OWNER,
   );
 });
@@ -254,7 +282,7 @@ test('🔴 产出的 inputs 能直接喂给 build-snapshot，且快照过得了�
   const inputs = build(root, {
     newIds: [s.record.id],
     owners: { schema: OWNERS_SCHEMA, namespaces: {} },
-    claimOwner: OWNER,          // 首次注册
+    claimOwner: { geoly: OWNER },   // 首次注册（按 namespace 索引）
   });
   const { doc } = buildSnapshot({
     artifactsRoot: join(root, 'artifacts'),

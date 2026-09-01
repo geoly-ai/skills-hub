@@ -200,7 +200,8 @@ jobs:
           node --no-warnings base-tools/scripts/submission/run-gates.mjs \
             --submissions pr/submissions \
             --artifacts base-tools/artifacts \
-            --reserved base-tools/registry/reserved.json
+            --reserved base-tools/registry/reserved.json \
+            --owners base-tools/registry/owners.json
           # 🔴 `--artifacts` 与 `--reserved` 都指向 **base**：
           #    「已有哪些制品」「哪些 namespace 是保留的」都是既有事实，
           #    不能让被检的 PR 自己提供 —— 那等于让它宣布自己没占用版本号。

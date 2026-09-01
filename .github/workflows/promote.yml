@@ -133,6 +133,9 @@ jobs:
           # 🔴 作者用不可变 node id，不是 login
           echo "author=$(jq -r '.[0].user.node_id' pulls.json)" >> "$GITHUB_OUTPUT"
           echo "author_login=$(jq -r '.[0].user.login' pulls.json)" >> "$GITHUB_OUTPUT"
+          # vendored 的 imported_at 用**投稿 PR 的创建时刻** —— 那是「什么时候
+          # 搬进来的」这件事唯一有据可查的时间点，比 promote 跑起来的时刻更准。
+          echo "created_at=$(jq -r '.[0].created_at' pulls.json)" >> "$GITHUB_OUTPUT"
 
       - name: §3 第 1 项 —— approve 未失效
         id: approvals
@@ -165,9 +168,44 @@ jobs:
           #    另写一份「promote 侧的结构门」就是给自己造两个真值。
           node --no-warnings scripts/submission/run-gates.mjs \
             --submissions submissions --artifacts artifacts \
-            --reserved registry/reserved.json
+            --reserved registry/reserved.json --owners registry/owners.json
           # §8 第 5 条那道门也重跑 —— 与投稿 PR 上是同一份代码
           node --no-warnings scripts/submission/scan-text.mjs --submissions submissions
+
+      # 🔴 **必须在搬运之前** —— stage-submissions 会把 submissions/ 搬空。
+      - name: 收集 PROMOTION.json（首次注册的 owner、pack 的 provenance）
+        id: promo
+        if: ${{ steps.facts.outputs.skip == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.facts.outputs.pr }}
+          AUTHOR: ${{ steps.facts.outputs.author }}
+          AUTHOR_LOGIN: ${{ steps.facts.outputs.author_login }}
+          CREATED: ${{ steps.facts.outputs.created_at }}
+        run: |
+          set -euo pipefail
+          # 🔴 `kind: org` 的绑定要记**组织自己**的 node id，不是投稿者的 ——
+          #    记成投稿者的，等于把 namespace 给了这个人却显示成组织的。
+          #    先把本批声明过的 org login 解析成 node id。
+          #    ⚠️「这个人是不是该组织的成员」**没有自动判据**，归 §8 人工门。
+          orgs=$(grep -ho '"login"[[:space:]]*:[[:space:]]*"[^"]*"' \
+                   $(find submissions -name PROMOTION.json) 2>/dev/null \
+                 | sed 's/.*"\([^"]*\)"$/\1/' | sort -u || true)
+          echo '{}' > /tmp/org-ids.json
+          for login in $orgs; do
+            if id=$(gh api "orgs/$login" --jq .node_id 2>/dev/null); then
+              jq --arg k "$login" --arg v "$id" '. + {($k): $v}' /tmp/org-ids.json > /tmp/o.json
+              mv /tmp/o.json /tmp/org-ids.json
+            fi
+          done
+
+          node --no-warnings scripts/promote/collect-promotion-inputs.mjs \
+            --submissions submissions --owners registry/owners.json \
+            --pr "$PR" --author-id "$AUTHOR" --author-login "$AUTHOR_LOGIN" \
+            --created-at "$CREATED" --org-ids /tmp/org-ids.json \
+            --claim-owner-out /tmp/claim-owner.json \
+            --provenance-out /tmp/provenance.json \
+            --owners-out registry/owners.json >> "$GITHUB_OUTPUT"
 
       # ── 阶段 A：搬运 → inputs → 快照 ──────────────────────────────────
       - name: §3 第 4 项 + 搬进 artifacts/
@@ -215,19 +253,19 @@ jobs:
           else
             prev=""
           fi
-          # 🔴 **两类投稿现在会在这一步被拒，这是已知缺口、不是 bug**（R-19）：
-          #    · 首次注册一个 namespace —— 需要 `--claim-owner`；
-          #    · 任何 pack —— `pack.json` 的键集里没有 `provenance`（03-packs §2），
-          #      需要 `--provenance-of`。
-          #    两者都是「PR 侧的事实」，而这两份事实从投稿里的哪儿来，规格还没定。
-          #    ⚠️ 不要为了让它跑起来就在这里编一个默认值：owner 与 provenance
-          #    编错了是**签进快照**的，事后改不动。
+          # 两份「PR 侧的事实」来自投稿目录里的 PROMOTION.json（决策 ②，R-19 已闭合）：
+          #   · `--claim-owner`   ← 首次注册 namespace 的 owner（按 namespace 索引）
+          #   · `--provenance-of` ← pack 的 provenance
+          # 🔴 仍然不在这里编默认值：owner 与 provenance 是**签进快照**的，
+          #    编错了事后改不动。缺了就让它失败。
           # capability tier 的审批人数门在这一步里判（见文件头的说明）
           node --no-warnings scripts/promote/build-inputs.mjs \
             --artifacts artifacts --new-ids "$NEW_IDS" \
             --pr "$PR" --head-sha "$HEAD" --approved-by "$APPROVERS" --author "$AUTHOR" \
             --owners registry/owners.json \
             ${prev:+--previous-snapshot "registry/snapshots/hub-$prev.json"} \
+            --claim-owner /tmp/claim-owner.json \
+            --provenance-of /tmp/provenance.json \
             --out /tmp/inputs.json
           echo "PREV=${prev:-}" >> "$GITHUB_ENV"
 
@@ -304,7 +342,10 @@ jobs:
             exit 1
           fi
           git checkout -b "$branch"
-          git add artifacts registry/snapshots submissions
+          # 🔴 `registry/owners.json` 也要提交 —— 首次注册**必须落表**，
+          #    不落的话下一次同 namespace 的投稿会走「尚未注册」那条路，
+          #    可以被**另一个人**认领（05-lifecycle §1 的绑定就形同虚设）。
+          git add artifacts registry/snapshots registry/owners.json submissions
           git commit -m "promote: 快照 $N（来自 #$PR）"
           git push origin "$branch"
           # push 之后到 PR 创建之间失败的话，分支会留在远端 —— 上面那道门就是

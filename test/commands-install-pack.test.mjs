@@ -16,6 +16,7 @@ import { assertRefGraphClosed } from '../src/pack.mjs';
 import { buildUnits, planEntryRefs, orphanRootsAfter } from '../src/commands/install.mjs';
 import { makeSnapshotDoc, makeTimestampDoc, bytesOf, fakeVerifier } from './fixtures/trustchain-objects.mjs';
 import { makeSkillArtifact, makePackArtifact, cleanupTrees } from './fixtures/pack-tree.mjs';
+import { wrapTimestamp } from '../src/timestamp-envelope.mjs';
 
 after(cleanupTrees);
 
@@ -53,10 +54,10 @@ function makeWorld({ artifacts, inSnapshot = null, snapshot = 42 } = {}) {
     snapshot, previous: snapshot - 1,
   });
   const snapBytes = bytesOf(snapDoc);
-  writeFileSync(join(cacheDir, 'timestamp.json'), bytesOf(makeTimestampDoc({
+  // 🔴 timestamp 是**单资产信封**（决策 ③）：正文与 bundle 封在同一个文件里。
+  writeFileSync(join(cacheDir, 'timestamp.json'), wrapTimestamp(bytesOf(makeTimestampDoc({
     latest_snapshot: snapshot, snapshot_sha256: sha(snapBytes), min_cli_version: '0.0.0',
-  })));
-  writeFileSync(join(cacheDir, 'timestamp.sigstore.json'), '{}');
+  })), {}));
   writeFileSync(join(cacheDir, 'snapshots', `${snapshot}.json`), snapBytes);
   writeFileSync(join(cacheDir, 'snapshots', `${snapshot}.sigstore.json`), '{}');
   for (const a of artifacts) writeFileSync(join(cacheDir, 'assets', a.record.asset.sha256.slice(7)), a.bytes);

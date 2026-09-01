@@ -18,6 +18,7 @@ import { VENDORED_FILE, VENDORED_SCHEMA, STAGING_PREFIX } from '../src/vendor.mj
 import { PACK_ERROR_EXIT, annotatePackError } from '../src/commands/pack-errors.mjs';
 import { makeSnapshotDoc, makeTimestampDoc, bytesOf, fakeVerifier } from './fixtures/trustchain-objects.mjs';
 import { makeSkillArtifact, makePackArtifact, cleanupTrees } from './fixtures/pack-tree.mjs';
+import { wrapTimestamp } from '../src/timestamp-envelope.mjs';
 
 after(cleanupTrees);
 
@@ -66,8 +67,8 @@ function makeWorld({ artifacts, inSnapshot = null, snapshot = 42 } = {}) {
   const tsDoc = makeTimestampDoc({
     latest_snapshot: snapshot, snapshot_sha256: sha(snapBytes), min_cli_version: '0.0.0',
   });
-  writeFileSync(join(cacheDir, 'timestamp.json'), bytesOf(tsDoc));
-  writeFileSync(join(cacheDir, 'timestamp.sigstore.json'), '{}');
+  // 🔴 timestamp 是**单资产信封**（决策 ③）：正文与 bundle 封在同一个文件里。
+  writeFileSync(join(cacheDir, 'timestamp.json'), wrapTimestamp(bytesOf(tsDoc), {}));
   writeFileSync(join(cacheDir, 'snapshots', `${snapshot}.json`), snapBytes);
   writeFileSync(join(cacheDir, 'snapshots', `${snapshot}.sigstore.json`), '{}');
   // 🔴 资产按**内容寻址**放（assets/<sha256 hex>），与 registry.mjs 的布局一致。

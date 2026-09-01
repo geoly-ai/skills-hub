@@ -21,6 +21,7 @@ import { readLedger, layout } from '../src/ledger.mjs';
 import { readJournal, writeJournal } from '../src/journal.mjs';
 import { makeTarGz } from './fixtures/trustchain-tar.mjs';
 import { makeRecord, makeSnapshotDoc, makeTimestampDoc, bytesOf, fakeVerifier, hex } from './fixtures/trustchain-objects.mjs';
+import { wrapTimestamp } from '../src/timestamp-envelope.mjs';
 
 const sha = (b) => `sha256:${createHash('sha256').update(b).digest('hex')}`;
 const NOW = Date.parse('2026-08-25T13:00:00Z');
@@ -92,8 +93,8 @@ function makeWorld({ artifacts = [makeArtifact()], snapshot = 42, minCli = '0.0.
   });
   const snapBytes = bytesOf(snapDoc);
   const tsDoc = makeTimestampDoc({ latest_snapshot: snapshot, snapshot_sha256: sha(snapBytes), min_cli_version: minCli });
-  writeFileSync(join(cacheDir, 'timestamp.json'), bytesOf(tsDoc));
-  writeFileSync(join(cacheDir, 'timestamp.sigstore.json'), '{}');
+  // 🔴 timestamp 是**单资产信封**（决策 ③）：正文与 bundle 封在同一个文件里。
+  writeFileSync(join(cacheDir, 'timestamp.json'), wrapTimestamp(bytesOf(tsDoc), {}));
   writeFileSync(join(cacheDir, 'snapshots', `${snapshot}.json`), snapBytes);
   writeFileSync(join(cacheDir, 'snapshots', `${snapshot}.sigstore.json`), '{}');
   for (const a of artifacts) {

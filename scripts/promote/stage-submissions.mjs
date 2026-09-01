@@ -24,9 +24,10 @@ import {
   readdirSync, existsSync, mkdirSync, cpSync, rmSync, rmdirSync, realpathSync,
 } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 
 import { scanSubmissions } from '../submission/run-gates.mjs';
+import { PROMOTION_FILE } from '../submission/promotion-file.mjs';
 
 class StageError extends Error {
   constructor(code, msg) { super(msg); this.name = 'StageError'; this.code = code; }
@@ -152,7 +153,15 @@ export function stageSubmissions({ submissionsRoot, artifactsRoot, dryRun = fals
       //    而 GitHub runner 上 /home/runner/work 与 tmp 未必同一个设备。
       //    ⚠️ `dereference:false` 是**保留**链接、不是拒绝链接 ——
       //    「不许有 symlink」由结构门（collectTree）判，不是这里。
-      cpSync(p.from, p.to, { recursive: true, dereference: false, errorOnExist: true, force: false });
+      cpSync(p.from, p.to, {
+        recursive: true, dereference: false, errorOnExist: true, force: false,
+        // 🔴 `PROMOTION.json` 是**投稿描述符，不是载荷**：它带的是 owner 与
+        //    provenance 的声明，promote 读完就该丢。跟着搬进 artifacts/ 的话：
+        //      · 它会进制品的 tree_digest 与资产字节 —— 用户装到一份内部材料；
+        //      · vendored 的 origin_tree_digest 永远对不上（多了一个上游没有的文件）。
+        //    （Codex 2026-08-31）
+        filter: (src) => basename(src) !== PROMOTION_FILE,
+      });
       done.push(p.to);
     }
   } catch (e) {

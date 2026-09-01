@@ -206,3 +206,18 @@ test('🔴 搬到一半失败 → 已经搬好的要撤掉，不留半棵树', (
   assert.ok(!existsSync(join(artRoot(root), 'skills', 'geoly', 'alpha')),
     '🔴 alpha 已经搬好了，必须撤掉 —— 下一步 build-snapshot 会把半棵树当成完整事实');
 });
+
+test('🔴 PROMOTION.json 是描述符，不该跟着搬进 artifacts/', () => {
+  // 搬进去的话：① 它会进 tree_digest 与资产字节，用户装到一份内部材料；
+  // ② vendored 的 origin_tree_digest 永远对不上（多了一个上游没有的文件）
+  const root = mkroot();
+  const dir = join(root, 'submissions', 'geoly', 'alpha@1.0.0');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), '# alpha\n');
+  writeFileSync(join(dir, 'skill.json'), '{}\n');
+  writeFileSync(join(dir, 'PROMOTION.json'), '{"schema":"geoly.skills.promotion-file/1"}');
+
+  stageSubmissions({ submissionsRoot: join(root, 'submissions'), artifactsRoot: artRoot(root) });
+  const out = readdirSync(join(artRoot(root), 'skills', 'geoly', 'alpha', '1.0.0')).sort();
+  assert.deepEqual(out, ['SKILL.md', 'skill.json']);
+});

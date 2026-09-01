@@ -10,6 +10,10 @@ import { fileURLToPath } from 'node:url';
 const R = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
 const { runGates, scanSubmissions } = await import(`${R}/scripts/submission/run-gates.mjs`);
 const { readReserved } = await import(`${R}/scripts/submission/structural-gates.mjs`);
+// 既有用例测的是别的门；它们的前提是 namespace 已经注册过
+// ⚠️ 连 `admin` 也放进来：那几个用例测的是**保留名**那道门，
+//    不把它算成已注册的话，它会同时触发「尚未注册」，用例就不再是单一变量了。
+const REG = new Set(['geoly', 'ns', 'other', 'mine', 'a', 'b', 'admin']);
 const roots=[]; const mk=()=>{const d=mkdtempSync(join(tmpdir(),'rg-'));roots.push(d);return d;};
 after(()=>{for(const d of roots){try{rmSync(d,{recursive:true,force:true});}catch{}}});
 const RES = readReserved(join(R,'registry/reserved.json'));
@@ -22,26 +26,26 @@ const SKILL=(caps)=>JSON.stringify({schema:'geoly.skills.skill/1',kind:'skill',n
 
 test('干净的投稿通过', () => {
   const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'---\nname: a\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
-  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES});
+  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.deepEqual(g.problems,[]); assert.equal(g.checked,1);
 });
 test('🔴 保留 namespace 被拒（非维护者）', () => {
   const r=mk(); sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'---\nname: a\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
-  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES});
+  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.equal(g.problems.length,1); assert.match(g.problems[0],/保留清单/);
-  const ok=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,byMaintainer:true});
+  const ok=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,byMaintainer:true,registeredNamespaces:REG});
   assert.deepEqual(ok.problems,[]);
 });
 test('🔴 skill.json 与 pack.json 都在 → 拒（这是什么制品有两个答案）', () => {
   const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'x\n','skill.json':'{}','pack.json':'{}'});
-  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES});
+  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.match(g.problems[0],/恰好.*一个/);
 });
 test('🔴 一次报出全部问题，不是遇到第一个就退', () => {
   const r=mk();
   sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'x\n','skill.json':SKILL(['none'])});
   sub(r,'admin','beta','1.0.0',{'SKILL.md':'x\n','skill.json':SKILL(['none'])});
-  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES});
+  const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.equal(g.problems.length,2,'两个投稿各一条，让人一次看全');
 });
 test('🔴 版本已占用（含已 yank）→ 拒', () => {
@@ -78,4 +82,56 @@ test('🔴 结构门只读投稿、从不 import 它 —— 载荷里放一个�
   assert.equal(g.checked, 1);
   // 而 evil.mjs 确实被**读**出来并按「脚本扩展名」判掉了 —— 读，不是执行
   assert.match(g.problems.join('\n'), /capabilities: \["none"\]/);
+});
+
+test('🔴 PROMOTION.json 的形状在**投稿 PR** 上就检', () => {
+  // 等到 promote 才报，那时投稿已经合并进 main，改起来要走一整轮
+  const root = mk();
+  const dir = join(root, 'geoly', 'alpha@1.0.0');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), '# alpha\n');
+  writeFileSync(join(dir, 'skill.json'), JSON.stringify({ name: 'alpha', capabilities: ['none'] }));
+  writeFileSync(join(dir, 'PROMOTION.json'), JSON.stringify({
+    schema: 'geoly.skills.promotion-file/1',
+    claim_owner: { kind: 'user', login: 'alice', id: '别人的 id' },   // promote 才填的字段
+  }));
+  const { problems } = runGates({
+    submissionsRoot: root, reserved: { schema: 'geoly.skills.reserved/1', namespaces: [] },
+    registeredNamespaces: REG,
+  });
+  assert.equal(problems.length, 1, problems.join('\n'));
+  assert.match(problems[0], /promote 自己填/);
+});
+
+test('🔴🔴 pack 没有 PROMOTION.json → **投稿 PR 上就拒**', () => {
+  // 「有就检」不够：这样的投稿会通过 CI、合并进 main、然后卡住 promote ——
+  // 那时它已经在 main 上了
+  const r = mk();
+  // 用非保留的 namespace，否则同时触发保留名那道门，用例就不是单一变量了
+  sub(r, 'mine', 'matrix', '1.0.0', { 'SKILL.md': 'x\n', 'pack.json': '{}\n' });
+  const g = runGates({ submissionsRoot: join(r, 'submissions'), reserved: RES, registeredNamespaces: REG });
+  assert.equal(g.problems.length, 1, g.problems.join('\n'));
+  assert.match(g.problems[0], /pack 必须有 PROMOTION\.json/);
+});
+
+test('🔴🔴 未注册 namespace 的首投没有 claim_owner → 投稿 PR 上就拒', () => {
+  const r = mk();
+  sub(r, 'brandnew', 'alpha', '1.0.0', { 'SKILL.md': 'x\n', 'skill.json': SKILL(['none']) });
+  const g = runGates({ submissionsRoot: join(r, 'submissions'), reserved: RES, registeredNamespaces: REG });
+  assert.equal(g.problems.length, 1, g.problems.join('\n'));
+  assert.match(g.problems[0], /尚未注册/);
+});
+
+test('声明齐全就放行', () => {
+  const r = mk();
+  sub(r, 'brandnew', 'alpha', '1.0.0', {
+    'SKILL.md': 'x\n',
+    'skill.json': SKILL(['none']),
+    'PROMOTION.json': JSON.stringify({
+      schema: 'geoly.skills.promotion-file/1',
+      claim_owner: { kind: 'user', login: 'alice' },
+    }),
+  });
+  const g = runGates({ submissionsRoot: join(r, 'submissions'), reserved: RES, registeredNamespaces: REG });
+  assert.deepEqual(g.problems, []);
 });

@@ -19,6 +19,7 @@ import {
   readReserved, assertReservedNamespaceAllowed, assertNoNormalizedCollision,
   assertVersionUnused, assertCapabilityConsistency,
 } from './structural-gates.mjs';
+import { readPromotionFile } from './promotion-file.mjs';
 
 const RE_SUBMISSION_DIR = /^([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)@(.+)$/;
 
@@ -55,7 +56,8 @@ export function scanSubmissions(root) {
  * @returns {{checked:number, problems:string[]}}
  */
 export function runGates({
-  submissionsRoot, reserved, existingIds = [], existingNamesByNs = new Map(), byMaintainer = false,
+  submissionsRoot, reserved, existingIds = [], existingNamesByNs = new Map(),
+  byMaintainer = false, registeredNamespaces = new Set(),
 }) {
   const problems = [];
   const subs = scanSubmissions(submissionsRoot);
@@ -93,7 +95,36 @@ export function runGates({
       assertVersionUnused({ id: `${kind}:${s.namespace}/${s.name}@${s.version}`, existingIds });
     } catch (e) { push(e); }
 
-    // ④ capability 一致性（只对 skill —— pack.json 里没有 capabilities）
+    // ④ PROMOTION.json：形状 + **必需性**
+    //    🔴 在**投稿 PR** 上就检，而不是等到 promote —— 那时投稿已经合并进 main，
+    //    再报「你的 PROMOTION.json 写错了」，改起来要走一整轮。
+    //    🔴 「有就检」不够：一个没有 provenance 的 pack、或一个未注册 namespace
+    //    下没有 claim_owner 的首投，会**通过投稿 CI、合并进 main、然后卡住
+    //    promote** —— 那时它已经在 main 上了（Codex 2026-08-31）。
+    let declared = null;
+    try {
+      declared = readPromotionFile(s.dir);
+    } catch (e) { push(e); }
+    if (declared === null && !existsSync(join(s.dir, 'PROMOTION.json'))) {
+      if (isPack) {
+        problems.push(`${where}：pack 必须有 PROMOTION.json —— `
+          + 'pack.json 的键集里没有 provenance（03-packs §2），它只能由投稿声明。');
+      }
+      if (!registeredNamespaces.has(s.namespace)) {
+        problems.push(`${where}：namespace ${s.namespace} 尚未注册，`
+          + '必须在 PROMOTION.json 里给出 claim_owner（首次注册）。');
+      }
+    } else if (declared !== null) {
+      if (isPack && declared.provenance === null) {
+        problems.push(`${where}：pack 的 PROMOTION.json 必须声明 provenance`);
+      }
+      if (!registeredNamespaces.has(s.namespace) && declared.owner === null) {
+        problems.push(`${where}：namespace ${s.namespace} 尚未注册，`
+          + 'PROMOTION.json 必须声明 claim_owner');
+      }
+    }
+
+    // ⑤ capability 一致性（只对 skill —— pack.json 里没有 capabilities）
     if (kind === 'skill') {
       try {
         const manifest = parseStrict(readFileSync(join(s.dir, 'skill.json'), 'utf8'));
@@ -121,6 +152,18 @@ function parseArgs(argv) {
     o[name.slice(2)] = val;
   }
   return o;
+}
+
+/** `owners.json` 里已注册的 namespace 集合。文件不存在 = 一个都还没注册。 */
+function readRegistered(path) {
+  if (!existsSync(path)) return new Set();
+  try {
+    return new Set(Object.keys(parseStrict(readFileSync(path, 'utf8')).namespaces ?? {}));
+  } catch {
+    // 🔴 读不出来时**当成空的**是危险的：那会让每个 namespace 都被判成
+    //    「首次注册」，于是任何人都能声明 claim_owner。宁可整个门失败。
+    throw new RunError(`${path} 读不出来 —— 拒绝在「不知道谁注册过」的情况下判首次注册`);
+  }
 }
 
 export function main(argv) {
@@ -155,6 +198,8 @@ export function main(argv) {
     // 🔴 「是不是维护者」是 PR 侧的事实，默认 **false**（fail-closed）：
     //    没传就按「不是维护者」处理，保留 namespace 因此会被拒。
     byMaintainer: o['by-maintainer'] === 'true',
+    // 已注册的 namespace —— 用来判「这次是不是首次注册」
+    registeredNamespaces: readRegistered(o.owners ?? 'registry/owners.json'),
   });
 
   if (checked === 0) {

@@ -13,7 +13,7 @@
 //    这条缺口写进交付汇报。
 //
 // 缓存布局（内容寻址，摘要即身份）：
-//   <cacheDir>/timestamp.json            + timestamp.sigstore.json
+//   <cacheDir>/timestamp.json            ← **单资产信封**（正文 + bundle 合一）
 //   <cacheDir>/snapshots/<N>.json        + <N>.sigstore.json
 //   <cacheDir>/assets/<sha256 的 hex>    ← 🔴 按摘要命名：查得到就说明摘要对得上
 //
@@ -26,6 +26,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { NetworkError, UsageError } from '../exit-codes.mjs';
 import { parseStrict } from '../canonical-json.mjs';
+import { unwrapTimestamp } from '../timestamp-envelope.mjs';
 
 /** 11-wire-contract.md §2：单个 JSON 文档 ≤ 8 MiB，**解析前先查文件大小**。 */
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
@@ -64,8 +65,11 @@ function miss(what, path, offline) {
  * @returns registry 读取器。所有方法**同步**，以便直接喂给 `resolveCurrent()`。
  */
 export function createCacheRegistry({ cacheDir, offline = false }) {
+  // 🔴 timestamp 是**一个**资产：正文与 bundle 封在同一个文件里（决策 ③）。
+  //    两个文件时 `gh release upload --clobber` 逐文件替换，中间必然有一段
+  //    新旧混搭 —— 而那种中间态**验不过**，客户端看到的是「验签失败」，
+  //    一个看起来像被攻击的错误。合成一个之后那个窗口在构造上就没有了。
   const tsPath = join(cacheDir, 'timestamp.json');
-  const tsBundlePath = join(cacheDir, 'timestamp.sigstore.json');
   const snapPath = (n) => join(cacheDir, 'snapshots', `${n}.json`);
   const snapBundlePath = (n) => join(cacheDir, 'snapshots', `${n}.sigstore.json`);
   const assetPath = (hex) => join(cacheDir, 'assets', hex);
@@ -77,11 +81,9 @@ export function createCacheRegistry({ cacheDir, offline = false }) {
     /** §6 第 1 步的输入。🔴 同步。 */
     fetchTimestamp() {
       if (!existsSync(tsPath)) miss('timestamp.json', tsPath, offline);
-      if (!existsSync(tsBundlePath)) miss('timestamp 的 sigstore bundle', tsBundlePath, offline);
-      return {
-        bytes: readCapped(tsPath, 'timestamp.json'),
-        bundle: parseStrict(readCapped(tsBundlePath, 'timestamp bundle').toString('utf8')),
-      };
+      // 🔴 `unwrapTimestamp` 只拆形状、**一个字节都不动**正文 ——
+      //    拆出来的要原样拿去验签。这里仍然一次校验都不做（见文件头）。
+      return unwrapTimestamp(readCapped(tsPath, 'timestamp.json'));
     },
 
     /** §6 第 4 步的输入，也是 §6.1 历史读取路径的输入。🔴 同步。 */

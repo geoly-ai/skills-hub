@@ -159,14 +159,42 @@ function assertOwnerShape(o, where) {
  * @param {object} a
  * @param {object} a.owners
  * @param {string} a.namespace
- * @param {object} [a.claimed]  **仅首次注册**时由 PR 侧给出（owner 不在 manifest 里）
+ * @param {object} [a.claims]  `namespace → owner`，**仅首次注册**时由 PR 侧给出
+ * @param {string|null} [a.authorId]  投稿 PR 作者的不可变 node id
+ *
+ * 🔴🔴 **`claims` 必须按 namespace 索引，不能是一个标量。**
+ *    第一版收的是单个 owner 对象，于是一次 promote 里
+ *    「`a/foo` 没声明 + `b/bar` 声明了 b 的 owner」会把**两个** namespace
+ *    都注册到 b 的 owner 名下 —— 一次静默的所有权错配（Codex 2026-08-31）。
+ *
+ * 🔴 **已注册的 namespace 要核作者**（05-lifecycle §1：「之后该 namespace 下的
+ *    投稿，PR 作者必须匹配绑定身份，否则需 owner 在 PR 里明确同意」）。
+ *    「明确同意」是人的动作，没有自动判据 —— 所以这里硬拒，
+ *    并指出正路：owner 与新 owner 在同一张 PR 里签字改 `owners.json`（§7）。
  */
-export function resolveOwner({ owners, namespace, claimed = undefined }) {
+export function resolveOwner({ owners, namespace, claims = {}, authorId = null }) {
   const known = owners.namespaces[namespace];
-  if (known !== undefined) return known;         // 已注册：以表为准，转让也是改这张表
+  if (known !== undefined) {
+    if (Object.hasOwn(claims, namespace)) {
+      bad(`namespace ${namespace} 已经注册过了，不该再声明 claim_owner —— `
+        + '换 owner 要走 05-lifecycle §7 的转让流程（双方在同一张 PR 里签字改 owners.json）。');
+    }
+    if (authorId !== null && known.id !== authorId && known.kind === 'user') {
+      bad(
+        `namespace ${namespace} 绑定的是 ${known.login}(id=${known.id})，`
+        + `而本次投稿的作者是 id=${authorId}。\n`
+        + '  🔴 05-lifecycle §1：之后该 namespace 下的投稿，PR 作者必须匹配绑定身份。\n'
+        + '  要让别人往这个 namespace 投稿，走 §7 的转让 / 共有流程 ——\n'
+        + '  那是一次改 owners.json 的受审 PR，不是 promote 能自己判的事。',
+      );
+    }
+    return known;                                // 已注册：以表为准
+  }
+  const claimed = claims[namespace];
   if (claimed === undefined) {
     bad(
-      `namespace ${namespace} 尚未注册，本次必须给出 --claim-owner`
+      `namespace ${namespace} 尚未注册，本次必须在 ${namespace} 下某个投稿的 `
+      + 'PROMOTION.json 里给出 claim_owner'
       + '（首次注册；owner 不在 manifest 里 —— skill.json / pack.json 的键集是精确的、没有这个字段，'
       + '它是 PR 侧的事实）',
     );
@@ -302,7 +330,9 @@ export function buildInputs({
     const approved = assertApprovalsSatisfyTier({
       tier, approvedBy: review.approvedBy, author: review.author, where: a.id,
     });
-    const owner = resolveOwner({ owners, namespace: a.namespace, claimed: claimOwner });
+    const owner = resolveOwner({
+      owners, namespace: a.namespace, claims: claimOwner ?? {}, authorId: review.author,
+    });
 
     // provenance：skill 在 manifest 里；pack 的 manifest 键集里**没有**这个字段
     const provenance = a.kind === 'skill' ? manifest.provenance : provenanceOf[a.id];
@@ -376,6 +406,7 @@ export function main(argv) {
       approvedBy: o['approved-by'].split(',').map((s) => s.trim()).filter(Boolean),
       author: o.author ?? null,
     },
+    // `--claim-owner` 现在是一份 `namespace → owner` 的表，不是单个 owner
     claimOwner: o['claim-owner'] === undefined ? undefined : readJson(o['claim-owner']),
     provenanceOf: o['provenance-of'] === undefined ? {} : readJson(o['provenance-of']),
     yanked: o.yanked === undefined ? [] : readJson(o.yanked),
