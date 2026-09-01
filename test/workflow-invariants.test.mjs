@@ -627,6 +627,28 @@ test('🔴 promote.yml 只由 push 到 main 的 submissions/** 触发 —— 一
   ], `promote.yml 的 on: 块必须**恰好**是这三行，实际：\n  ${on.join('\n  ')}`);
 });
 
+// 🔴 **collect 的输出不能就地写回 build-inputs 的输入。**
+//
+// 2026-09-01 第一次真跑 promote 时红在这里：`collect-promotion-inputs` 把首次
+// 注册写进 `registry/owners.json`，下一步 `build-inputs` 再读**同一个文件**，
+// 于是看到「geoly-ai 已注册却还声明了 claim_owner」，判成「换 owner 要走 §7
+// 转让流程」—— 而那个「已注册」正是本次运行三行之前自己写的。
+//
+// ⚠️ 形状是：**第一步的输出污染了第二步的输入**。两步对「现在注册了什么」的
+//    判断因此分叉，而两边各自的日志看起来都对。与「不要拿被测对象自己当证据」
+//    是同一条教训（docs/m3/01-delivery.md）。
+test('🔴 promote 的 --owners-out 不许写回 registry/owners.json（会污染下一步的输入）', () => {
+  const body = PROMOTE();
+  const m = body.match(/--owners-out\s+(\S+)/);
+  assert.ok(m, 'promote.yml 里找不到 --owners-out —— 这条断言正在空跑');
+  assert.notEqual(m[1], 'registry/owners.json',
+    '--owners-out 写回了 build-inputs 要读的那个文件：collect 记下的首次注册会被\n'
+    + '  build-inputs 当成「早就注册过了」，于是本次的 claim_owner 被判成非法转让。');
+  // 落盘必须发生在提交那一步，而且必须真的发生 —— 否则首次注册永远不进仓库。
+  assert.match(body, /cp\s+\/tmp\/owners-merged\.json\s+registry\/owners\.json/,
+    '合并后的 owners 从来没被落盘 —— 首次注册不会进仓库，下一次投稿又要重新 claim');
+});
+
 test('🔴 promote 串行且不许取消，且没有 job 级 concurrency 覆盖它', () => {
   const body = PROMOTE();
   assert.match(body, /^concurrency:\s*\n\s+group:\s*promote\s*\n\s+cancel-in-progress:\s*false/m);
@@ -869,6 +891,11 @@ test('🔴 ci-gate 的 needs 清单与它自查的 want 清单必须逐项一致
  *    这正是这份文件反复踩的那个坑的另一个形状 —— 「看起来被守住了」。
  */
 const MUTATIONS = [
+  ['promote.yml', '--owners-out /tmp/owners-merged.json',
+    '--owners-out registry/owners.json',
+    'owners 合并结果就地写回（污染下一步输入）', '不许写回 registry/owners.json'],
+  ['promote.yml', 'cp /tmp/owners-merged.json registry/owners.json', '',
+    '合并后的 owners 从不落盘', '不许写回 registry/owners.json'],
   ['ci.yml', 'for want in versions test fault-exhaustive pack dashboard; do',
     'for want in versions test fault-exhaustive pack; do',
     'ci-gate 的 want 清单少一项（needs 里仍有）', 'want 清单必须逐项一致'],

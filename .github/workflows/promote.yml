@@ -214,7 +214,16 @@ jobs:
             --created-at "$CREATED" --org-ids /tmp/org-ids.json \
             --claim-owner-out /tmp/claim-owner.json \
             --provenance-out /tmp/provenance.json \
-            --owners-out registry/owners.json >> "$GITHUB_OUTPUT"
+            --owners-out /tmp/owners-merged.json >> "$GITHUB_OUTPUT"
+
+          # 🔴 **合并后的 owners 不能就地写回 `registry/owners.json`。**
+          #    2026-09-01 第一次真跑时红在这里：这一步把首次注册写进那个文件，
+          #    下一步 `build-inputs` 再读**同一个文件**，于是看到「geoly-ai 已注册
+          #    却还声明了 claim_owner」，判成「换 owner 要走 §7 转让流程」——
+          #    而那个「已注册」正是本次运行三行之前自己写的。
+          #    **第一步的输出污染了第二步的输入**：build-inputs 看到的 owners 状态
+          #    与 collect 当时看到的不是同一个，两步对「现在注册了什么」的判断分叉。
+          #    合并结果留在 /tmp，等下面真要提交时才落盘。
 
       # ── 阶段 A：搬运 → inputs → 快照 ──────────────────────────────────
       - name: §3 第 4 项 + 搬进 artifacts/
@@ -368,6 +377,10 @@ jobs:
           # 🔴 `registry/owners.json` 也要提交 —— 首次注册**必须落表**，
           #    不落的话下一次同 namespace 的投稿会走「尚未注册」那条路，
           #    可以被**另一个人**认领（05-lifecycle §1 的绑定就形同虚设）。
+          # 🔴 到这里才把合并后的 owners 落盘 —— 在此之前 registry/owners.json
+          #    必须保持**本次运行开始时**的样子，否则 build-inputs 会读到
+          #    本次自己刚写的注册（见上面那段长注释）。
+          cp /tmp/owners-merged.json registry/owners.json
           git add artifacts registry/snapshots registry/owners.json submissions
           git commit -m "promote: 快照 $N（来自 #$PR）"
           git push origin "$branch"
