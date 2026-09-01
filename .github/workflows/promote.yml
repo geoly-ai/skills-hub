@@ -36,9 +36,12 @@ permissions:
   pull-requests: write
 
 env:
-  # 🔴 与 validate-pr.yml 里那个是**同一个占位**：真的 bot 账号还不存在（R-20）。
-  #    判据是不可变 node id，不是 login —— login 可改名、也可被别人重新认领。
-  RELEASE_BOT_ID: "PLACEHOLDER_RELEASE_BOT_NODE_ID"
+  # 🔴 判据是不可变 node id，不是 login —— login 可改名、也可被别人重新认领。
+  #    2026-09-01 定为维护者 chovizzz 的 id：用户选了「细粒度 PAT」而不是 GitHub App
+  #    （见下面开 PR 那一步的说明）。⚠️ 后果：**任何**由这个身份、从
+  #    `promotion/hub-<N>` 分支开的 PR 都会被判成 promotion，走只检
+  #    `artifacts/**` / `registry/**` 的那条路径。别用这个前缀开普通 PR。
+  RELEASE_BOT_ID: "U_kgDODu4RvA"
 
 # 🔴 **串行，且不许取消。** 两张 promotion PR 从同一基线各自判过「版本号没占用」，
 #    并发就会双双通过（verify-merged-pr.mjs 里记的那个 TOCTOU）。
@@ -318,10 +321,24 @@ jobs:
           git worktree add "$base" "$before"
           node --no-warnings scripts/promote/verify-promotion.mjs --pr . --base "$base"
 
+      # 🔴🔴 **只有这一步用 PAT，其余 gh 调用继续用 github.token。**
+      #    理由是必须的、也仅止于此：**`GITHUB_TOKEN` 创建的 PR 不会触发任何
+      #    workflow**（GitHub 防循环的既定行为）。而 promotion PR 正是
+      #    确定性复算门与不可变门跑的地方 —— 用 github.token 开的话，那张 PR
+      #    **一道门都不跑**，等于把整套设计里最要紧的一道关掉。
+      #
+      #    2026-09-01 用户选了细粒度 PAT（只授权本仓库、Contents + PR 读写）
+      #    而不是 GitHub App。代价如实记着：token 存在仓库 secret 里，
+      #    任何能改 workflow 的人（或一次 workflow 注入）就能以这个身份行事；
+      #    爆炸半径靠「只勾了这一个仓库」限住，而不是靠 token 本身。
+      #    ⚠️ 它会过期（建议 90 天），到期不换 = promotion 静默停摆。
+      #
+      #    其余步骤（取 PR 事实、读 reviews）只读，用默认 token 就够 ——
+      #    把 PAT 铺到每一步只会扩大暴露面，换不到任何东西。
       - name: 开 promotion PR（**不直推 main**）
         if: ${{ steps.facts.outputs.skip == 'false' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
           N: ${{ steps.snapshot.outputs.n }}
           CREATED: ${{ steps.snapshot.outputs.created }}
           PR: ${{ steps.facts.outputs.pr }}

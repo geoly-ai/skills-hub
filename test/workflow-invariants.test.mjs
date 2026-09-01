@@ -464,6 +464,17 @@ test('🔴 promote 串行且不许取消，且没有 job 级 concurrency 覆盖�
   assert.equal(all.length, 1, 'job 级的 concurrency 会覆盖顶层的 cancel-in-progress: false');
 });
 
+test('🔴 PAT 只许给「开 PR」那一步 —— 铺到每一步只会扩大暴露面', () => {
+  // 用 PAT 的**唯一**理由是：GITHUB_TOKEN 创建的 PR 不触发任何 workflow，
+  // 而 promotion PR 正是复算门与不可变门跑的地方。其余步骤只读，
+  // 用默认 token 就够 —— 多给一步就多一处能以那个身份行事的地方。
+  const body = PROMOTE();
+  const steps = stepBlocks(body).filter((b) => /RELEASE_BOT_TOKEN/.test(b));
+  assert.equal(steps.length, 1, `${steps.length} 个 step 用了 PAT，应当只有一个`);
+  assert.match(steps[0], /name: 开 promotion PR/, '用 PAT 的不是开 PR 那一步');
+  assert.match(steps[0], /gh pr create/);
+});
+
 test('🔴 promote 不直推 main（§3：promote 只产出一张 PR）', () => {
   // 🔴 只看两个 token 拦不住 `git push --force origin main`，也拦不住
   //    `git push origin "$branch":refs/heads/main`（Codex 2026-08-31）。

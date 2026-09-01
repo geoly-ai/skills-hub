@@ -74,10 +74,10 @@ concurrency:
 env:
   # 🔴 release bot 的**不可变 node id**，不是 login。login 可以改名、也可以被
   #    别人重新认领 —— 那是一条实打实的提权路径（见 pr-classify.mjs 的说明）。
-  #    ⚠️ 这个值现在是占位：真的 bot 账号还不存在。填错的后果是**所有** PR 都被
-  #    判成 submission（fail-closed，promotion PR 会被路径白名单拦下并报错），
-  #    不会反过来把投稿放行。
-  RELEASE_BOT_ID: "PLACEHOLDER_RELEASE_BOT_NODE_ID"
+  #    2026-09-01 定为维护者 chovizzz 的 id（用户选了细粒度 PAT 而非 GitHub App）。
+  #    填错的后果是**所有** PR 都被判成 submission（fail-closed，promotion PR 会被
+  #    路径白名单拦下并报错），不会反过来把投稿放行。
+  RELEASE_BOT_ID: "U_kgDODu4RvA"
 
 jobs:
   route:
