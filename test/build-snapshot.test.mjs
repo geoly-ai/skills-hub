@@ -308,3 +308,42 @@ test('🔴 CLI 真调用：`node scripts/build-snapshot.mjs` 必须真的产出�
   assert.ok(existsSync(out), '🔴 退出码 0 但没有产出文件 —— 入口守卫判假的症状');
   parseSnapshot(readFileSync(out), { expectSnapshot: 42 });
 });
+
+// ── 创世快照：registry 里一个制品都没有的那一次 ──────────────────────────
+//
+// 🔴 2026-09-01 第一次真跑 promote 时红在这里，而**单元测试一直是绿的** ——
+//    因为每个测试都传着 `previous`（helper 里写死 `o.previous ?? 41`）。
+//    唯一不传它的场合是「registry 空的」，那正是**只会发生一次、没人测过**的那次。
+test('🔴 创世：snapshot 0 不给 previous → previous 补成 0，且读取端收得下', () => {
+  const root = mkroot();
+  putSkill(root, { name: 'genesis' });
+  const { doc } = buildSnapshot({
+    artifactsRoot: join(root, 'artifacts'),
+    inputs: inputsFor(['skill:geoly/genesis@1.0.0']),
+    snapshot: 0,
+    previous: null,
+    createdAt: '2026-09-01T00:00:00Z',
+    repo: 'geoly-ai/skills-hub',
+  });
+  assert.equal(doc.previous, 0);
+  assert.equal(doc.snapshot, 0);
+  // 🔴 光看字段不够 —— 要证明**读取端真的收得下**它。
+  const snap = parseSnapshot(Buffer.from(stringify(doc), 'utf8'), { expectSnapshot: 0 });
+  assert.equal(snap.previous, 0);
+});
+
+// 🔴 非创世缺 previous 是「忘了传」，不是「没有前一张」。
+//    静默填 0 会让第 42 张快照声称自己接在创世后面 —— 而读取端看不出来
+//    （0 < 42，`previous < snapshot` 照样成立），链断在没人会发现的地方。
+test('🔴 非创世缺 previous 必须报错，不能静默填 0', () => {
+  const root = mkroot();
+  putSkill(root, { name: 'later' });
+  assert.throws(() => buildSnapshot({
+    artifactsRoot: join(root, 'artifacts'),
+    inputs: inputsFor(['skill:geoly/later@1.0.0']),
+    snapshot: 42,
+    previous: null,
+    createdAt: '2026-09-01T00:00:00Z',
+    repo: 'geoly-ai/skills-hub',
+  }), /只有创世快照/);
+});

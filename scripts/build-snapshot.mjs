@@ -194,6 +194,31 @@ function baseRecord(a, manifest, meta, packed) {
  * @returns {{doc:object, assets:Array<{file:string,bytes:Buffer}>}}
  */
 export function buildSnapshot({ artifactsRoot, inputs, snapshot, previous, createdAt, repo }) {
+  // 🔴 **创世（snapshot 0）是唯一可以没有前一张的快照，它的 previous 是 0。**
+  //
+  //    2026-09-01 第一次真跑 promote 时红在这里：registry 是空的，
+  //    promote.yml 用 `${PREV:+--previous "$PREV"}` **省略了这个参数**，
+  //    CLI 把它默认成 `null`，`null` 原样写进 doc，读取端拒绝
+  //    （`snapshot.previous 必须是 [0, 2^53-1] 的非负整数`）。
+  //    ⚠️ 也就是说**创世这条路从来没跑通过** —— 单元测试一直传着 previous
+  //    （helper 里写死 `o.previous ?? 41`），而唯一不传它的场合是「registry 里
+  //    一个制品都没有」，那正是**只会发生一次、而且没人测过**的那次。
+  //
+  //    读取端（src/snapshot.mjs）本来就为创世开了口：
+  //    `if (doc.previous >= doc.snapshot && doc.snapshot !== 0)` —— 只有非创世
+  //    才要求 previous < snapshot。所以 0/0 是合法的，缺的只是这里的默认值。
+  //
+  // 🔴 非创世**不许**省略：那不是「没有前一张」，是「忘了传」。
+  //    静默填 0 会让第 42 张快照声称自己接在创世后面，而**读取端看不出来**
+  //    （0 < 42，`previous < snapshot` 照样成立），链就断在一个没人会发现的地方。
+  if (previous === null || previous === undefined) {
+    if (snapshot !== 0) {
+      bad(`snapshot=${snapshot} 却没有给 --previous。`
+        + '只有创世快照（snapshot 0）可以没有前一张；'
+        + '别的快照缺了它就是链断了，而 previous 填 0 的话读取端看不出来。');
+    }
+    previous = 0;
+  }
   const found = scanArtifacts(artifactsRoot);
   const seen = new Set();
   for (const a of found) {
