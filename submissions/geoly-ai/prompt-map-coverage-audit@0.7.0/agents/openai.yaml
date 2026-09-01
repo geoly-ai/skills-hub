@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prompt Map Coverage Audit"
+  short_description: "Find demand and Topic coverage gaps"
+  default_prompt: "Use $prompt-map-coverage-audit to audit the Prompt Map and create a targeted gap queue."

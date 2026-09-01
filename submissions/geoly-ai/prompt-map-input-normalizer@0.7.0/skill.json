@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "Validate, inventory, and normalize Reddit, Semrush, GEOly, and optional brand inputs for one physical-product Prompt Map project, preserving the identity and metric fields the demand D buckets and the Coverage Floor gate must later recompute from. Use before demand extraction or after source files change.",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "prompt-map-input-normalizer",
+  "namespace": "geoly-ai",
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.7.0"
+}
