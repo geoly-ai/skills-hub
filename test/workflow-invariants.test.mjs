@@ -612,6 +612,17 @@ test('🔴 维护者名单：state 与内容必须自洽', () => {
 // ⚠️ 我在这份文件里写过两次 `assert.ok(… || true)`（永远为真）。
 //    「写完断言把它守的东西改坏一次」这个习惯，靠自觉是不够的，所以写进测试。
 
+/**
+ * 🔴 **子进程的 reporter 必须钉死，不能用默认值。**
+ *    `node --test` 的默认 reporter 随**Node 版本**与**是不是 TTY** 变
+ *    （tap 的摘要是 `# fail N`，spec 的是 `\u2139 fail N`）。下面解析结果的
+ *    两条正则原本按 spec 写，于是在 CI 的 Node 22 上整个匹配不到 ——
+ *    表现成「14 个变异全部没产出测试结果」，而本机（单一 Node 版本）永远测不出来。
+ *    实测：Node 24 绿、Node 22 红，同一份代码。
+ *    ⚠️ 这正是这份文件反复在讲的那个形状：**判据依赖了一个会变的东西**。
+ */
+const CHILD_ARGS = (self) => ['--test', '--test-reporter=spec', self];
+
 /** 只改**非注释行**上的第一处 —— 注释在匹配前已被剥掉，改它等于什么都没改。 */
 function mutateRealLine(body, find, replace, { last = false } = {}) {
   const lines = body.split('\n');
@@ -684,7 +695,7 @@ test('🔴🔴 变异自检：每一处改坏都必须让上面的断言变红',
     const dir = mkdtempSync(join(tmpdir(), 'geoly-wfctl-'));
     try {
       cpSync(WF_DIR, dir, { recursive: true });
-      const c = spawnSync(process.execPath, ['--test', self], { encoding: 'utf8', env: childEnv(dir) });
+      const c = spawnSync(process.execPath, CHILD_ARGS(self), { encoding: 'utf8', env: childEnv(dir) });
       assert.equal(c.status, 0,
         `control（没改过的副本）在子进程里就是红的 —— 那么下面每个变异都会被误判成「抓到了」。\n${
           (c.stdout ?? '').split('\n').filter((l) => l.startsWith('\u2716')).join('\n')}`);
@@ -704,7 +715,7 @@ test('🔴🔴 变异自检：每一处改坏都必须让上面的断言变红',
       // 🔴 必须清掉 node:test 自己的上下文变量，否则子进程会报
       //    「run() is being called recursively」**并直接跳过、退出 0** ——
       //    那会让每一个变异都「活下来」，而这个测试看起来只是失败得很整齐。
-      const r = spawnSync(process.execPath, ['--test', self], { encoding: 'utf8', env: childEnv(dir) });
+      const r = spawnSync(process.execPath, CHILD_ARGS(self), { encoding: 'utf8', env: childEnv(dir) });
       if (r.signal !== null || r.error !== undefined) {
         survivors.push(`${label}：子进程异常退出（signal=${r.signal}）`);
         continue;
