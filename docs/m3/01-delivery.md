@@ -128,6 +128,7 @@ PR 作者也会是 `github-actions[bot]` 而非 release bot。见
 | D-2 | §6 的「外部 URL」从拒绝降为**告警** | `SKILL.md` 里放参考链接极其常见；一道几乎总在报红的门两周内就会被关掉 |
 | D-3 | 保留 namespace 用**归一化**匹配 | 精确匹配挡不住 `ge0ly` / `geo-ly` 这类 |
 | D-4 | pack 在 Tier 门里**一律按 Tier 2** | 成员 capability 在别的制品里，这一步看不到；fail-safe |
+| D-5 | §4/§5 的**两路** → **三路**，且 maintainer 判据是 **node id** 而非 §4 说的「`maintainer` **标签**路径」 | §5 的硬拒清单把 `.github/ artifacts/ registry/ cli/ scripts/ docs/` 对投稿关死，并写明「改这些路径的 PR 必须来自 org 成员，走单独的 `maintainer` 标签路径」—— 那条路径一直没实现，于是**维护者改代码的 PR 永远合不了**（2026-09-01 两张真 PR 实测被拒）。把 `pr-gate` 钉进 required checks 就会锁死仓库。**标签不能当判据**：PR 标签投稿者在很多配置下可自行添加、且随时可改，而 §4 自己就写着「router 的判定依据是 PR 作者身份 + 分支名，不是 PR 标题或标签（那些投稿者可控）」—— 所以实现用的是 `registry/maintainers.json` 里的**不可变 node id**，这比 §4 的字面表述更严，不是更松。细节见 [`00-branch-protection.md`](00-branch-protection.md) 的「第三条路径 `maintainer`」 |
 
 ---
 

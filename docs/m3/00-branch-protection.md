@@ -66,12 +66,69 @@ main 上的内容会被人 clone、被 fork、被搜索引擎抓。
 且要是运行时算出来的那一个」这种表达。
 
 所以 `validate-pr.yml` 用一个固定名的聚合 job `pr-gate`：router 在 job 内部判定，
-两条路径互斥、且只认 router 的判定（见该文件顶部的说明）。
+**三条**路径互斥、且只认 router 的判定（见该文件顶部的说明）。
 **误配在构造上就不可能发生**，这比两个 workflow + 一份正确的分支保护配置更强。
 
-🔴 **千万不要把 `submission-gates` / `promotion-gates` 也加进 required checks。**
-它们**按定义**会有一个是 skipped，而 skipped 在 required checks 里算**未通过** ——
-加进去的结果是所有 PR 都合不了。
+🔴 **千万不要把 `submission-gates` / `promotion-gates` / `maintainer-gates`
+也加进 required checks。** 它们**按定义**会有两个是 skipped，
+而 skipped 在 required checks 里算**未通过** —— 加进去的结果是所有 PR 都合不了。
+
+### 🔴 第三条路径 `maintainer`（2026-09-01 补）
+
+**上线顺序有硬依赖：先让维护者的 PR 能合，再把 `pr-gate` 钉进 required checks。**
+反过来做，仓库会**当场锁死** —— 连修这个 bug 的 PR 都推不上去。
+
+起因是一次真实事故：配完分支保护、开了两张真 PR（#1 改 `docs/**`、#2 改 `test/**`），
+两张都被 router 拒了，理由是「投稿 PR 不得修改这些路径（§5）……
+改这些路径的 PR 必须来自 org 成员，走单独的 `maintainer` 路径」。
+**报错信息自己指出了那条路径，而那条路径没有实现** ——
+当时只有 `submission` 与 `promotion` 两类，任何不是 release bot 开的 PR
+都落进 `submission`，于是维护者改代码的 PR 永远合不了。
+
+三类判据（全部用 GitHub 的**不可变 node id**，不用 login）：
+
+| kind | 判据 | 允许路径 |
+| --- | --- | --- |
+| `promotion` | 分支名严格 `promotion/hub-<N>` + head repo 是本仓库 + 作者 == release bot id | `artifacts/`、`registry/`、`advisories/` |
+| `maintainer` | 作者 id 在 `registry/maintainers.json` 里 + head repo 是本仓库 | **除** `artifacts/**` 与 `registry/snapshots/**` **之外的一切** |
+| `submission` | 其余 | 仅 `submissions/**`，另有 §5 硬拒清单 |
+
+🔴 **分支名是第一判据，`promotion` 优先。** 因为 release bot 现在**就是**维护者
+chovizzz（选了细粒度 PAT 而非 GitHub App），同一个作者同时满足两类判据。
+先判维护者的话，每一张 promotion PR 都会悄悄降级成 maintainer，
+而 maintainer 路径上**没有确定性复算门** —— 门不报错、不变红，只是没跑。
+
+🔴 **`promotion/hub-<N>` 是保留的分支命名空间。** 落在它上面却不满足 promotion
+条件的一切（哪怕作者是维护者），一律 fail-closed 到最严的 `submission`，
+不会 fall through 到 maintainer。
+
+🔴 **`maintainer` 不是「免检」，只是「不检投稿白名单」。** 它仍然：
+· 走 CODEOWNERS 审批（分支保护管的）与 `ci-gate`；
+· **不许改 `artifacts/**` 与 `registry/snapshots/**`** —— 那两个目录受
+  promotion 路径上的确定性复算门与不可变门保护，手改一张快照就是绕过
+  「快照必须能被字节一致地复算出来」，而那是签名与时间戳信任链的地基；
+· 在 `maintainer-gates` 里扫**本 PR 改动文件**的不可见字符 / bidi ——
+  维护者也会被钓鱼，而维护者 PR 改的正是门自己；
+  ⚠️ 只扫改动文件、**不扫全仓**：全仓扫在本仓库上就是红的
+  （`src/pack.mjs` 里有一个故意的 U+200B 用来顶开 `*/`），
+  那等于换一种方式把维护者的 PR 全部锁死；
+· **夹带 `submissions/**` 时，§6 结构门与 §7 Tier 审批门照跑** ——
+  否则维护者只要把一份畸形投稿塞进自己那张「改 CI」的 PR，两道门一道都不跑。
+
+### ⚠️ 仍然敞着的一格：安全根文件只要 1 名 approve（待拍板）
+
+`maintainer` 路径按设计允许改 `registry/maintainers.json`、`registry/owners.json`、
+`registry/reserved.json`、`.github/workflows/**`、`CODEOWNERS` 与各校验脚本 ——
+**这是必需的**（否则又是死锁），但这些正是「决定以后谁能改什么」的**授权根**。
+而本文档第 1 节里 Require approvals 配的是 **1**。
+
+也就是说：**一名**维护者可以单独把自己之外的人加进维护者名单、或削弱未来的门。
+`tier-gate.mjs` 的「两名且排除作者」只作用于投稿载荷，管不到这些文件。
+
+Codex 2026-09-01 点名了这一格。**这不是本次改动引入的**（在只有两类 PR 时同样成立，
+只是那时维护者根本合不了 PR，所以没暴露），也不是 `pr-classify.mjs` 能修的 ——
+它需要一条「安全根文件要两名不同维护者、且排除作者」的门，或把 Require approvals
+提到 2。**留给用户拍板，本轮不擅自改分支保护配置。**
 
 ---
 

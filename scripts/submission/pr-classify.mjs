@@ -6,6 +6,22 @@
 //      —— 不能配成『任一通过即可』，否则投稿 PR 可以伪装成 promotion 分支绕过路径白名单。
 //      router 的判定依据是 **PR 作者身份 + 分支名**，不是 PR 标题或标签（那些投稿者可控）。」
 //
+// ── 三类 PR（第三类 `maintainer` 是 2026-09-01 补的）────────────────────────
+//
+// | kind         | 判据（全部用**不可变 node id**，不用 login）           | 允许路径 |
+// |--------------|-------------------------------------------------------|---------|
+// | `promotion`  | 分支名严格 `promotion/hub-<N>` + head repo 是本仓库 + 作者 == release bot | `artifacts/ registry/ advisories/` |
+// | `maintainer` | 作者 id 在 `registry/maintainers.json` 里 + head repo 是本仓库 | 除 `artifacts/**` 与 `registry/snapshots/**` 之外的一切 |
+// | `submission` | 其余                                                  | 仅 `submissions/**`，另有 §5 硬拒清单 |
+//
+// 🔴 **为什么必须有第三类。** §5 的硬拒清单把 `.github/ artifacts/ registry/
+//    cli/ scripts/ docs/` 对投稿关死，报错文案自己写着「改这些路径的 PR 必须
+//    来自 org 成员，走单独的 maintainer 路径」—— 而那条路径一直没实现。
+//    于是**任何**不是 release bot 开的 PR 都落进 `submission`，
+//    维护者改代码的 PR 永远合不了。2026-09-01 实际撞上：两张真 PR
+//    （改 `docs/**` 与 `test/**`）双双被拒。把 `pr-gate` 钉进 required checks
+//    的那一刻，仓库会**锁死** —— 连修这个 bug 的 PR 都推不上去。
+//
 // 🔴 **本模块不碰网络。** 作者 login、head 分支名、改动路径清单，全由 workflow
 //    从 GitHub 事件里取好后传进来。同 promote/build-inputs.mjs 的分工：
 //    「取事实」与「按事实判定」分开，判定这一半才能在本机跑遍所有分支。
@@ -39,19 +55,49 @@ export const SUBMISSION_DENY = Object.freeze([
 ]);
 
 /**
+ * maintainer PR 的硬拒清单。
+ *
+ * 🔴 **`maintainer` 不是「免检」，只是「不检投稿白名单」。** 维护者本来就是审
+ *    `.github/`、`scripts/`、`docs/`、`cli/` 的人，拦着他们改这些路径，等于
+ *    「连修这道门本身的 PR 都合不了」—— 那正是 2026-09-01 真实撞上的死锁。
+ *    但**这两个目录例外**：
+ *      · `artifacts/**`        —— 制品，受不可变门保护（01-artifacts §7）；
+ *      · `registry/snapshots/**` —— 快照，受确定性复算门保护（06-submission §4）。
+ *    它们只能由 **promotion PR** 动，而 promotion 路径上跑的是
+ *    `verify-promotion.mjs`：用 PR 里记的 `--created-at` 重跑 `build-snapshot.mjs`
+ *    并断言**字节一致**，再逐张比历史快照的不可变性。
+ *    一个维护者手改一张快照，走的是 maintainer 路径 —— 那条路径上**没有**复算门，
+ *    于是「快照必须是可复现地算出来的」这条就此失效，而它是整套签名/时间戳信任链
+ *    的地基。**不这么拦的话，一次手滑或一次账号接管就能把任意内容写进 hub-<N>。**
+ *
+ * ⚠️ 这不是「不信任维护者」，是**不让任何一条路径绕过复算**：维护者要改快照，
+ *    正确做法是改生成器 + 重跑 promote，让复算门重新证明一遍。
+ */
+export const MAINTAINER_DENY = Object.freeze(['artifacts/', 'registry/snapshots/']);
+
+/**
  * @param {object} a
  * @param {string} a.headRef        PR 的 head 分支名
  * @param {string} a.authorId       🔴 PR 作者的**不可变** node id（不是 login）
  * @param {string} a.releaseBotId   release bot 的不可变 node id
  * @param {string} a.headRepo       PR 的 head 仓库全名（`owner/name`）
  * @param {string} a.thisRepo       本仓库全名
+ * @param {string[]} [a.maintainerIds] 🔴 维护者的**不可变** node id 清单
+ *   （`registry/maintainers.json`）。默认空 = fail-closed：名单取不到时
+ *   所有人都落进 `submission`，宁可维护者被拦，也不能让路人拿到 maintainer 权限。
  * @param {string} [a.authorLogin]  仅用于文案
- * @returns {'promotion'|'submission'}
+ * @returns {'promotion'|'maintainer'|'submission'}
  */
-export function classifyPr({ headRef, authorId, releaseBotId, headRepo, thisRepo, authorLogin = '(未给)' }) {
+export function classifyPr({
+  headRef, authorId, releaseBotId, headRepo, thisRepo, maintainerIds = [], authorLogin = '(未给)',
+}) {
   for (const [k, v] of [['headRef', headRef], ['authorId', authorId],
     ['releaseBotId', releaseBotId], ['headRepo', headRepo], ['thisRepo', thisRepo]]) {
     if (typeof v !== 'string' || v === '') bad('E_CLASSIFY_INPUT', `${k} 必须是非空字符串`);
+  }
+  if (!Array.isArray(maintainerIds)) bad('E_CLASSIFY_INPUT', 'maintainerIds 必须是数组');
+  for (const id of maintainerIds) {
+    if (typeof id !== 'string' || id === '') bad('E_CLASSIFY_INPUT', 'maintainerIds 里有空项');
   }
   const looksPromotion = RE_PROMOTION_BRANCH.test(headRef);
 
@@ -66,18 +112,65 @@ export function classifyPr({ headRef, authorId, releaseBotId, headRepo, thisRepo
   //    多这一条是纵深：万一 bot 的凭据泄漏，攻击面仍被限制在本仓库内。
   const fromThisRepo = headRepo === thisRepo;
 
+  // ── 🔴🔴 三类的**优先级**：分支名是第一判据 ──────────────────────────────
+  //
+  // 为什么必须先判分支名：2026-09-01 起 release bot 的身份**就是**维护者
+  // chovizzz 的 node id（用户选了细粒度 PAT 而非 GitHub App），所以同一个作者
+  // **同时满足** promotion 与 maintainer 的判据。谁先判，结果就不一样：
+  //   · 先判分支名 → `promotion/hub-42` 判 promotion，跑确定性复算门 ✅
+  //   · 先判维护者 → 同一张 PR 判 maintainer，**复算门被跳过**，
+  //     而 maintainer 路径上根本没有那道门 —— 于是每一张 promotion PR 都
+  //     悄悄降级成「维护者手改了 artifacts/ 和 registry/」。
+  // 后者不会报错、不会变红，只是**门没跑**。这就是为什么顺序要写进注释、
+  // 并且有一条测试专门钉住它：不要把下面两段调换。
+  //
+  // ⚠️ 另一半同样重要：maintainer 的硬拒清单里有 `artifacts/` 与
+  //    `registry/snapshots/`，所以「降级成 maintainer」的 promotion PR 其实会被
+  //    路径门拒掉、而不是静默放行。但那是**第二道**保险，不是可以省掉第一道的理由。
   if (looksPromotion && byBot && fromThisRepo) return 'promotion';
 
   // 🔴 分支名像 promotion、却不满足其余条件 —— **这不是普通投稿，是一次伪装**。
   //    仍按 submission 处理（路径白名单会把它拦下），但要**大声说出来**：
   //    静默降级会让这类尝试淹没在正常流量里。
+  //
+  // 🔴🔴 **这里不能 fall through 到 maintainer**，哪怕作者确实在维护者名单里。
+  //    `promotion/hub-<N>` 是一个**保留的分支命名空间**：落在它上面却不满足
+  //    promotion 条件的一切，一律 fail-closed 到最严的那条路径（只许改
+  //    `submissions/`）。理由有两层：
+  //      ① 一次伪装尝试不该因为「作者恰好是维护者」而拿到**更宽**的权限；
+  //      ② 维护者自己想改代码，换个分支名就行 —— 代价是一次改名，
+  //         而放宽的代价是给伪装留一条更宽的出路。
   if (looksPromotion) {
     const why = [];
     if (!byBot) why.push(`作者 ${authorLogin}(id=${authorId}) 不是 release bot(id=${releaseBotId})`);
     if (!fromThisRepo) why.push(`head 仓库 ${headRepo} 不是 ${thisRepo}`);
     process.stderr.write(
       `⚠️ 🔴 分支名 ${headRef} 形如 promotion，但${why.join('，且')} —— 按**投稿**处理。\n`
-      + '   §4：router 只认作者身份 + 分支名，不认标题或标签（那些投稿者可控）。\n',
+      + '   §4：router 只认作者身份 + 分支名，不认标题或标签（那些投稿者可控）。\n'
+      + `   ⚠️ 即使作者在维护者名单里也不会降级成 maintainer：${'`promotion/hub-<N>`'} 是保留命名空间。\n`,
+    );
+    return 'submission';
+  }
+
+  // ── maintainer：06-submission.md §5「改这些路径的 PR 必须来自 org 成员，
+  //    走单独的 maintainer 路径」——就是这一条 ─────────────────────────────
+  //
+  // 🔴 判据同样是**不可变 node id**，不是 login。名单来自
+  //    `registry/maintainers.json`，而 workflow 必须从 **base** 那棵树读它：
+  //    让被检的 PR 自己提供名单，等于让投稿者把自己写进维护者名单。
+  //
+  // 🔴 **fork 来的一律不算。** 维护者身份是「这个人是谁」，而 head repo 是
+  //    「这些提交长在哪棵树上」。一个 fork 上的分支由 fork 的 owner 说了算，
+  //    维护者的 fork 被接管、或维护者从别人的 fork 开 PR，都会让「作者是维护者」
+  //    这一条与「内容可信」脱钩。多这一条与 promotion 那条是同一个纵深理由。
+  const byMaintainer = maintainerIds.includes(authorId);
+  if (byMaintainer && fromThisRepo) return 'maintainer';
+
+  if (byMaintainer && !fromThisRepo) {
+    process.stderr.write(
+      `⚠️ 作者 ${authorLogin}(id=${authorId}) 在维护者名单里，但 head 仓库 ${headRepo}`
+      + ` 不是 ${thisRepo} —— 按**投稿**处理。\n`
+      + '   fork 上的分支由 fork 的 owner 说了算，维护者身份不能跨仓库带过来。\n',
     );
   }
   return 'submission';
@@ -96,6 +189,20 @@ export function classifyPr({ headRef, authorId, releaseBotId, headRepo, thisRepo
 const underAny = (p, prefixes) => prefixes.some((pre) => p.startsWith(pre));
 
 /**
+ * 硬拒清单专用：**目录内的东西要拒，那个目录本身也要拒**。
+ *
+ * 🔴 与上面 `underAny` 的差别只有裸目录名一格，但这一格在**拒**这一侧的方向
+ *    是反的：白名单里放进裸名是漏（见 `underAny` 的说明），黑名单里漏掉裸名
+ *    同样是漏 —— 而且更难看见。
+ *    投稿路径上这一格由白名单兜住了（`artifacts` 既不在白名单里也不在目录内，
+ *    照样被 `E_PATH_OUTSIDE` 拒）；但 **maintainer 路径没有白名单**，
+ *    黑名单是唯一的门：一张 maintainer PR 把 `artifacts/` 整个删掉、
+ *    换成一个同名 symlink 或 gitlink，git 产出的改动路径就是裸名 `artifacts`，
+ *    `startsWith('artifacts/')` 判假，制品目录就这么被换掉了。
+ */
+const underOrIs = (p, prefixes) => prefixes.some((pre) => p === pre.slice(0, -1) || p.startsWith(pre));
+
+/**
  * §4 的路径白名单 + §5 的硬拒清单。
  *
  * 🔴 **rename 的两端都要受检。** 裸字符串表达不了「从哪改名过来」：
@@ -107,11 +214,25 @@ const underAny = (p, prefixes) => prefixes.some((pre) => p.startsWith(pre));
  *    ⚠️ 本函数**无法验证**调用方用了哪种 —— 只给一条空字符串路径它也不知道。
  *    workflow 那一侧必须显式用 `--no-renames`，这条写进它的注释里。
  *
+ * 🔴 **三条路径各自的形状不一样，别把它们想成同一张表：**
+ *   · `submission` —— 白名单（只许 `submissions/`）**加**硬拒清单，两道门；
+ *   · `promotion`  —— 只有白名单（`artifacts/ registry/ advisories/`）；
+ *   · `maintainer` —— **没有白名单**（维护者本来就是审全仓的人），只有硬拒清单
+ *     （`artifacts/`、`registry/snapshots/`）。
+ *     它不是「免检」：CODEOWNERS 审批与 `ci-gate` 都照跑，
+ *     另外 `validate-pr.yml` 的 `maintainer-gates` 还会扫改动文件的
+ *     不可见字符 / bidi —— 维护者一样会被钓鱼。
+ *
  * @param {object} a
- * @param {'promotion'|'submission'} a.kind
+ * @param {'promotion'|'maintainer'|'submission'} a.kind
  * @param {string[]} a.changedPaths  本次 PR 改动的全部路径（仓库根相对）
  */
 export function assertPathsAllowed({ kind, changedPaths }) {
+  // 🔴 kind 必须是这三个之一。拼错一个字母就落进 `else`，而 `else` 曾经等价于
+  //    「按 submission 判」—— 一个错字换来一次静默的降级或提权，不能这样。
+  if (!['promotion', 'maintainer', 'submission'].includes(kind)) {
+    bad('E_CLASSIFY_INPUT', `不认得的 kind：${JSON.stringify(kind)}`);
+  }
   if (!Array.isArray(changedPaths)) bad('E_CLASSIFY_INPUT', 'changedPaths 必须是数组');
   if (changedPaths.length === 0) bad('E_NO_CHANGES', 'PR 没有改动任何文件 —— 不判定，交人工');
   // rename 的两端拆开，各查一次
@@ -119,7 +240,10 @@ export function assertPathsAllowed({ kind, changedPaths }) {
     .map((p) => (typeof p === 'string' ? p.trim() : p))
     .filter((p) => p !== '');
 
-  const allowed = kind === 'promotion' ? PROMOTION_PATHS : SUBMISSION_PATHS;
+  // 🔴 `maintainer` 的 `allowed` 是 `null`，不是「一张装着所有前缀的表」——
+  //    "没有白名单" 与 "白名单碰巧覆盖了一切" 读起来一样，改起来天差地别。
+  const allowed = { promotion: PROMOTION_PATHS, submission: SUBMISSION_PATHS, maintainer: null }[kind];
+  const deny = { promotion: [], submission: SUBMISSION_DENY, maintainer: MAINTAINER_DENY }[kind];
   const outside = [];
   const denied = [];
   for (const p of changedPaths) {
@@ -127,11 +251,22 @@ export function assertPathsAllowed({ kind, changedPaths }) {
     // 🔴 路径里出现 `..` 一律拒 —— 白名单靠前缀判定，而 `submissions/../cli/x`
     //    的前缀是 `submissions/`。git 不会产出这种路径，但判据不能依赖
     //    「上游不会给我坏输入」。
+    //    ⚠️ maintainer 没有白名单，但这一条对它同样生效：`registry/snapshots/../../x`
+    //    的前缀不是 `registry/snapshots/`，硬拒清单一样会被绕过。
     if (p.split('/').includes('..')) bad('E_PATH_TRAVERSAL', `改动路径含 ..：${p}`);
-    if (kind === 'submission' && underAny(p, SUBMISSION_DENY)) denied.push(p);
-    else if (!underAny(p, allowed)) outside.push(p);
+    if (underOrIs(p, deny)) denied.push(p);
+    else if (allowed !== null && !underAny(p, allowed)) outside.push(p);
   }
 
+  if (denied.length && kind === 'maintainer') {
+    bad('E_PATH_DENIED',
+      'maintainer PR **不得**修改这些路径 —— 它们只能由 promotion PR 动：\n'
+      + denied.map((p) => `  · ${p}`).join('\n')
+      + `\n  ${MAINTAINER_DENY.join('、')} 受 promotion 路径上的**确定性复算门**与`
+      + '**不可变门**保护（06-submission.md §4、01-artifacts.md §7）。\n'
+      + '  手改一张快照或一个制品，就是绕过「快照必须能被字节一致地复算出来」——\n'
+      + '  而那是签名与时间戳信任链的地基。要改，请改生成器并重跑 promote。');
+  }
   if (denied.length) {
     bad('E_PATH_DENIED',
       `投稿 PR **不得**修改这些路径（06-submission.md §5）：\n`
@@ -164,13 +299,21 @@ function parseArgs(argv) {
 
 export function main(argv) {
   const o = parseArgs(argv);
-  for (const k of ['head-ref', 'author-id', 'release-bot-id', 'head-repo', 'this-repo', 'changed-paths']) {
+  // 🔴 `--maintainer-ids` 在必填之列：**不给就报错，而不是默默当成空名单**。
+  //    空名单是 fail-closed 的（所有人都判 submission，维护者的 PR 全被拦），
+  //    看起来"安全"，但它与「jq 表达式写错了、名单没取到」长得一模一样 ——
+  //    于是 2026-09-01 那场死锁会原样重演一遍，而且这次连报错都没有。
+  //    必填之后，"名单为空" 只能是显式传了空串，那是一个看得见的动作。
+  for (const k of ['head-ref', 'author-id', 'release-bot-id', 'head-repo', 'this-repo',
+    'maintainer-ids', 'changed-paths']) {
     if (o[k] === undefined) bad('E_CLASSIFY_INPUT', `缺少 --${k}`);
   }
   const kind = classifyPr({
     headRef: o['head-ref'],
     authorId: o['author-id'], releaseBotId: o['release-bot-id'],
     headRepo: o['head-repo'], thisRepo: o['this-repo'],
+    // 逗号分隔；空串 = 空名单（fail-closed，所有人都是 submission）
+    maintainerIds: o['maintainer-ids'].split(',').map((s) => s.trim()).filter(Boolean),
     authorLogin: o.author ?? '(未给)',
   });
   // 换行分隔：路径里可以有逗号，不能有换行（§01-4 的 grammar 更严，但输入来自 git）

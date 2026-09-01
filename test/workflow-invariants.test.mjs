@@ -297,7 +297,7 @@ test('🔴 每个 job 都显式声明 permissions —— 不能吃仓库默认�
   const body = VALIDATE();
   assert.match(body, /^permissions:\s*\n\s+contents:\s*read/m, '顶层 permissions 缺失');
   const jobs = jobBlocks(body);
-  assert.ok(jobs.size >= 4, `只找到 job：${[...jobs.keys()].join(', ')}`);
+  assert.ok(jobs.size >= 5, `只找到 job：${[...jobs.keys()].join(', ')}`);
   const naked = [...jobs].filter(([, b]) => !/^\s{4}permissions:\s*$/m.test(b)).map(([n]) => n);
   assert.deepEqual(naked, [],
     `这些 job 没有自己的 permissions 块：${naked.join(', ')}\n`
@@ -313,7 +313,7 @@ test('🔴 三处 checkout 各自钉死 sha，且都不带凭据', () => {
   // 🔴 数量也要对上：少数一个就等于那一处完全没被检查（变异测试抓到过）
   const total = (body.match(/actions\/checkout@/g) ?? []).length;
   assert.equal(checkouts.length, total, `切出了 ${checkouts.length} 块，但文件里有 ${total} 处 checkout`);
-  assert.ok(total >= 6, `只找到 ${total} 处 checkout，是不是改结构了？`);
+  assert.ok(total >= 8, `只找到 ${total} 处 checkout，是不是改结构了？`);
   for (const b of checkouts) {
     assert.match(b, /ref:\s*\$\{\{\s*github\.event\.pull_request\.(base|head)\.sha\s*\}\}/,
       `checkout 没有钉死 base.sha / head.sha：\n${b}`);
@@ -410,14 +410,184 @@ test('🔴 diff 必须相对 merge-base 且禁用重命名检测', () => {
   }
 });
 
-test('🔴 分支保护要钉的聚合门存在，且两条路径互斥', () => {
+/**
+ * 三条路径与它们在 `pr-gate` 里对应的 shell 变量。
+ * 🔴 有意写成一张表：加第四条路径时，下面每一条断言都会自动跟着扩，
+ *    而不是「有人记得去改三处正则」。
+ */
+const ROUTES = Object.freeze([
+  ['submission', 'SUB'], ['promotion', 'PROMO'], ['maintainer', 'MAINT'],
+]);
+
+test('🔴 三条路径的 gate job 各自只由 router 的判定触发', () => {
+  // 🔴 `if` 一旦松成 `always()` 或别的表达式，那条路径就会**跟着别的 kind 一起跑**，
+  //    于是 pr-gate 里「另外两条必须 skipped」当场变成永远失败 —— 或者更糟：
+  //    有人为了让它绿，把那几条 skipped 判据一并删掉。守在源头。
+  const jobs = jobBlocks(VALIDATE());
+  for (const [kind] of ROUTES) {
+    const b = jobs.get(`${kind}-gates`);
+    assert.ok(b !== undefined, `${kind}-gates 这个 job 不见了`);
+    assert.match(b, new RegExp(`if:\\s*\\$\\{\\{\\s*needs\\.route\\.outputs\\.kind\\s*==\\s*'${kind}'\\s*\\}\\}`),
+      `${kind}-gates 的 if 不是「router 判定为 ${kind}」`);
+    assert.match(b, /^\s+needs:\s*route\s*$/m, `${kind}-gates 必须 needs: route`);
+  }
+});
+
+test('🔴 分支保护要钉的聚合门存在，且三条路径互斥', () => {
   const body = VALIDATE();
   assert.match(body, /^ {2}pr-gate:/m, '固定名的聚合 job 不能改名 —— 分支保护钉的就是它');
-  assert.match(body, /needs:\s*\[route,\s*submission-gates,\s*promotion-gates\]/);
+  assert.match(body, /needs:\s*\[route,\s*submission-gates,\s*promotion-gates,\s*maintainer-gates\]/,
+    'pr-gate 必须 needs 全部三条路径 —— 漏一条，那条的结果就进不了判据，等于没门');
   assert.match(body, /if:\s*\$\{\{\s*always\(\)\s*\}\}/, 'pr-gate 必须 always() —— 否则前面失败它就被跳过');
-  // 判据必须是「router 挑中的那一条」，不能是「有一条 success」
-  assert.match(body, /"\$SUB"\s*=\s*"skipped"/);
-  assert.match(body, /"\$PROMO"\s*=\s*"skipped"/);
+
+  // 每条路径的结果都要真的被读进来
+  for (const [kind, v] of ROUTES) {
+    assert.match(body, new RegExp(`^\\s+${v}:\\s*\\$\\{\\{\\s*needs\\.${kind}-gates\\.result\\s*\\}\\}`, 'm'),
+      `pr-gate 没有把 ${kind}-gates 的结果读进 $${v}`);
+  }
+
+  // 🔴🔴 **判据必须是「router 挑中的那一条 success，另外两条全部 skipped」**，
+  //    不是「有一条 success」。§4 担心的正是后者。
+  //    从两条扩到三条时最容易写松的地方就在这里：两条的时候「我这条 + 另一条」
+  //    已经穷尽了，三条的时候只点名另**一**条会漏掉第三条 —— 那条于是可以
+  //    跟着一起跑并通过，而聚合门照样绿，router 的判定形同虚设。
+  //    所以逐个 case 分支解析，一条都不许省。
+  const caseBody = /case "\$KIND" in\n([\s\S]*?)\n\s*esac/.exec(body);
+  assert.ok(caseBody !== null, 'pr-gate 里找不到 case "$KIND" 块 —— 是不是改结构了？');
+  // 🔴 按**行**切分支，不用一条跨行正则：`;;` 的缩进、分支里多一个空行，
+  //    都会让那条正则「匹配不到」，而匹配不到在这里等于「没有这条断言」。
+  const arms = new Map();
+  let cur = null;
+  for (const ln of caseBody[1].split('\n')) {
+    const m = /^\s*([\w*]+)\)\s*$/.exec(ln);
+    if (m !== null) { cur = m[1]; arms.set(cur, []); continue; }
+    if (cur !== null) arms.get(cur).push(ln);
+    if (/;;\s*$/.test(ln)) cur = null;
+  }
+  arms.delete('*');
+  for (const [k, v] of arms) arms.set(k, v.join('\n'));
+  assert.deepEqual([...arms.keys()].sort(), ROUTES.map(([k]) => k).sort(),
+    `case 的分支与三条路径对不上：${[...arms.keys()].join(', ')}`);
+  for (const [kind, self] of ROUTES) {
+    const arm = arms.get(kind);
+    assert.match(arm, new RegExp(`\\[ "\\$${self}" = "success" \\]`),
+      `${kind} 分支没有要求 $${self} 必须 success`);
+    for (const [other, v] of ROUTES) {
+      if (other === kind) continue;
+      assert.match(arm, new RegExp(`\\[ "\\$${v}" = "skipped" \\]`),
+        `🔴 ${kind} 分支没有要求 $${v} 必须 skipped —— 那条路径可以跟着一起跑并通过，`
+        + '而聚合门照样绿。三条互斥漏掉任意一格，就退化成「任一通过即可」。');
+    }
+  }
+  // 未知 kind 必须硬失败，不能落进一个宽松的默认
+  assert.match(caseBody[1], /\*\)\n[\s\S]*?exit 1/, 'case 缺少 `*)` 兜底 —— 未知 kind 必须红');
+});
+
+test('🔴 维护者判据是不可变 node id，不是 login', () => {
+  // login 可以改名、也可以被别人重新认领：维护者改名之后，攻击者认领那个旧
+  // login 就直接成了维护者，而 maintainer 路径没有投稿白名单。
+  // 这条洞只要在 workflow 里把 `.id` 写成 `.login` 就成立 —— 一个字符的 diff。
+  const body = VALIDATE();
+  const picks = [...body.matchAll(/\.maintainers\s*\|\s*map\(\.(\w+)\)/g)].map((m) => m[1]);
+  assert.ok(picks.length >= 1, '没找到从 maintainers.json 取名单的地方 —— 是不是改结构了？');
+  for (const p of picks) {
+    assert.equal(p, 'id', `维护者名单取的是 .${p} —— 判据必须是不可变 node id`);
+  }
+  // 🔴 **按 job 判，不按全文判。** `--maintainer-ids` 在这个文件里出现两次
+  //    （route 的分流、submission-gates 的 §7 审批人数门）—— 全文匹配的话，
+  //    把 route 那一处删掉，另一处还在，断言照样绿。这正是这份文件反复踩的
+  //    「看起来被守住了」：一条断言匹配到的不是它以为的那一处。
+  assert.match(jobBlocks(body).get('route'), /--maintainer-ids/,
+    'router 没拿到维护者名单 —— 那么维护者的 PR 会全部落进 submission，仓库锁死');
+});
+
+test('🔴 maintainer 路径必须扫不可见字符 / bidi', () => {
+  // 维护者也会被钓鱼，而 bidi（Trojan Source）恰恰是「评审时看着没问题」的那类。
+  // 维护者 PR 改的正是 scripts/ 与 .github/，也就是**门自己** ——
+  // 这条对它比对投稿更要紧，不是更不要紧。
+  const body = VALIDATE();
+  const b = jobBlocks(body).get('maintainer-gates');
+  assert.ok(b !== undefined, 'maintainer-gates 不见了');
+  // 🔴 **绑到它真正扫的那个目录上**，不只是「文件里出现过 scan-text.mjs」。
+  //    后者是伪绿：把 `--submissions` 指到一个空目录，扫描照样"跑了"、
+  //    照样绿，而一个文件都没看过（Codex 2026-09-01）。
+  const scanStep = stepBlocks(b).find((s) => /scan-text\.mjs/.test(s));
+  assert.ok(scanStep !== undefined, 'maintainer-gates 没有跑 scan-text.mjs');
+  assert.match(scanStep, /node\s+--no-warnings\s+base-tools\/scripts\/submission\/scan-text\.mjs/,
+    '扫描器必须来自 base-tools');
+  assert.match(scanStep, /--submissions\s+scan-src\b/,
+    'scan-text 没有扫 scan-src —— 那是上一步从 PR 树摘出来的改动文件');
+  // 🔴 扫的是**本 PR 改动的文件**，不是全仓。全仓扫在本仓库上就是红的
+  //    （src/pack.mjs 里有一个故意的 U+200B 用来顶开 `*/`），那等于换一种方式
+  //    把维护者的 PR 全部锁死 —— 正是这个 job 要消除的失败模式。
+  assert.match(b, /needs\.route\.outputs\.present/,
+    'maintainer-gates 必须按 router 给的「改动后仍存在的路径」清单扫');
+  // 🔴 那份清单必须排除被删除的路径，否则「清单里有、树里找不到 → 硬失败」
+  //    会把每一次删文件都判成异常，于是这条守卫迟早会被人删掉。
+  assert.match(jobBlocks(body).get('route'), /--diff-filter=d/,
+    'route 的 present 清单没有排除删除，maintainer-gates 的「找不到就硬失败」会误伤');
+});
+
+test('🔴🔴 maintainer PR 夹带投稿时，§6 结构门与 §7 Tier 门照跑', () => {
+  // 没有这两道的话，维护者只要把一份畸形投稿塞进自己那张「改 CI」的 PR，
+  // 两道门一道都不跑，内容直接进 main（main 上的东西会被 clone、被 fork），
+  // 随后在 promote 阶段才炸并堵死整条流水线。
+  // 「后面还有一道门」不等于「这里可以没有门」。
+  const b = jobBlocks(VALIDATE()).get('maintainer-gates');
+  const steps = stepBlocks(b);
+  const GUARD = /if:\s*\$\{\{\s*steps\.touched\.outputs\.sub\s*==\s*'yes'\s*\}\}/;
+
+  // 🔴🔴 **条件必须挂在那两个 step 自己身上。**（Codex 2026-09-01）
+  //    只数「job 里出现了两次 `sub == 'yes'`」是**伪绿**：把条件搬到两个不相干的
+  //    step 上，断言照样过，而两道门变成无条件跑（或更糟，被别的条件挡掉）。
+  //    所以按 step 切块，逐个绑定「这个跑门的 step 上有没有这个守卫」。
+  for (const [script, what] of [['run-gates', '§6 结构门'], ['tier-gate', '§7 Tier 审批人数门']]) {
+    const s = steps.find((x) => new RegExp(`base-tools/scripts/submission/${script}\\.mjs`).test(x));
+    assert.ok(s !== undefined, `maintainer-gates 没跑 ${what}（${script}.mjs）`);
+    assert.match(s, GUARD, `跑 ${what} 的那个 step 上没有 touched 守卫 —— 条件跑到别处去了`);
+  }
+  // 反过来：守卫**只能**出现在那两个 step 上，多一个就说明有人拿它挡别的门
+  assert.equal(steps.filter((s) => GUARD.test(s)).length, 2,
+    'touched 守卫出现在了别的 step 上 —— 它只该守 §6 与 §7 那两步');
+
+  // 🔴 判定本身必须 fail-closed，而且**不能用管道**：
+  //    `printf … | grep -q` 命中后 grep 先退出、printf 吃 SIGPIPE 返回 141，
+  //    `pipefail` 把它变成整条管道失败 —— 于是「命中」被读成「没命中」，
+  //    默认值写成 yes 也救不回来（实测：清单 ~300KB 时必现）。
+  const touched = steps.find((s) => /id:\s*touched/.test(s));
+  assert.ok(touched !== undefined, '找不到 id: touched 那个 step');
+  // 🔴 `sub` 只能在 case 的两个具体分支里被赋值，别处一个都不许有 ——
+  //    多一句「兜底默认」就等于给这道门加了一条 fail-open 的路。
+  //    未知退出码走 `*)` 硬失败，那才是这里的 fail-closed。
+  assert.match(touched, /0\) sub=yes/, '命中时必须置 yes');
+  assert.match(touched, /1\) sub=no/, '只有「确实没命中」(rc=1) 才允许置 no');
+  assert.equal((touched.match(/\bsub=/g) ?? []).length, 3,
+    'sub 的赋值不是恰好两处（外加一处写 $GITHUB_OUTPUT）—— 多出来的那处多半是兜底默认');
+  assert.ok(!/\|\s*grep\b/.test(touched),
+    '🔴 判定用了管道喂 grep —— pipefail + grep 提前退出会把「命中」读成「没命中」');
+  assert.match(touched, /rc=\$\?/, '没有取 grep 的退出码 —— 「没命中」与「出错」必须分开');
+  assert.match(touched, /case "\$rc" in[\s\S]*\*\)[\s\S]*exit 1/,
+    'grep 出错（rc≥2）时必须硬失败，不能当成「没命中」');
+});
+
+test('🔴 job output 的 heredoc 分隔符必须是随机的 —— 文件名是攻击者可控的', () => {
+  // 仓库根下放一个名叫 `PATHS_EOF` 的文件，写死分隔符的 heredoc 就在那一行
+  // 提前闭合：后面的路径不再属于这个 output，于是路径白名单**根本没看见**
+  // 排在它后面的 `artifacts/x.json`（Codex 2026-09-01）。
+  const body = VALIDATE();
+  const delims = [...body.matchAll(/^\s*echo "?(\w+)<<([^"\s]+)"?\s*$/gm)].map((m) => m[2]);
+  assert.ok(delims.length >= 1, '没找到 heredoc 形式的 job output —— 是不是改结构了？');
+  for (const d of delims) {
+    assert.match(d, /^\$/, `分隔符 ${d} 是写死的字面量 —— 同名文件就能把清单截断`);
+  }
+  // 🔴 **要绑到 `delim` 这个变量的赋值上**：只断言「文件里有 /dev/urandom」
+  //    是伪绿 —— 随机数可以算出来却拿去干别的，而 `delim` 仍是字面量
+  //    （Codex 2026-09-01）。
+  const names = [...new Set(delims.map((d) => d.replace(/^\$\{?|\}$/g, '')))];
+  for (const n of names) {
+    assert.match(body, new RegExp(`${n}="?[^"\\n]*\\$\\((?=[^)\\n]*/dev/urandom)`),
+      `${n} 不是由 /dev/urandom 赋值的 —— 分隔符没有真的随机化`);
+  }
 });
 
 test('🔴 审批被撤回时要重跑（否则过期的绿会留在那里）', () => {
@@ -492,6 +662,18 @@ test('🔴 promote 的分流用的是 router 那一份代码，不是 shell 复�
     '自己写 case promotion/hub-* 会漏掉「作者必须是 release bot」这一条');
   assert.ok(!/case\s+"?\$\{?ref/.test(body), '不要在 shell 里复述 router 的判据');
   assert.match(body, /--diff-filter=d/, '算「本次 PR 带来哪些投稿」时要排掉删除');
+  // 🔴 `--maintainer-ids` 在 pr-classify 里是**必填**（「名单没取到」不能与
+  //    「显式空名单」长得一样）。promote 是第二个调用方 —— 不传的话，
+  //    **每一次 promote 都会因为缺参直接失败**，而这个文件是本机唯一能提前
+  //    发现它的地方（Codex 2026-09-01 点名的遗漏）。
+  // 🔴 **按 run 块判，不按全文判**：`--maintainer-ids` 在 promote.yml 里出现两次
+  //    （分流、以及 §3 第 1 项的 approve 门）。全文匹配的话，把分流那一处删掉
+  //    另一处还在，断言照样绿 —— 同 validate-pr 里踩过的那一格。
+  const classifyBlock = runBlocks(body).find((b) => /pr-classify\.mjs/.test(b));
+  assert.ok(classifyBlock !== undefined, '找不到调 pr-classify 的那个 run 块');
+  assert.match(classifyBlock, /--maintainer-ids/,
+    'promote 调 pr-classify 时漏了 --maintainer-ids —— 它是必填参数，promote 会全线失败');
+  assert.match(classifyBlock, /\.maintainers\s*\|\s*map\(\.id\)/, '同 validate-pr：取不可变 node id，不取 login');
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -672,10 +854,67 @@ const MUTATIONS = [
   ['promote.yml', '    branches: [main]', '    branches: [main]\n    tags: [\'*\']', 'push 加 tags（不受 paths 过滤）', '只由 push'],
   ['promote.yml', 'git push origin "$branch"', 'git push --force origin "$branch":refs/heads/main', '多 refspec 直推 main', '不直推 main'],
   ['promote.yml', '          persist-credentials: true', '          repository: attacker/repo', 'checkout 别的仓库', '绝不 checkout fork'],
+
+  // ── 第三类路径 `maintainer`（2026-09-01 补的那条）────────────────────────
+  // 🔴 加一条路径最危险的不是"新代码有 bug"，是**旧断言默默地不再覆盖全部**：
+  //    原来的互斥判据是为**两条**写的，扩到三条时漏掉任意一格就退化成
+  //    「任一通过即可」—— 而那正是 §4 点名禁止的形状。下面每一条都对着一个
+  //    具体的退化方向。
+  ['validate-pr.yml', 'map(.id)', 'map(.login)', '维护者名单改用可变的 login', '不可变 node id'],
+  ['validate-pr.yml', '--maintainer-ids "$ids" \\', '', 'router 拿不到维护者名单', '不可变 node id'],
+  ['validate-pr.yml', 'needs: [route, submission-gates, promotion-gates, maintainer-gates]',
+    'needs: [route, submission-gates, promotion-gates]', 'pr-gate 漏掉 maintainer 那条', '三条路径互斥'],
+  ['validate-pr.yml', "if: ${{ needs.route.outputs.kind == 'maintainer' }}", 'if: ${{ always() }}',
+    'maintainer 路径无条件跑', 'router 的判定触发'],
+  ['validate-pr.yml', '--diff-filter=d ', '', 'present 清单不再排除删除', 'maintainer 路径必须扫'],
+
+  // ── Codex 2026-09-01 第一轮点名的形状 ────────────────────────────────
+  ['validate-pr.yml', 'base-tools/scripts/submission/tier-gate.mjs', 'true #',
+    'maintainer 夹带投稿时不跑 Tier 门', '§7 Tier 门照跑'],
+  ['validate-pr.yml', '0) sub=yes ;;', '0) sub=no ;;',
+    '命中了 submissions/ 却判成没夹带', '§7 Tier 门照跑'],
+  ['validate-pr.yml', '          set +e', '          sub=no\n          set +e',
+    '给判定加一条 fail-open 的兜底默认', '§7 Tier 门照跑'],
+  ['validate-pr.yml', 'delim="EOF_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d \' \\n\')"',
+    'delim=PATHS_EOF', 'heredoc 分隔符改回写死的字面量', 'heredoc 分隔符必须是随机的'],
+  ['promote.yml', '--maintainer-ids "$ids" ', '',
+    'promote 调 router 时漏传维护者名单', '分流用的是 router'],
+
+  // ── Codex 2026-09-01 第二轮：伪绿与 SIGPIPE ──────────────────────────
+  // 🔴 P1 是一个**实测复现过**的绕过：`printf … | grep -q` 在清单 ~300KB 时
+  //    把「命中」读成「没命中」，§6 与 §7 双双被跳过而全绿。
+  ['validate-pr.yml', "grep -q '^submissions\\(/\\|$\\)' paths.txt",
+    "printf '%s\\n' \"$PATHS\" | grep -q '^submissions\\(/\\|$\\)'",
+    '判定改回管道喂 grep（SIGPIPE 绕过）', '§7 Tier 门照跑'],
+  ['validate-pr.yml', '            1) sub=no ;;', '            1|2) sub=no ;;',
+    'grep 出错也当成「没命中」', '§7 Tier 门照跑'],
+  ['validate-pr.yml', '--submissions scan-src --annotate', '--submissions base-tools --annotate',
+    '扫描指向别的目录（跑了但没看 PR 的文件）', 'maintainer 路径必须扫'],
+  ['validate-pr.yml', 'delim="EOF_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d \' \\n\')"',
+    'rnd=$(head -c 16 /dev/urandom); delim=PATHS_EOF',
+    '算了随机数却没用在分隔符上', 'heredoc 分隔符必须是随机的'],
 ];
 
+/**
+ * 这几条要改**最后**一处：那一处正是 maintainer 那条路径上的，
+ * 而同样的文本在前面的 job 里也有 —— 改第一处证明不了新路径受保护。
+ */
+MUTATIONS.push(
+  ['validate-pr.yml', 'node --no-warnings base-tools/scripts/submission/scan-text.mjs', 'true #',
+    'maintainer 路径不再扫不可见字符', 'maintainer 路径必须扫'],
+  ['validate-pr.yml', '[ "$PROMO" = "skipped" ]', 'true',
+    '三路互斥漏掉 maintainer 分支里的 promotion 那格', '三条路径互斥'],
+);
+
 /** 需要改**最后**一处而不是第一处的变异（证明每一处 checkout 都还受保护）。 */
-const LAST_OCCURRENCE = new Set(['末处 checkout 去掉凭据守卫']);
+const LAST_OCCURRENCE = new Set([
+  '末处 checkout 去掉凭据守卫',
+  'maintainer 路径不再扫不可见字符',
+  '三路互斥漏掉 maintainer 分支里的 promotion 那格',
+  // tier-gate.mjs 在 submission-gates 里也有一处，改第一处证明不了
+  // maintainer 那条路径上的那道门还在。
+  'maintainer 夹带投稿时不跑 Tier 门',
+]);
 MUTATIONS.push(['validate-pr.yml', 'persist-credentials: false', 'persist-credentials: true',
   '末处 checkout 去掉凭据守卫', 'checkout']);
 

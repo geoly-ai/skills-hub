@@ -90,6 +90,15 @@ jobs:
       contents: read
     outputs:
       kind: ${{ steps.classify.outputs.kind }}
+      # 🔴 改动路径清单一并往下传，给 `maintainer-gates` 用（见那个 job 的说明）。
+      #    重算一遍也行，但那要在两个 job 里各维护一份 diff 的写法 ——
+      #    「相对 merge-base」「--no-renames」两条纪律就有了两个必须同步的地方。
+      paths: ${{ steps.paths.outputs.list }}
+      # 🔴 只含**本次改动后仍然存在**的路径（`--diff-filter=d` 排除删除）。
+      #    `maintainer-gates` 要按这份清单从 PR 树里逐个把文件拷出来扫，
+      #    「列出来了却找不到」必须是**硬失败**而不是静默跳过 —— 否则
+      #    「这个文件没被扫」和「这个文件干净」在日志里长得一模一样。
+      present: ${{ steps.paths.outputs.present }}
     steps:
       # ① **可信代码**：base 上那一份（已合并、已审）
       - name: 检出 base 的校验器（可信）
@@ -127,17 +136,42 @@ jobs:
           #        两棵树一致于是**不列出来**，尽管这条路径确实被本 PR 动过。
           #    三点式 `A...B` 正是「相对 merge-base」（Codex 2026-08-31）。
           git fetch --no-tags --depth=0 origin "$BASE_SHA" 2>/dev/null || true
+          # 🔴 **路径按原样输出，不要 git 的八进制转义。** 默认的 `core.quotePath`
+          #    会把非 ASCII 文件名写成 `"docs/\344\270\255.md"` —— 带引号、带反斜杠
+          #    的那一串既不是真实路径，也不会等于任何前缀，于是
+          #    ① 白名单判定拿到的是一个假路径；
+          #    ② `maintainer-gates` 按这份清单去 PR 树里找文件会**找不到**。
+          #    投稿路径上的文件名受 §01-4 限成 ASCII，但 maintainer PR 不受这条限制。
+          git config core.quotePath false
           # 🔴 **必须 `--no-renames`。** 带重命名检测时
           #    `.github/x.yml → submissions/x.yml` 只列出**新**路径，
           #    于是「把受保护文件删掉」会从投稿白名单溜过去。
           git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > ../changed.txt
+          # 同一次比较，只去掉被删除的那些（小写 `d` 是排除）。
+          git diff --no-renames --name-only --diff-filter=d "$BASE_SHA...$HEAD_SHA" > ../present.txt
           cd ..
-          echo "改动 $(wc -l < changed.txt) 个路径："
-          cat changed.txt
+          echo "改动 $(wc -l < changed.txt) 个路径（其中 $(wc -l < present.txt) 个仍存在）："
+          # 🔴 **文件名是攻击者可控的，不要让它顶到行首。** 关掉 `core.quotePath`
+          #    之后路径按原样输出，一个叫 `::error::…` 的文件（或名字里带换行的
+          #    文件）就能在日志里伪造 workflow command。`nl` 给每行加序号，
+          #    行首永远是空白 + 数字，`::` 再也到不了行首。
+          nl -ba changed.txt
+          # 🔴🔴 **分隔符必须是随机的，不能是写死的 `PATHS_EOF`**（Codex 2026-09-01）。
+          #    这里往 `$GITHUB_OUTPUT` 里写的是**攻击者可控的文件名**。仓库根下放一个
+          #    名叫 `PATHS_EOF` 的文件，这个 heredoc 就在那一行提前闭合 ——
+          #    后面的路径**不再属于这个 output**（还会被当成新的 output 名解析）。
+          #    于是 classify 只看到清单的**前半截**：把 `artifacts/x.json` 排在
+          #    `PATHS_EOF` 后面，路径白名单就根本没看见它。
+          #    ⚠️ 这个形状在加 maintainer 之前就存在，不是新引入的；跨 job 再传一次
+          #    只是把它放大。随机分隔符是 GitHub 自己文档里给的解法。
+          delim="EOF_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
           {
-            echo 'list<<PATHS_EOF'
+            echo "list<<$delim"
             cat changed.txt
-            echo 'PATHS_EOF'
+            echo "$delim"
+            echo "present<<$delim"
+            cat present.txt
+            echo "$delim"
           } >> "$GITHUB_OUTPUT"
 
       - name: 分流 + 路径白名单（§4 / §5）
@@ -150,6 +184,13 @@ jobs:
           PATHS: ${{ steps.paths.outputs.list }}
         run: |
           set -euo pipefail
+          # 🔴 **维护者名单来自 base**（既有事实），不是被检的 PR ——
+          #    否则投稿者只要在同一张 PR 里把自己写进 maintainers.json，
+          #    就能给自己判出 maintainer，而 maintainer 没有路径白名单。
+          # 🔴 **取的是 `.id`（不可变 node id），不是 `.login`。** login 可以改名、
+          #    也可以被别人重新认领：维护者改名之后，攻击者认领那个旧 login
+          #    就直接成了维护者。整个仓库在这一条上是一致的，别在这里破例。
+          ids=$(jq -r '.maintainers | map(.id) | join(",")' base-tools/registry/maintainers.json)
           # 🔴 跑的是 **base-tools/** 里那一份 —— PR 改不动它。
           kind=$(node --no-warnings base-tools/scripts/submission/pr-classify.mjs \
             --head-ref "$HEAD_REF" \
@@ -158,6 +199,7 @@ jobs:
             --author-id "$AUTHOR_ID" \
             --author "$AUTHOR_LOGIN" \
             --release-bot-id "$RELEASE_BOT_ID" \
+            --maintainer-ids "$ids" \
             --changed-paths "$PATHS")
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
           echo "::notice::本 PR 判定为 $kind"
@@ -283,9 +325,187 @@ jobs:
           node --no-warnings base-tools/scripts/promote/verify-promotion.mjs \
             --pr pr --base base-tools
 
+  # ── maintainer PR：维护者改基础设施的那条路径（§5）──────────────────────
+  #
+  # 🔴 **这条路径 2026-09-01 之前根本不存在，而它的缺席是一个死锁。**
+  #    §5 的硬拒清单把 `.github/ artifacts/ registry/ cli/ scripts/ docs/`
+  #    对投稿关死，报错文案自己写着「改这些路径的 PR 必须来自 org 成员，
+  #    走单独的 maintainer 路径」—— 那条路径没实现，于是**任何**不是 release bot
+  #    开的 PR 都落进 submission，维护者改代码的 PR 永远合不了。
+  #    真实后果：把 `pr-gate` 钉进 required checks 的那一刻，仓库锁死 ——
+  #    连修这个 bug 的 PR 都推不上去。所以顺序必须是「先让维护者的 PR 能合，再钉门」。
+  #
+  # 🔴 **maintainer 不是「免检」，只是「不检投稿白名单」。** 它照样：
+  #    · 走 CODEOWNERS 审批（那是分支保护管的，不在这个文件里）；
+  #    · 跑 `ci.yml` 的 `ci-gate`；
+  #    · **不许改 `artifacts/**` 与 `registry/snapshots/**`** ——
+  #      那两个目录只能由 promotion PR 动，由 `pr-classify.mjs` 的
+  #      `MAINTAINER_DENY` 在 route 那一步就拒掉。一个维护者手改快照会绕过
+  #      确定性复算门与不可变门，那正是整套设计要防的。
+  maintainer-gates:
+    needs: route
+    if: ${{ needs.route.outputs.kind == 'maintainer' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 🔴 只读。列 reviews 需要 pull-requests: read —— 与 submission-gates 同款：
+    #    不是 secret，也不给写权限，所以不违反 §5。
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: 检出 base 的校验器（可信）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-tools
+          persist-credentials: false
+      - name: 检出 PR 内容（不可信 —— 只读）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      # 🔴 依赖只在 base 树里装、用 base 的 lockfile（同另外两条路径）。
+      - run: npm ci --ignore-scripts
+        working-directory: base-tools
+
+      # 🔴🔴 **maintainer PR 一样可以夹带一份投稿，而投稿有它自己的两道门。**
+      #    （Codex 2026-09-01 点名）没有这一步的话，维护者只要把一份畸形投稿
+      #    塞进自己那张「改 CI」的 PR 里，§6 结构门与 §7 Tier 审批人数门
+      #    **一道都不跑** —— 那份内容会直接进 main（main 上的东西会被 clone、
+      #    被 fork），随后在 promote 阶段才炸，并把整条发布流水线堵死。
+      #    「后面还有一道门」不等于「这里可以没有门」：
+      #    「进了 main 但没发布」和「从来没进过 main」是两回事。
+      #
+      # 🔴 判据取自 **router**（可信、已经过路径门），不是在这里重算 diff。
+      #    并且**默认为 yes**：只有明确证明这张 PR 一个 `submissions/` 都没碰，
+      #    才允许跳过。写成 fail-open 的话，grep 写错一个字符 = 门无声消失。
+      - name: 这张 PR 夹带投稿了吗
+        id: touched
+        env:
+          PATHS: ${{ needs.route.outputs.paths }}
+        run: |
+          set -euo pipefail
+          # 🔴🔴 **不能写成 `printf … | grep -q`**（Codex 2026-09-01 抓到的实洞）：
+          #    `grep -q` 命中后**立刻退出**，`printf` 随即吃到 SIGPIPE 返回 141，
+          #    而 `pipefail` 让整条管道的退出码变成 141 —— `if !` 于是判真，
+          #    **命中反而被写成 `sub=no`**。清单超过管道缓冲区（约 64 KiB）时必现：
+          #    维护者只要在投稿之后再塞几千个无关文件，§6 与 §7 两道门就双双被跳过，
+          #    而 maintainer-gates 与 pr-gate 全绿。
+          #    ⚠️ 这正是「fail-closed 的默认值被一个 shell 细节反转」——
+          #    写死默认值不够，还要保证判定本身不会把「命中」读成「没命中」。
+          printf '%s\n' "$PATHS" > paths.txt
+          # 🔴 落盘再 grep，没有管道；并且**显式区分**「没命中」(1) 与「grep 出错」(≥2)。
+          #    把出错也当成「没命中」是同一个洞的另一张脸。
+          set +e
+          grep -q '^submissions\(/\|$\)' paths.txt
+          rc=$?
+          set -e
+          case "$rc" in
+            0) sub=yes ;;
+            1) sub=no ;;
+            *) echo "::error::判定「有没有夹带投稿」时 grep 出错（rc=$rc）—— 不猜，直接拒"; exit 1 ;;
+          esac
+          echo "sub=$sub" >> "$GITHUB_OUTPUT"
+          echo "::notice::夹带 submissions/ 改动：$sub"
+
+      # 🔴 与 submission-gates 里那一步**逐字同款**（可信代码 × 不可信数据，
+      #    `--artifacts` / `--reserved` / `--owners` 全部指向 base）。
+      #    维护者身份不改变「一份投稿必须结构合法」这件事。
+      #
+      # ⚠️ **有意不传 `--by-maintainer true`**（Codex 2026-09-01 指出这一格）。
+      #    `run-gates.mjs` 用这个开关放行**保留 namespace**，而这里的作者确实是
+      #    维护者，按字面该传。不传的理由是**别造一个「这里绿、promote 红」的陷阱**：
+      #    `promote.yml` 合并后会把结构门原样重跑一遍，而它那一侧没有这个开关
+      #    （promote 时「谁是维护者」已经不是一个 PR 事实了）。
+      #    两边不一致的话，一份占用保留 namespace 的投稿会顺利合进 main，
+      #    然后卡死整条发布流水线 —— 比现在「维护者也用不了保留 namespace」难查得多。
+      #    代价：维护者要注册保留 namespace 得先改 `reserved.json`。
+      #    要放开的话**必须两侧一起改**，别只改这一处。
+      - name: §6 结构门（夹带投稿时照跑）
+        if: ${{ steps.touched.outputs.sub == 'yes' }}
+        run: |
+          set -euo pipefail
+          node --no-warnings base-tools/scripts/submission/run-gates.mjs \
+            --submissions pr/submissions \
+            --artifacts base-tools/artifacts \
+            --reserved base-tools/registry/reserved.json \
+            --owners base-tools/registry/owners.json
+
+      # 🔴 §7 的审批人数门同理。`tier-gate.mjs` 已经**排除投稿者本人**，
+      #    所以「维护者给自己的 Tier 2 投稿投一票」凑不齐 —— 这正是要的。
+      - name: §7 Tier 审批人数（夹带投稿时照跑）
+        if: ${{ steps.touched.outputs.sub == 'yes' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          AUTHOR: ${{ github.event.pull_request.user.node_id }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+            | jq -s 'add // [] | map({
+                userId: .user.node_id, userLogin: .user.login,
+                state: .state, commitId: .commit_id, submittedAt: .submitted_at
+              })' > reviews.json
+          ids=$(jq -r '.maintainers | map(.id) | join(",")' base-tools/registry/maintainers.json)
+          node --no-warnings base-tools/scripts/submission/tier-gate.mjs \
+            --submissions pr/submissions --reviews reviews.json \
+            --pr-head-sha "$HEAD" --maintainer-ids "$ids" --author-id "$AUTHOR"
+
+      # 🔴🔴 **只扫本 PR 改动的文件，不扫全仓 —— 这不是图省事。**
+      #    实测：`scan-text.mjs --submissions .` 在本仓库上就是**红的**，
+      #    `src/pack.mjs` 的一段注释里有一个**故意的** U+200B（写
+      #    `*<ZWSP>/matrix-contract.md` 时用零宽空格顶开，否则 `*/` 会提前闭合块注释）。
+      #    扫全仓 = 每一张维护者 PR 都被一处与它无关的既有内容挡死 = 仓库还是锁死，
+      #    正是这个 job 存在的意义所要消除的那个失败模式。
+      #    ⚠️ 反过来的代价是：**已经在 main 上的旧内容不会被这道门重扫**。
+      #    这是有意的分工 —— 一张 PR 应当为它自己改的东西负责。
+      - name: 摘出本 PR 改动的文件（拷出来当数据，从不执行）
+        env:
+          PRESENT: ${{ needs.route.outputs.present }}
+        run: |
+          set -euo pipefail
+          mkdir -p scan-src
+          cd pr
+          n=0
+          while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            # 🔴 `./` 前缀 + `--`：文件名可以以 `-` 开头，不加就成了给 cp 的选项。
+            if [ -L "./$p" ]; then
+              echo "::error::改动路径 $p 是符号链接 —— 不拷、不扫，请人工确认"
+              exit 1
+            fi
+            # 🔴 **找不到就硬失败，不静默跳过。** 这份清单已经排除了被删除的路径
+            #    （--diff-filter=d），所以「列出来了却不存在」只可能是清单与树对不上
+            #    —— 那种情况下「扫过了」这句话是假的，而假的绿比红更危险。
+            if [ ! -f "./$p" ]; then
+              echo "::error::改动路径 $p 在 PR 树里不是一个普通文件 —— 拒绝判定"
+              exit 1
+            fi
+            mkdir -p "../scan-src/$(dirname -- "$p")"
+            cp -- "./$p" "../scan-src/$p"
+            n=$((n + 1))
+          done <<< "$PRESENT"
+          echo "::notice::摘出 $n 个改动文件待扫"
+
+      # 🔴 §8 第 5 条对 maintainer PR **一样生效**：维护者也会被钓鱼，
+      #    而 bidi（Trojan Source, CVE-2021-42574）恰恰是「评审时看着没问题」的那类 ——
+      #    渲染出来的顺序与字节顺序不同，人读到的和 agent 读到的可以是两段不同的指令。
+      #    维护者 PR 改的正是 `scripts/` 与 `.github/`，也就是**门自己**，
+      #    所以这条对它比对投稿更要紧，不是更不要紧。
+      - name: 不可见字符 / bidi / 同形字（§8 第 5 条）
+        run: |
+          set -euo pipefail
+          node --no-warnings base-tools/scripts/submission/scan-text.mjs \
+            --submissions scan-src --annotate
+
   # ── 🔴 分支保护要钉的是这一个固定名（同 ci.yml 的 ci-gate）────────────────
   pr-gate:
-    needs: [route, submission-gates, promotion-gates]
+    needs: [route, submission-gates, promotion-gates, maintainer-gates]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -301,24 +521,43 @@ jobs:
           ROUTE: ${{ needs.route.result }}
           SUB: ${{ needs.submission-gates.result }}
           PROMO: ${{ needs.promotion-gates.result }}
+          MAINT: ${{ needs.maintainer-gates.result }}
         run: |
           set -euo pipefail
-          echo "route=$ROUTE kind=${KIND:-（无）} submission=$SUB promotion=$PROMO"
+          echo "route=$ROUTE kind=${KIND:-（无）} submission=$SUB promotion=$PROMO maintainer=$MAINT"
           [ "$ROUTE" = "success" ] || { echo "::error::分流本身没通过"; exit 1; }
 
           # 🔴 判据是「**router 挑中的那一条**跑过且 success」，而不是「有一条 success」。
           #    §4 担心的正是后者：配成「任一通过即可」时，投稿 PR 可以伪装成
-          #    promotion 分支去走另一条路。这里两条互斥、且只认 router 的判定。
+          #    promotion 分支去走另一条路。三条路径互斥、且只认 router 的判定。
+          #
+          # 🔴🔴 **从两条扩到三条时，最容易写松的就是这里。** 两条的时候
+          #    「我这条 success」+「另一条 skipped」已经穷尽了；三条的时候
+          #    只写「另**一**条 skipped」会漏掉第三条 —— 那正好等价于
+          #    「任一通过即可」的一个弱化版本：kind=submission 而 maintainer-gates
+          #    也跑了（并且通过了），聚合门照样绿，于是 router 的判定形同虚设。
+          #    所以每个分支下都必须**逐一**点名另外两条，一条都不能省。
+          #
+          # 🔴 **`skipped` 是被要求的状态，不是「算它过」。** `always()` 下
+          #    一个 `failure` / `cancelled` 的旁路 job 同样不是 `skipped`，
+          #    照样会在这里红 —— 那是对的：本不该跑的东西跑起来了，本身就是异常。
           case "$KIND" in
             submission)
               [ "$SUB" = "success" ] || { echo "::error::投稿结构门未通过（$SUB）"; exit 1; }
               [ "$PROMO" = "skipped" ] || { echo "::error::promotion 路径本不该跑，却是 $PROMO"; exit 1; }
+              [ "$MAINT" = "skipped" ] || { echo "::error::maintainer 路径本不该跑，却是 $MAINT"; exit 1; }
               ;;
             promotion)
               [ "$PROMO" = "success" ] || { echo "::error::promotion 复算门未通过（$PROMO）"; exit 1; }
               [ "$SUB" = "skipped" ] || { echo "::error::投稿路径本不该跑，却是 $SUB"; exit 1; }
+              [ "$MAINT" = "skipped" ] || { echo "::error::maintainer 路径本不该跑，却是 $MAINT"; exit 1; }
+              ;;
+            maintainer)
+              [ "$MAINT" = "success" ] || { echo "::error::maintainer 门未通过（$MAINT）"; exit 1; }
+              [ "$SUB" = "skipped" ] || { echo "::error::投稿路径本不该跑，却是 $SUB"; exit 1; }
+              [ "$PROMO" = "skipped" ] || { echo "::error::promotion 路径本不该跑，却是 $PROMO"; exit 1; }
               ;;
             *)
               echo "::error::router 没有给出判定（kind=${KIND:-（空）}）"; exit 1 ;;
           esac
-          echo "::notice::✔ $KIND 路径通过，另一条如预期被跳过。"
+          echo "::notice::✔ $KIND 路径通过，另外两条如预期被跳过。"
