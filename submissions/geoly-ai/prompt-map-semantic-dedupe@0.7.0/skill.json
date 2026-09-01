@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "external-tool"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "Remove exact and semantic duplicate product-card prompts while preserving distinct people, scenes, pains, results, and purchase-decision angles, and while carrying discovery lineage through so the final map provably remains an additive superset of every accepted discovery surface. Use after coverage is accepted or after prompt edits.",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "prompt-map-semantic-dedupe",
+  "namespace": "geoly-ai",
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.7.0"
+}

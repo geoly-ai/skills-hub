@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prompt Map Orchestrator"
+  short_description: "Run gated product-card Prompt Map workflows"
+  default_prompt: "Use $prompt-map-orchestrator to run this brand, category, and market Prompt Map workflow."

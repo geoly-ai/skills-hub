@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prompt Map Shared"
+  short_description: "Shared contracts for product-card Prompt Maps"
+  default_prompt: "Use $prompt-map-shared to apply the shared contracts for this Prompt Map task."
