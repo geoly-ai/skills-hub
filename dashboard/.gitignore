@@ -1,0 +1,8 @@
+node_modules/
+.next/
+out/
+.vercel
+# 🔴 本地口令与 token 绝不进版本库
+.env
+.env.local
+.env.*.local

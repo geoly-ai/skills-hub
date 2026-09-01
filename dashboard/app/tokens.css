@@ -1,0 +1,130 @@
+/*
+ * 设计 token —— dashboard 里**所有**颜色 / 字号 / 间距 / 圆角的唯一定义处。
+ *
+ * 来源：`site/DESIGN.md` 的 2026-09 重写版（Claude / Anthropic 视觉语言：
+ * ivory `#FAF9F5` / clay `#D97757` / 墨 `#141413`，Source Serif 4 + Inter +
+ * JetBrains Mono，「叙述纸 vs 记录纸」）。两个站要看起来像一家人。
+ *
+ * ⚠️ **那份设计尚未定稿**（写这份代码时 site/ 自己的 tokens.css 还停在上一版的
+ *    greenbar 方向）。所以这里的纪律是：**组件样式里不许出现字面量色值与字面量
+ *    像素间距，一律 `var(--…)`。** 将来 token 定稿了，只改这一个文件，
+ *    不用回头翻每一个组件。
+ *
+ * 🔴 **完整的浅色定义写在裸 `:root`**，深色只**重定义** token。
+ *    把某个颜色的唯一定义写进 `@media` 或 `[data-theme]` 里，在另一半条件下
+ *    它就没有值 —— 主题化最常见的「只在某个环境下才复现」的 bug。
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ── 中性：暖象牙（DESIGN.md §4.1）───────────────────────────────── */
+  --c-page:     #F0EEE6;   /* 页面底 */
+  --c-paper:    #FAF9F5;   /* 叙述纸：正文面板、卡片 */
+  --c-inset:    #EDEAE0;   /* 记录纸：台账、表格、命令、数字的凹陷底 */
+  --c-hairline: #DEDACB;
+  --c-rule:     #C9C3AF;
+  --c-rule-hi:  #B3AB93;
+
+  --c-text:     #141413;
+  --c-text-mid: #4A473F;
+  --c-text-dim: #605C51;
+
+  /* ── 强调：clay。🔴 拆成两个，理由见下面的「使用纪律」 ────────────── */
+  --c-clay:     #D97757;   /* 只画线，不写字 */
+  --c-clay-ink: #A34428;   /* 文字安全的 clay */
+
+  /* ── 语义色：颜料，不是霓虹 ──────────────────────────────────────── */
+  --c-ok:       #43632B;
+  --c-caution:  #855313;
+  --c-revoked:  #93291E;
+  --c-neutral:  #605C52;
+
+  /* ── 纸样：警示靠换纸，不靠加饱和度（DESIGN.md §3.3）─────────────── */
+  --p-manilla:  #F4EAD4;   /* 「服务端还没算」这类「不是故障，是还没做」 */
+  --p-grey:     #EDEDEB;   /* 「被抑制了」：撤走暖色 = 这块被划掉了 */
+  --p-heather:  #E8E7EF;   /* 「端点不可用」：仍带色相，与灰一眼分开 */
+  --p-clay:     #F7E7DE;
+
+  /* ── 字体（DESIGN.md §5）。CJK 一律走系统栈，不 web 加载 ──────────── */
+  --f-serif: var(--font-serif), "Source Han Serif SC", "Noto Serif CJK SC",
+             "Songti SC", STSong, SimSun, Georgia, serif;
+  --f-sans:  var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+             "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+             "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  /* 🔴 mono 栈里也要挂中文：mono 段落里夹的中文若掉进默认字体，行高会跳 */
+  --f-mono:  var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas,
+             "PingFang SC", "Microsoft YaHei", monospace;
+
+  /* ── 间距：4 的倍数 ─────────────────────────────────────────────── */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px; --sp-9: 96px;
+
+  /* ── 字号阶梯（DESIGN.md §6.1）─────────────────────────────────── */
+  --fs-title: 34px; --fs-h2: 22px; --fs-h3: 15px;
+  --fs-lg: 17px;    --fs-base: 15px; --fs-sm: 13.5px;
+  --fs-mono: 12.5px; --fs-xs: 12px; --fs-label: 11.5px;
+  --fs-zero: 92px;  /* 全站唯一的大号数字 */
+
+  /* ── 圆角：Anthropic 的四档。🔴 全站不出现胶囊（999px）────────────── */
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 16px;
+
+  /* 全站唯一的阴影，只给弹出层。卡片、面板、记录纸块一律无阴影 ——
+     记录纸是**凹陷**的，给它阴影会读成「浮起来的卡片」。 */
+  --shadow-pop: 0 2px 2px rgba(20, 20, 19, .012), 0 4px 4px rgba(20, 20, 19, .02),
+                0 16px 24px rgba(20, 20, 19, .04), 0 0 0 1px var(--c-hairline);
+
+  --wrap: 1120px;
+
+  /*
+   * 几个**刻意不在间距尺度上**的值。它们各有出处，所以照样给 token ——
+   * 组件样式里不出现字面量像素，这条纪律没有例外。
+   */
+  --h-header: 60px;      /* sticky 站头。DESIGN.md §9.1 实测过：它被撑成两行会盖住正文 */
+  --row-y: 5px;          /* 台账行上下各 5px = 行高 10px。记录纸要密（§3.2 规则 1） */
+  --tbl-min: 640px;      /* 表格最小宽度，窄屏在 .tablescroll 里横向滚，不撑破 body */
+  --fs-notice: 20px;     /* 告示条标题。🔴 衬线只用于 ≥20px，所以它正好卡在下限上 */
+}
+
+/*
+ * 暗色。两处都要写：`@media` 让系统偏好生效，`[data-theme]` 让手动切换
+ * 能**双向**覆盖系统偏好。只有其中一处的话，手动切到亮色在暗色系统下会失效。
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --c-page: #1A1917; --c-paper: #22211E; --c-inset: #191816;
+    --c-hairline: #343329; --c-rule: #4A483E; --c-rule-hi: #5C5A4E;
+    --c-text: #F9F9F7; --c-text-mid: #C3C2B7; --c-text-dim: #A4A195;
+    --c-clay: #D97757; --c-clay-ink: #EE9873;
+    --c-ok: #A3C275; --c-caution: #E2B563; --c-revoked: #F2938A; --c-neutral: #ABA89B;
+    /* 🔴 --p-grey 在暗色里必须偏**冷**：「撤走暖色」这个机制在暗色里靠色温差成立。 */
+    --p-manilla: #2E2820; --p-grey: #2B2B2E; --p-heather: #262533; --p-clay: #35251E;
+  }
+}
+
+:root[data-theme="dark"] {
+  --c-page: #1A1917; --c-paper: #22211E; --c-inset: #191816;
+  --c-hairline: #343329; --c-rule: #4A483E; --c-rule-hi: #5C5A4E;
+  --c-text: #F9F9F7; --c-text-mid: #C3C2B7; --c-text-dim: #A4A195;
+  --c-clay: #D97757; --c-clay-ink: #EE9873;
+  --c-ok: #A3C275; --c-caution: #E2B563; --c-revoked: #F2938A; --c-neutral: #ABA89B;
+  --p-manilla: #2E2820; --p-grey: #2B2B2E; --p-heather: #262533; --p-clay: #35251E;
+}
+
+/*
+ * ── 使用纪律（改样式前读一遍）────────────────────────────────────────────
+ *
+ * 🔴 `--c-clay` 不能当正文色：它在 `--c-paper` 上只有 2.96:1。
+ *    它只画线（下划线、焦点环、计量条、节点圆点），文字一律 `--c-clay-ink`。
+ * 🔴 `--c-clay` 不表达任何状态。它只说「这里可点 / 这是当前项 / 这里有焦点」。
+ * 🔴 **`--c-ok` 在这个站点里几乎用不到。** site/ 那边它是「验证轴唯一的绿」；
+ *    这里没有验证轴 —— 一个 `result: ok` 的埋点计数**不是**一次验证通过，
+ *    给它绿色会让「有人装成功过」看起来像「我们担保过它」。
+ *    result 的四个取值一律用中性色 + 词，不给颜色编码。
+ * 🔴 状态永远同时给词：颜色是第二通道。
+ * 🔴 大写只给我们自己造的标签（`.label`），不给数据 —— 制品坐标与版本号
+ *    区分大小写，`text-transform: uppercase` 会把值改掉。
+ * 🔴 `.label` 里只放拉丁与数字；只要出现一个汉字就换 `.label-cn`
+ *    （uppercase 对中文无效，letter-spacing 会把中文拉散）。
+ * ───────────────────────────────────────────────────────────────────────
+ */

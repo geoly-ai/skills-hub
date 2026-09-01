@@ -136,6 +136,59 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node scripts/check-pack-contents.mjs
 
+  # ── dashboard（埋点数据平台）是一个独立的 npm 项目，根仓库的 `npm test` 扫不到它 ──
+  dashboard:
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ fromJSON(needs.versions.outputs.matrix)[0] }}
+      - run: npm ci
+        working-directory: dashboard
+
+      - name: 单元测试（构建前）
+        run: npm test
+        working-directory: dashboard
+
+      # 🔴 **值扫描用的是固定假值，不是真 secret。**
+      #    `test/build-output.test.mjs` 扫的是「这两个变量的**值**有没有出现在
+      #    浏览器包里」。假值同样能证伪（真漏的话漏的就是构建时用的那个值），
+      #    而把真密钥送进 CI 只是白白多一处它可能泄漏的地方。
+      #    ⚠️ 长度必须 ≥8 —— 那个测试对更短的值直接不扫。
+      - name: 构建
+        working-directory: dashboard
+        env:
+          DASHBOARD_ACCESS_SECRET: ci-fake-access-secret-do-not-use
+          GEOLY_SUMMARY_URL: https://example.invalid/v1/summary
+          GEOLY_TELEMETRY_SUMMARY_TOKEN: ci-fake-summary-token-do-not-use
+        run: npm run build
+
+      # 🔴 **构建产物不在时那个测试会 skip 而不是红** —— 那在 CI 里是一条静默缝：
+      #    构建万一没把 `.next/static` 放到预期位置，测试跳过、这个 job 照样绿，
+      #    而「token 没漏进浏览器包」这句话就完全没有被验证过。
+      #    所以在跑第二遍测试之前，先硬断言产物真的在。
+      - name: 断言构建产物在（否则下一步的扫描会静默跳过）
+        working-directory: dashboard
+        run: |
+          set -euo pipefail
+          test -d .next/static || { echo "::error::.next/static 不存在 —— 构建产物扫描会 skip 成假绿"; exit 1; }
+          n=$(find .next/static -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.json' -o -name '*.txt' -o -name '*.map' \) | wc -l)
+          echo ".next/static 里有 $n 个可扫文件"
+          [ "$n" -gt 0 ] || { echo "::error::.next/static 里没有可扫的文件 —— 同样是假绿"; exit 1; }
+
+      - name: 构建产物扫描（第二遍测试，这次 build-output 才真的在把关）
+        working-directory: dashboard
+        env:
+          DASHBOARD_ACCESS_SECRET: ci-fake-access-secret-do-not-use
+          GEOLY_SUMMARY_URL: https://example.invalid/v1/summary
+          GEOLY_TELEMETRY_SUMMARY_TOKEN: ci-fake-summary-token-do-not-use
+        run: npm test
+
   # ── 🔴 聚合门：**分支保护里钉这一个** ───────────────────────────────────
   #
   # 为什么需要它：矩阵 job 的 check 名字里带着矩阵值（形如 `test (<版本>)`）。
@@ -150,7 +203,7 @@ jobs:
   #    Settings → Branches / Rulesets 里把 `ci-gate` 设为 required status check。
   #    这一步只有仓库管理员能做，YAML 里写不出来。
   ci-gate:
-    needs: [versions, test, fault-exhaustive, pack]
+    needs: [versions, test, fault-exhaustive, pack, dashboard]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -166,7 +219,7 @@ jobs:
           #    只做后者的话，`needs` 少了一项（有人删了 job、或改错了名字）
           #    会让判定在一个**更小的集合**上成立 —— 那是一道会自己缩水的门。
           #    实测过 `to_entries[] | select(...)` 在空对象上输出为空 ⇒ 直接假绿。
-          for want in versions test fault-exhaustive pack; do
+          for want in versions test fault-exhaustive pack dashboard; do
             if ! echo "$RESULTS" | jq -e --arg k "$want" 'has($k)' >/dev/null; then
               echo "::error::ci-gate 的 needs 里缺少 $want —— 这道门正在一个不完整的集合上判定"
               exit 1

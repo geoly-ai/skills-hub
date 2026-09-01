@@ -821,6 +821,46 @@ function mutateRealLine(body, find, replace, { last = false } = {}) {
   return lines.join('\n');
 }
 
+// ── ci.yml：ci-gate 的两份清单必须一致 ─────────────────────────────────────
+//
+// 🔴 `ci-gate` 自己带了一道「needs 里缺少 X」的运行时检查，但**它的检查清单是
+//    手维护的第二份**：`needs: [...]` 一份，`for want in ...` 一份。
+//    两份不一致的方向决定了后果，而危险的那个方向是**静默的**：
+//      · `want` 里有、`needs` 里没有 → 运行时直接报错（那道门自己抓得住）；
+//      · `needs` 里有、`want` 里没有 → **新 job 的结果根本不被核验**，
+//        它红了 `ci-gate` 照样绿。没有任何东西会报错。
+//    2026-09-01 加 `dashboard` job 时正是手改的这两处 —— 会出错的操作要有门。
+test('🔴 ci-gate 的 needs 清单与它自查的 want 清单必须逐项一致', () => {
+  const body = read('ci.yml');
+
+  // 🔴 按**下标**切 job 块，不用一条正则一把梭。
+  //    第一版写的 `(?=^  [a-z-]*:\n|\Z)` 在 JS 里是坏的：JS 正则**没有** `\Z`,
+  //    那两个字符被当成字面量 `Z`，于是「到文件末尾」这一路根本匹配不上,
+  //    ci-gate 是最后一个 job 时整块切不出来。变异自检当场把它抓住了
+  //    （control 副本就红了）—— 正是它存在的理由。
+  const HEAD = '\n  ci-gate:\n';
+  const at = body.indexOf(HEAD);
+  assert.notEqual(at, -1, 'ci.yml 里找不到 ci-gate job —— 这条断言正在空跑');
+  const rest = body.slice(at + HEAD.length);
+  const nextJob = rest.search(/\n {2}[a-z][\w-]*:\n/);
+  const block = nextJob === -1 ? rest : rest.slice(0, nextJob);
+
+  const needsLine = block.match(/^\s*needs:\s*\[([^\]]+)\]/m);
+  assert.ok(needsLine, 'ci-gate 的 needs 不是 `[a, b, c]` 这种能读懂的写法');
+  const needs = needsLine[1].split(',').map((x) => x.trim()).filter(Boolean);
+
+  const wantLine = block.match(/for want in ([^;]+); do/);
+  assert.ok(wantLine, 'ci-gate 里找不到 `for want in ...; do` 自查清单');
+  const wants = wantLine[1].trim().split(/\s+/).filter(Boolean);
+
+  assert.ok(needs.length > 0, 'needs 清单是空的');
+  assert.deepEqual(
+    [...wants].sort(), [...needs].sort(),
+    `ci-gate 的两份清单不一致：needs=[${needs.join(', ')}] want=[${wants.join(', ')}]。`
+    + ' 只在 needs 里出现的 job，它红了 ci-gate 照样绿。',
+  );
+});
+
 /**
  * 每个变异都写明**该由哪一条断言抓住**（`expect` 是那条 test 名字的一段）。
  *
@@ -829,6 +869,9 @@ function mutateRealLine(body, find, replace, { last = false } = {}) {
  *    这正是这份文件反复踩的那个坑的另一个形状 —— 「看起来被守住了」。
  */
 const MUTATIONS = [
+  ['ci.yml', 'for want in versions test fault-exhaustive pack dashboard; do',
+    'for want in versions test fault-exhaustive pack; do',
+    'ci-gate 的 want 清单少一项（needs 里仍有）', 'want 清单必须逐项一致'],
   ['validate-pr.yml', '      contents: read', '      contents: write', 'job 权限改成 write', 'write 权限'],
   ['validate-pr.yml', '--reserved base-tools/', '--reserved pr/', '保留名单改成从 PR 读', '已有事实'],
   ['validate-pr.yml', 'base-tools/registry/maintainers.json', 'pr/registry/maintainers.json', '维护者名单从 PR 读', '已有事实'],

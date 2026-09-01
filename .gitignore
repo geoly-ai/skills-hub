@@ -12,4 +12,14 @@ site/.next/
 site/out/
 # 构建期生成的站点数据：由 site/build.mjs 从签名快照产出，不进版本库
 site/.generated/
+
+# 埋点数据平台（dashboard/）—— 独立的 Vercel 项目，Next.js 动态渲染
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/
+# 🔴 本地口令与 summary token 绝不进版本库
+dashboard/.env
+dashboard/.env.local
+dashboard/.env.*.local
+
 .vercel
