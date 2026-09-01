@@ -21,7 +21,7 @@
 
 import { realpathSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { effectiveApprovers, exclusionNote } from '../submission/approval-policy.mjs';
+import { approvalsWaived, effectiveApprovers, exclusionNote, waiverNotice } from '../submission/approval-policy.mjs';
 
 class VerifyError extends Error {
   constructor(code, msg) { super(msg); this.name = 'VerifyError'; this.code = code; }
@@ -118,6 +118,12 @@ export function currentApprovers({ reviews, prHeadSha, maintainerIds }) {
  */
 export function assertApprovalsCurrent({ reviews, prHeadSha, maintainerIds, needed, authorId = null }) {
   if (!Number.isInteger(needed) || needed < 1) bad('E_VERIFY_INPUT', `needed 必须是正整数，得到 ${needed}`);
+  // 🔴 与 tier-gate **同步**放行 —— 两处不同步的后果是「合并前过了、promote 时
+  //    不过」：PR 已经进了 main，发布却卡住，而两边日志各说各有理。
+  if (approvalsWaived({ authorId })) {
+    process.stderr.write(waiverNotice({ where: 'verify-merged-pr（promote 时）', authorId, need: needed }));
+    return [];
+  }
   const all = currentApprovers({ reviews, prHeadSha, maintainerIds });
   // 🔴 与 tier-gate 共用同一份策略 —— 分叉的后果是「合并前过了、promote 时不过」。
   const effective = effectiveApprovers({ all, authorId });

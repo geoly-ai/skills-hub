@@ -43,3 +43,46 @@ export function exclusionNote({ all, authorId }) {
   return EXCLUDE_AUTHOR && authorId !== null && all.includes(authorId)
     ? `\n  （已排除投稿者本人 id=${authorId}）` : '';
 }
+
+/**
+ * 🔴 **这些人自己投的稿，免掉「要几个人 approve」这道门。**
+ *
+ * 2026-09-01 用户拍板：「只要是我自己发，不管什么规则都可以发。」
+ *
+ * ⚠️ **免掉的只有审批人数，不是别的门。** 别把这个常量读成「他的投稿不检查」：
+ *    结构门（§6）、不可见字符 / bidi 扫描（§8.5）、路径白名单、版本号是否被
+ *    占用过、promote 时的确定性复算与不可变门 —— **一条都照跑**。
+ *    这里放行的是「需要几个人点头」，不是「内容对不对」。
+ *
+ * 🔴 **判据是不可变 node id，不是 login。** login 能改名、也能被别人重新认领；
+ *    写 login 的话，改名之后攻击者认领旧 login 就直接拿到这条豁免。
+ *
+ * ⚠️ **残余风险，明写不粉饰**：名单上的账号被接管 = 对方可以在无人复核的情况下
+ *    往 registry 里发任何东西（内容门仍在，但内容门管不了「这东西该不该发」）。
+ *    这是用户在明知的前提下选择的形态，不是疏漏。
+ *
+ * 📌 放行时**必须在日志里大声说出来**（见下面两个调用点）—— 一次静默的豁免
+ *    和一道坏掉的门，事后看起来是一模一样的。
+ */
+export const APPROVAL_BYPASS_IDS = Object.freeze([
+  'U_kgDODu4RvA', // chovizzz
+]);
+
+/**
+ * 这次投稿的审批人数门要不要放行。
+ *
+ * @param {object} a
+ * @param {string|null} a.authorId
+ * @returns {boolean}
+ */
+export function approvalsWaived({ authorId }) {
+  return typeof authorId === 'string' && authorId !== '' && APPROVAL_BYPASS_IDS.includes(authorId);
+}
+
+/** 放行时打在 stderr 上的那句话 —— 两处共用，措辞不许各写各的。 */
+export function waiverNotice({ where, authorId, need }) {
+  return `⚠️ 🔴 ${where}：作者 id=${authorId} 在审批豁免名单里，`
+    + `跳过「需要 ${need} 名维护者 approve」这道门。\n`
+    + '   ⚠️ 只跳过审批人数 —— 结构门、字符扫描、路径白名单、版本号占用、'
+    + '确定性复算**都仍然跑过了**。\n';
+}

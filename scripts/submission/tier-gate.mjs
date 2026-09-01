@@ -31,7 +31,7 @@ import { parseStrict } from '../../src/canonical-json.mjs';
 import { collectTree } from '../../src/packer.mjs';
 import { scanSubmissions } from './run-gates.mjs';
 import { executableEvidence } from './structural-gates.mjs';
-import { effectiveApprovers } from './approval-policy.mjs';
+import { approvalsWaived, effectiveApprovers, waiverNotice } from './approval-policy.mjs';
 import { capabilityTier } from '../promote/build-inputs.mjs';
 import { currentApprovers } from '../promote/verify-merged-pr.mjs';
 
@@ -130,6 +130,13 @@ export const neededFor = (tier) => (tier >= 2 ? 2 : 1);
  */
 export function assertTierApprovals({ tier, reviews, prHeadSha, maintainerIds, authorId = null }) {
   const need = neededFor(tier);
+  // 🔴 审批豁免：名单上的人自己投的稿跳过人数门。**只跳过人数**，
+  //    这个函数之外的所有门（结构、字符扫描、白名单、版本占用、复算）照跑。
+  //    ⚠️ 放行必须**出声** —— 静默的豁免和坏掉的门，事后看起来一模一样。
+  if (approvalsWaived({ authorId })) {
+    process.stderr.write(waiverNotice({ where: 'tier-gate（合并前）', authorId, need }));
+    return [];
+  }
   // 🔴 复用 promote 侧那一份 —— approve 是否挂在当前 head 上、是不是维护者、
   //    一个人只算最新一条，这些判据两处必须**完全一致**，否则会出现
   //    「合并前过了、promote 时不过」这种最难查的分叉。
