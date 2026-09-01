@@ -12,3 +12,4 @@ site/.next/
 site/out/
 # 构建期生成的站点数据：由 site/build.mjs 从签名快照产出，不进版本库
 site/.generated/
+.vercel

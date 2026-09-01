@@ -1,0 +1,18 @@
+# Vercel 部署时不上传这些。
+#
+# 🔴 Root Directory 设成 `site` + 「包含根目录之外的文件」之后，**整个仓库**都会被
+#    打包上传 —— 站点的构建脚本要 import 仓库根的 `src/snapshot.mjs`、
+#    `scripts/release/build-timestamp.mjs`，并读 `registry/snapshots`，所以那个开关必须开。
+#    代价是：不排掉依赖目录的话，`site/node_modules` 一个就有 327 MB，
+#    上传会直接超时中断（实测）。依赖由 Vercel 自己 `npm install`，不需要我们传。
+node_modules
+site/node_modules
+site/.next
+site/out
+site/.generated
+.git
+
+# 跑不到的东西没必要进构建机
+test
+.claude
+docs
