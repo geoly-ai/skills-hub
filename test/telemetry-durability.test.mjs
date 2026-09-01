@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, statSync, mkdirSync, existsSync, appendFileSync, readFileSync,
-  openSync, closeSync, unlinkSync, fstatSync,
+  openSync, closeSync, unlinkSync, fstatSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -261,10 +261,14 @@ test('🔴 压力：一边狂 record 一边反复 flush，落盘成功的一条�
   const { tm, up } = await fresh();
   process.env.GEOLY_TELEMETRY_ENDPOINT = 'https://hub.example/collect';
 
-  const child = spawn(process.execPath, [join(here, 'fixtures/recorder.mjs'), '4000'], {
-    stdio: ['ignore', 'pipe', 'inherit'],
-    env: { ...process.env, GEOLY_STATE_DIR: d },
-  });
+  // 🔴 **子进程录到什么时候由这里说了算。** minN=3500 保证下面
+  //    `recorded.length > 3000` 那条一定够；maxN 只是父进程挂掉时的兜底。
+  const stopFile = join(d, 'STOP');
+  const child = spawn(
+    process.execPath,
+    [join(here, 'fixtures/recorder.mjs'), '3500', '2000000', stopFile],
+    { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, GEOLY_STATE_DIR: d } },
+  );
   let out = '';
   child.stdout.on('data', (c) => (out += c));
 
@@ -280,11 +284,26 @@ test('🔴 压力：一边狂 record 一边反复 flush，落盘成功的一条�
   let alive = true;
   let batchesWhileAlive = 0;
   child.once('exit', () => (alive = false));
+
   // 边录边发，让 rename / unlink / 换代 真的与 append 交错。
   // ⚠️ 每轮必须让出一个**宏任务**：flush 里全是同步 I/O，只 await 微任务的话
   // 事件循环永远到不了 poll 阶段，子进程的 'exit' 就永远不会触发（实测卡死过）。
+  //
+  // 🔴 **攒够交错批次之后才让子进程停** —— 这条循环以前是「子进程录完就结束」，
+  //    于是能攒到几批取决于机器快慢。现在攒够 WANT 批再放停止信号，
+  //    「录制期间发出了多批」这件事由构造保证，不再是一场赛跑。
+  const WANT = 5;
+  // ⚠️ 墙钟兜底不是为了让这条测试更容易绿，恰恰相反：drain 一直发不出东西
+  //    （真出了 bug）时，它保证我们**红在那条断言上**、而不是挂到测试超时 ——
+  //    后者的报错信息说不出哪里坏了。
+  const deadline = Date.now() + 60_000;
+  let signalled = false;
   while (alive) {
     if ((await drain()).sent > 0) batchesWhileAlive++;
+    if (!signalled && (batchesWhileAlive >= WANT || Date.now() > deadline)) {
+      writeFileSync(stopFile, '');
+      signalled = true;
+    }
     await new Promise((r) => setTimeout(r, 0));
   }
   // 收尾：把剩下的全发完
@@ -292,6 +311,10 @@ test('🔴 压力：一边狂 record 一边反复 flush，落盘成功的一条�
 
   // 🔴 这条断言防的是测试自己退化：子进程先跑完、父进程再收尾的话，
   // 上面那些 rename/unlink 与 append 根本没交错，这个测试就成了空壳。
+  //
+  // ⚠️ 它现在**只在真出问题时才会红**：子进程的寿命由上面那个停止文件控制，
+  //    所以攒不够批次只有一种解释 —— 60 秒里 drain 一次都没发出东西。
+  //    （以前它数的是一场赛跑的结果，慢机器上会无辜变红。）
   assert.ok(batchesWhileAlive >= 3, `录制期间应发出多批，实际 ${batchesWhileAlive}`);
 
   const recorded = out.split('\n').filter(Boolean);
