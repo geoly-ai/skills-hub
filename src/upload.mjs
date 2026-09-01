@@ -49,9 +49,17 @@ const tombMarkPath = () => join(stateDir(), 'telemetry', 'sending.tomb.mark');
  *   ① 首次运行显眼告知（telemetry.mjs 的 maybeNoticeUpload）
  *   ② 端点侧不记 IP / UA，且这条约束要落到前置代理（server/index.mjs 的部署约束）
  *
- * ⚠️ 这个值仍是**占位**，上线前必须确认真实域名与路径。
+ * 🔴 **这个值 2026-09-01 由用户确认**（此前是占位 `telemetry.geoly.ai`）。
+ *    端点走 Vercel 项目 `skills-hub-telemetry`（与 registry 浏览站是**两个**项目 ——
+ *    站点在有制品时会切到 `output: 'export'`，而静态导出不支持 API 路由，
+ *    共用的话端点会在第一个制品发布那天消失）。
+ *
+ * ⚠️ **域名在端点真正部署之前是解析不到的。** 那时每次自动上报都会静默失败，
+ *    事件留在本地队列等下次 —— 这正是设计要的那一侧（失败不打扰用户），
+ *    但也意味着**没人会注意到端点没上线**。上线后请用
+ *    `skills-hub telemetry flush` 手动验一次通路。
  */
-export const DEFAULT_ENDPOINT = 'https://telemetry.geoly.ai/v1/events';
+export const DEFAULT_ENDPOINT = 'https://skills-hub-telemetry.vercel.app/v1/events';
 
 export function endpoint() {
   const raw = process.env.GEOLY_TELEMETRY_ENDPOINT;
