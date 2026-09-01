@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prompt Map Generator"
-  short_description: "Generate and supplement shopping prompts"
-  default_prompt: "Use $prompt-map-generator to generate product-card Prompt Map rows from the approved demand master."

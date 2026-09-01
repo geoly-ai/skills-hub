@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prompt Map Semantic Dedupe"
-  short_description: "Remove duplicate prompts by meaning"
-  default_prompt: "Use $prompt-map-semantic-dedupe to deduplicate prompts while preserving meaningful demand differences."

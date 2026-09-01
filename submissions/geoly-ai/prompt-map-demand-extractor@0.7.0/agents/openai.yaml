@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prompt Map Demand Extractor"
-  short_description: "Build a traceable demand universe"
-  default_prompt: "Use $prompt-map-demand-extractor to extract the category demand master from the approved evidence."

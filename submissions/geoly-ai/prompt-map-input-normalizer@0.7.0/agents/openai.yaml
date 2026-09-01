@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prompt Map Input Normalizer"
-  short_description: "Validate Reddit, Semrush, GEOly inputs"
-  default_prompt: "Use $prompt-map-input-normalizer to validate and normalize the Prompt Map source files."

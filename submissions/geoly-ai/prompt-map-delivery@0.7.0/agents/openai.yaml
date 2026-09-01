@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prompt Map Delivery"
-  short_description: "Deliver verified per-Topic Excel maps"
-  default_prompt: "Use $prompt-map-delivery to deliver the approved Prompt Map as CSV and per-Topic Excel sheets."

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prompt Map Demand Grid"
-  short_description: "Expand demand themes into auditable coverage cells"
-  default_prompt: "Use $prompt-map-demand-grid to build the audience, body, scenario, pain, purchase-stage, and decision-angle coverage registry before generating prompts."
