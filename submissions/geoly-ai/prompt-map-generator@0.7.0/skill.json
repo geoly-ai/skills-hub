@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "Generate a first-version-compatible natural Prompt Map through two independent streams — a Closure Stream that closes known coverage obligations from the living registry, and an open Discovery Stream that probes K fixed candidates per round for new canonical query surfaces, appends qualifying off-inventory surfaces to the living registry, and authors natural Prompts for them. Use for initial generation, per-round discovery probes, revision, and gap/obligation supplements.",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "prompt-map-generator",
+  "namespace": "geoly-ai",
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.7.0"
+}

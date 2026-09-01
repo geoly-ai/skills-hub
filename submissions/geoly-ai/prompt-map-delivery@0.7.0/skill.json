@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "Deliver an approved cold-start or revision product-card Prompt Map as CSV and Excel using the reusable seven-column category/internal-Topic workbook contract, on either a PASS or a human-approved PASS_WITH_BACKLOG outcome with an attached discovery backlog. Use when exporting the final workbook, wording the coverage claim, or shipping at approved-budget exhaustion.",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "prompt-map-delivery",
+  "namespace": "geoly-ai",
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.7.0"
+}
