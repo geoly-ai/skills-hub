@@ -127,12 +127,15 @@ client 生成，`test/adapters.test.mjs` 用真 git 仓库验证过它确实忽�
 
 ## 埋点与面板
 
-规格：[`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md)（v5，已过五轮 Codex 评审）。
+规格：[`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md)（v6，已过六轮 Codex 评审）。
 端点实现见 [`server/`](server/)。
 
 🔴 **上报默认开**（2026-09-01 起，规格 §4.2）—— CLI 有内置默认端点。
-首次运行会打印一次告知（收什么、发到哪、怎么关）。
-**只在你显式运行 `skills-hub telemetry flush` 时才出网**；install / check 只写本地。
+首次运行会打印一次告知（收什么、发到哪、怎么关），**这段告知一定先于第一次出网**。
+🔴 **一次 `install` 成功收尾后会静默上报一次**（规格 §5.1.1，2026-09-01 起）：
+24 小时最多一次，网络那一段超时 1 秒，发不出去就留在本地等下次，不影响安装结果、
+也不改退出码。`install` 失败（含部分失败）不发；`check` / `list` / `stats` 等命令
+只写本地，不出网。也可以随时 `skills-hub telemetry flush` 手动发。
 
 事件只含制品坐标、客户端、操作、结果、耗时、CLI/OS/Node 版本和一个本机随机 ID，
 **不含路径、目录清单、文件内容、用户名、命令行原文、异常栈**；

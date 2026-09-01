@@ -49,7 +49,9 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
    验签与摘要校验不可关闭；替换必须点名；陈旧/yank/全量各有独立开关。
 
 埋点（docs/telemetry/00-spec.md）：
-  🔴 上报**默认开**（有内置默认端点）。只在显式 \`telemetry flush\` 时才出网；
+  🔴 上报**默认开**（有内置默认端点）。**install 成功收尾后**会静默发一次
+     （24 小时最多一次，超时 1 秒，失败不影响安装）；别的命令只写本地，
+     也可以随时 \`telemetry flush\` 手动发。
      采集面是穷举白名单 —— 不含路径、目录清单、文件内容、用户名。
   GEOLY_TELEMETRY=0           完全关闭：本地一个字节都不写
   GEOLY_TELEMETRY_UPLOAD=0    只留本地统计，不上报
@@ -124,6 +126,10 @@ export async function main(argv, deps = {}) {
   //    · 走 stderr：`--json` 下 stdout 只能有一个 JSON 对象（§7 输出契约）。
   //    · 放在这里而不是各命令里：它要覆盖**所有**命令，漏一条就有人被绕过告知。
   //    · 整个过程不许影响主命令（T-5），所以异常一律吞掉。
+  //    🔴 **它必须先于任何一次自动上报**（§5.1.1）——「先发了再告诉你」比不告知
+  //      更糟。这里的位置（命令分发之前）是第一道保证；第二道在 maybeAutoUpload
+  //      里：告知的标记文件不存在就不发。两道都在，是因为第一道只是**调用顺序**，
+  //      挪一行代码就能悄悄反过来而不会有任何东西变红。
   await noticeOnce(stderr);
 
   if (cmd === undefined || cmd === '-h' || cmd === '--help' || cmd === 'help') {
@@ -150,11 +156,51 @@ export async function main(argv, deps = {}) {
     const record = base.record ?? (await import('./telemetry.mjs')).record;
     const ctx = Object.freeze({ ...base, record, registry });
     const run = await load();
-    return await run(ctx, rest.slice(1), out);
+    const code = await run(ctx, rest.slice(1), out);
+    // 🔴 自动上报的**唯一**触发点（规格 §5.1.1，2026-09-01 拍板）。
+    //
+    // 判据两条，缺一不可：
+    //   · `cmd === 'install'` —— 只有安装，别的命令一律不出网；
+    //   · `code === EXIT.OK` —— 而且必须是**完全成功**。
+    //     ⚠️ `EXIT.PARTIAL`（4，部分 target 失败）**不算**：一次没装干净的
+    //        安装不该再替用户付一次网络代价。那批事件不会丢，留在本地等下一次
+    //        成功的 install 或用户手动 flush（§5.2.2）。
+    //     ⚠️ 抛错的路径根本走不到这里（下面的 catch 接住了），所以「失败不发」
+    //        不是靠记得写 if，而是靠控制流。
+    //
+    // 🔴 这里 `await`，不是发了就不管：进程一退，在途的 POST 就没了。
+    //    ⚠️ 代价是**这一次 install 会等它**。网络那一段有 1 秒上界
+    //    （AUTO_UPLOAD_TIMEOUT_MS），但**整段没有**：认领戳的 fsync、上报锁、
+    //    stage/reap 都是超时之外的同步 I/O。别把「最多多 1 秒」说成整体保证
+    //    （规格 §5.1.1 已按实话改写）。
+    //
+    // 🔴 返回值**故意丢弃**：不打印、不改退出码。一次成功的 install 绝不能
+    //    因为埋点失败而看起来像失败了。
+    // 🔴 走 `autoUploadQuietly` 而不是在这里直接 `await import(...)`：
+    //    这一段在 try 里，一个失败的动态 import 会被下面的 catch 接住、
+    //    走 emitError —— 于是**一次成功的 install 会被埋点变成一次失败的输出**。
+    //    正是本次拍板里那条硬要求要防的事。所以吞错要在调用点里面，不在外面。
+    if (cmd === 'install' && code === EXIT.OK) await autoUploadQuietly();
+    return code;
   } catch (err) {
     const cls = classify(err);
     return out.emitError(cmd, cls, err);
   }
+}
+
+/**
+ * install 成功收尾后的自动上报（规格 §5.1.1）。**整段完全静默。**
+ *
+ * 🔴 连 `import` 都包在 try 里：`maybeAutoUpload` 自己不抛，但把它取进来这一步
+ *    会（模块求值失败、文件被删）。差别不是理论上的 —— 调用点在 `main` 的 try 里，
+ *    漏出去的异常会被顶层 catch 变成 `emitError`，用户看到的是一次**失败的 install**，
+ *    而磁盘上其实一切正常。
+ */
+async function autoUploadQuietly() {
+  try {
+    const { maybeAutoUpload } = await import('./upload.mjs');
+    await maybeAutoUpload();   // 返回值故意不看：不打印、不改退出码
+  } catch { /* 埋点的任何问题都不许冒泡到主命令（T-5） */ }
 }
 
 /**

@@ -37,7 +37,12 @@ test('🔴 首次告知：内容必须说清「收什么 / 发到哪 / 什么时
   assert.match(txt, /GEOLY_TELEMETRY=0/, '要写怎么完全关掉');
   assert.match(txt, /--offline/);
   assert.ok(txt.includes(up.DEFAULT_ENDPOINT), '要写数据发到哪');
-  assert.match(txt, /telemetry flush/, '要写清「只在显式 flush 时才发」');
+  // 🔴 「什么时候发」必须两件事都写到：install 成功后会**自动**发一次（§5.1.1，
+  //    这是 2026-09-01 拍板后的新形态），以及用户随时可以手动 flush。
+  //    只写手动那半句，等于让用户以为「我不敲命令就不会出网」—— 那已经不成立了。
+  assert.match(txt, /install/, '要写清 install 成功后会自动发');
+  assert.match(txt, /24 小时/, '要写清节流窗口');
+  assert.match(txt, /telemetry flush/, '要写清还能手动发');
   assert.match(txt, /路径|目录清单|文件内容/, '要写不收什么');
 });
 

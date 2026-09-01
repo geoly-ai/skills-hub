@@ -19,6 +19,8 @@ import {
   serializeEvent,
   lockPath,
   appendDurable,
+  noticeShown,
+  claimAutoUploadSlot,
 } from './telemetry.mjs';
 import { acquire, LockBusyError } from './lock.mjs';
 // parseStrict 而非内建 parse：重复 key 会被静默取最后一个
@@ -347,3 +349,79 @@ export async function flush({ fetchImpl = globalThis.fetch, timeoutMs = 3000 } =
 
 /** 诊断用：还有多少条没发出去 */
 export const pendingCount = () => readAll().length;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 自动上报（规格 §5.1.1；2026-09-01 用户拍板）
+//
+// 🔴 为什么要有它：上报默认开（§4.2），但**只在显式 `telemetry flush` 时才发** ——
+//    而没有普通用户会去跑那条命令。于是我们承担了「默认出网」的全部隐私代价，
+//    却一条数据都拿不到。这是两头都不占的形态，比「默认关」还差。
+//
+// 🔴 为什么是这个形状（而不是「每条命令都发」）：出网时机从「用户主动」变成
+//    「用户无感」，所以每一处都往最保守的一侧压 ——
+//      · 只有 install，且**成功收尾**（失败的安装不该再替用户付一次网络代价）
+//      · 24 小时最多一次（§5.1.1 说明为什么是 24）
+//      · 超时 1 秒，不是 flush 的 3 秒
+//      · 完全静默：不打印、不改退出码、不抛错
+//      · 两个否决（`--offline` / `GEOLY_TELEMETRY_UPLOAD=0`）照旧一票否决
+//      · **首次告知没打过就不发**（noticeShown 这道门）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 自动上报的超时：**1 秒**，不是 flush 默认的 3 秒。
+ *
+ * 显式 flush 是用户主动等的，3 秒可以；自动上报挂在 install 的收尾上，
+ * 那 3 秒是**用户没要求、也不知道自己在等**的 3 秒。1 秒是「慢网也够一个
+ * 几 KB 的 POST 走完一趟」与「安装最坏被拖多久」之间的取舍。
+ *
+ * ⚠️ **它是「网络那一段」的上界，不是「install 多花多久」的上界**
+ *    （Codex 2026-09-01 指出，原先这里写成了后者 —— 那是夸大）。
+ *    计时器只在 `fetch` 之前才起、ACK 读完就 clear；在它之前还有一串**同步 I/O**：
+ *    认领节流戳（`writeAtomic` 会 fsync 文件与父目录）、取上报锁（SQLite）、
+ *    `stage()` / `reapTomb()` 的读写与 rename。正常盘上这些是毫秒级，
+ *    但慢盘、NFS（T-16）、或一个收割不掉的墓碑都能让它更久，**没有硬上界**。
+ *    要给 install 一个真正的时延上界，得给这串本地 I/O 也加超时 —— 那是另一件事，
+ *    这里不假装已经做了。
+ *
+ * ⚠️ 1 秒**不产生新的丢事件面**，只是把结果从「发出去了」挪到「没发出去、下次再发」：
+ *    超时触发 abort → fetch 抛 / ackOk 返回 false → `sending` 原样留在盘上
+ *    → 下一轮接着发。哪怕服务端**已经 durable 了**只是 ACK 没赶回来，也只是
+ *    重发一次、服务端按 `eid` 判成 duplicate（§5.2.2 的 at-least-once）。
+ *    真正的代价见规格 §5.1.1「代价」第 4 条：端点**持续**慢到发不出去时，
+ *    卡住的批次不动，而新事件会随换代被淘汰（§5.2.3）—— 那一格本来就存在，
+ *    1 秒只是让它更容易被触发。
+ */
+export const AUTO_UPLOAD_TIMEOUT_MS = 1000;
+
+/**
+ * install 成功收尾后调用。**绝不抛错、绝不打印、绝不影响退出码。**
+ *
+ * 🔴 一次成功的 install 不能因为埋点而看起来像失败了 —— 所以这里没有任何
+ *    输出通道，返回值只给测试和诊断用，调用方（cli.mjs）拿到之后什么都不做。
+ *
+ * @returns {Promise<{ran: boolean, reason?: string, result?: object}>}
+ */
+export async function maybeAutoUpload({ fetchImpl, timeoutMs = AUTO_UPLOAD_TIMEOUT_MS, now } = {}) {
+  try {
+    // 🔴 顺序要紧，三道门都在**认领名额之前**：
+    //    ① 两个否决置位时连节流戳都不该写（`GEOLY_TELEMETRY=0` 承诺的是
+    //       「本地一个字节都不写」，写个戳就是违约）；
+    //    ② 告知没打过就一律不发 —— 见下。
+    if (!uploadEnabled()) return { ran: false, reason: 'upload-disabled' };
+
+    // 🔴 **首次告知必须先于任何一次自动上报。** 顺序反了就是「先发了再告诉你」，
+    //    那比不告知更糟。cli.mjs 里 noticeOnce 排在命令分发之前，本来就先于这里；
+    //    但那只是**调用顺序**，挪一行代码就能悄悄反过来。这道门是本地判据，
+    //    不依赖谁在什么位置调我。
+    if (!noticeShown()) return { ran: false, reason: 'notice-not-shown' };
+
+    if (!claimAutoUploadSlot(now ?? Date.now())) return { ran: false, reason: 'throttled' };
+
+    const result = await flush({ fetchImpl: fetchImpl ?? globalThis.fetch, timeoutMs });
+    return { ran: true, result };
+  } catch (err) {
+    // flush 自己已经吞掉一切异常，走到这里只可能是三道门自身出了岔子。
+    // 静默的含义就是这个：埋点的任何问题都不许冒泡到主命令（T-5）。
+    return { ran: false, reason: `error:${err?.name ?? 'unknown'}` };
+  }
+}

@@ -23,6 +23,14 @@ import { makeTarGz } from './fixtures/trustchain-tar.mjs';
 import { makeRecord, makeSnapshotDoc, makeTimestampDoc, bytesOf, fakeVerifier, hex } from './fixtures/trustchain-objects.mjs';
 import { wrapTimestamp } from '../src/timestamp-envelope.mjs';
 
+// 🔴 埋点整体关掉，而且是设 **process.env**，不是注入的 `deps.env`。
+//    install 成功收尾后会自动上报一次（规格 §5.1.1），而 telemetry / upload
+//    读的是 process.env（`--offline` 那条注释里已经说过这件事）。
+//    只在 deps.env 里写 GEOLY_TELEMETRY=0 拦不住它 —— 那会让这套测试真的
+//    往内置默认端点发一次 POST，并把状态写进开发机自己的 ~/.local/state。
+process.env.GEOLY_TELEMETRY = '0';
+
+
 const sha = (b) => `sha256:${createHash('sha256').update(b).digest('hex')}`;
 const NOW = Date.parse('2026-08-25T13:00:00Z');
 const cap = () => { const o = { s: '', write(x) { o.s += x; return true; } }; return o; };
