@@ -14,6 +14,11 @@
   "license": "MIT",
   "name": "prompt-map-semantic-dedupe",
   "namespace": "geoly-ai",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 4
+  },
   "replaces": [],
   "schema": "geoly.skills.skill/1",
   "version": "0.7.0"
