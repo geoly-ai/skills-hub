@@ -89,17 +89,25 @@ test('assertApprovalsCurrent：Tier 2 要两条**有效**的', () => {
   assert.deepEqual(value, [M1]);
 });
 
-test('🔴 投稿者自己的 approve 不计入', () => {
+// 2026-09-01：作者排除已关闭，见 `scripts/submission/approval-policy.mjs`。
+// 🔴 **这一处与 tier-gate 必须同时翻**（两边共用那份策略）——
+//    分叉的后果是「合并前过了、promote 时不过」，PR 已经进了 main、发布却卡住。
+test('作者本人的 approve 计入，且 promote 侧与 tier-gate 同步（作者排除已关闭）', () => {
   const reviews = [
     rv(AUTHOR, 'APPROVED', HEAD, '2026-08-01T00:00:00Z'),
     rv(M1, 'APPROVED', HEAD, '2026-08-01T00:00:00Z'),
   ];
   const maint = [...MAINT, AUTHOR];
-  quiet(() => expectCode('E_APPROVAL_STALE', () => assertApprovalsCurrent({
-    reviews, prHeadSha: HEAD, maintainerIds: maint, needed: 2, authorId: AUTHOR })));
+  // 两票都算数 —— 以前这里是 needed:2 报 E_APPROVAL_STALE。
   const { value } = quiet(() => assertApprovalsCurrent({
-    reviews, prHeadSha: HEAD, maintainerIds: maint, needed: 1, authorId: AUTHOR }));
-  assert.deepEqual(value, [M1]);
+    reviews, prHeadSha: HEAD, maintainerIds: maint, needed: 2, authorId: AUTHOR }));
+  assert.equal(value.length, 2);
+  assert.ok(value.includes(AUTHOR));
+
+  // 但作者仍然只是**一票**：只有他一个人 approve 时，needed:2 照旧不过。
+  quiet(() => expectCode('E_APPROVAL_STALE', () => assertApprovalsCurrent({
+    reviews: [rv(AUTHOR, 'APPROVED', HEAD, '2026-08-01T00:00:00Z')],
+    prHeadSha: HEAD, maintainerIds: maint, needed: 2, authorId: AUTHOR })));
 });
 
 test('输入形状要严格', () => {

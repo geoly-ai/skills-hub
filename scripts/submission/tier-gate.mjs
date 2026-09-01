@@ -31,6 +31,7 @@ import { parseStrict } from '../../src/canonical-json.mjs';
 import { collectTree } from '../../src/packer.mjs';
 import { scanSubmissions } from './run-gates.mjs';
 import { executableEvidence } from './structural-gates.mjs';
+import { effectiveApprovers } from './approval-policy.mjs';
 import { capabilityTier } from '../promote/build-inputs.mjs';
 import { currentApprovers } from '../promote/verify-merged-pr.mjs';
 
@@ -133,7 +134,8 @@ export function assertTierApprovals({ tier, reviews, prHeadSha, maintainerIds, a
   //    一个人只算最新一条，这些判据两处必须**完全一致**，否则会出现
   //    「合并前过了、promote 时不过」这种最难查的分叉。
   const all = currentApprovers({ reviews, prHeadSha, maintainerIds });
-  const effective = authorId === null ? all : all.filter((a) => a !== authorId);
+  // 🔴 作者算不算数由 `approval-policy.mjs` 一处说了算 —— 见那里的长注释。
+  const effective = effectiveApprovers({ all, authorId });
   if (effective.length < need) {
     bad('E_TIER_APPROVALS',
       `Tier ${tier} 需要 ${need} 名维护者 approve，当前只有 ${effective.length} 名。\n`

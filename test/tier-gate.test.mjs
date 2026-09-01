@@ -119,11 +119,30 @@ test('🔴 判据与 promote 侧**完全一致**：旧 commit 上的 approve 不
   })));
 });
 
-test('🔴 投稿者自己的 approve 不计入', () => {
-  quiet(() => expectCode('E_TIER_APPROVALS', () => assertTierApprovals({
+// 2026-09-01：作者排除**已关闭**（`scripts/submission/approval-policy.mjs`）。
+// 原因见那里的长注释：维护者只有 2 人时，排除作者把「维护者自己的 Tier 2 投稿」
+// 变成了永远解不开的死锁，而它当时挡住的**只有我们自己**（外部投稿者不是维护者，
+// 两个维护者都算数）。这条测试从「不计入」翻成「计入」，是策略变更不是回归。
+test('作者本人的 approve 计入（作者排除已关闭）', () => {
+  const eff = assertTierApprovals({
     tier: 0, reviews: [rv(AUTHOR)], prHeadSha: HEAD,
     maintainerIds: [AUTHOR, M1], authorId: AUTHOR,
+  });
+  assert.deepEqual(eff, [AUTHOR]);
+});
+
+// 🔴 关掉作者排除**没有**把 Tier 2 降成一个人 —— 作者只能算 2 票里的 1 票。
+//    这条是上面那条的边界：别把「我可以批自己的」读成「我一个人什么都能发」。
+test('🔴 Tier 2 仍要两个不同的人，作者只算其中一个', () => {
+  quiet(() => expectCode('E_TIER_APPROVALS', () => assertTierApprovals({
+    tier: 2, reviews: [rv(AUTHOR)], prHeadSha: HEAD,
+    maintainerIds: [AUTHOR, M1], authorId: AUTHOR,
   })));
+  const eff = assertTierApprovals({
+    tier: 2, reviews: [rv(AUTHOR), rv(M1)], prHeadSha: HEAD,
+    maintainerIds: [AUTHOR, M1], authorId: AUTHOR,
+  });
+  assert.equal(eff.length, 2);
 });
 
 test('🔴 非维护者的 approve 不计入', () => {

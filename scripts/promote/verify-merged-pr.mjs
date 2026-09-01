@@ -21,6 +21,7 @@
 
 import { realpathSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { effectiveApprovers, exclusionNote } from '../submission/approval-policy.mjs';
 
 class VerifyError extends Error {
   constructor(code, msg) { super(msg); this.name = 'VerifyError'; this.code = code; }
@@ -118,13 +119,14 @@ export function currentApprovers({ reviews, prHeadSha, maintainerIds }) {
 export function assertApprovalsCurrent({ reviews, prHeadSha, maintainerIds, needed, authorId = null }) {
   if (!Number.isInteger(needed) || needed < 1) bad('E_VERIFY_INPUT', `needed 必须是正整数，得到 ${needed}`);
   const all = currentApprovers({ reviews, prHeadSha, maintainerIds });
-  const effective = authorId === null ? all : all.filter((a) => a !== authorId);
+  // 🔴 与 tier-gate 共用同一份策略 —— 分叉的后果是「合并前过了、promote 时不过」。
+  const effective = effectiveApprovers({ all, authorId });
   if (effective.length < needed) {
     bad('E_APPROVAL_STALE',
       `PR head ${prHeadSha.slice(0, 12)} 上只有 ${effective.length} 条有效 approve，需要 ${needed} 条。\n`
       + '  🔴 §3：promote 时必须重新验证 approval 未失效 —— 「已 merge」这个事实本身不够，'
       + '分支保护的 stale-dismissal 是仓库设置，不是我们能证明的东西。'
-      + (authorId !== null && all.includes(authorId) ? `\n  （已排除投稿者本人 id=${authorId}）` : ''),
+      + exclusionNote({ all, authorId }),
     );
   }
   return effective;
