@@ -172,6 +172,55 @@ function assertOwnerShape(o, where) {
  *    「明确同意」是人的动作，没有自动判据 —— 所以这里硬拒，
  *    并指出正路：owner 与新 owner 在同一张 PR 里签字改 `owners.json`（§7）。
  */
+/**
+ * 🔴 **skill 的 provenance 里那几个「PR 事实」必须与真实 PR 对得上。**
+ *
+ * 2026-09-01 发现：这里原本把 `manifest.provenance` **原样取用**，从不与
+ * `review.pr` / `review.author` 核对 —— 而那两个值就在同一个作用域里。
+ * 于是投稿者可以在自己的 `skill.json` 里写
+ * `{"kind":"original","author_github_id":"<任何人>","submitted_by_pr":999}`，
+ * 它会原样进快照、成为**权威出处记录**。provenance 正是整条信任链要建立的
+ * 那件事，而它当时是投稿者随手可写的。
+ *
+ * ⚠️ 更能说明问题的是它与 `PROMOTION.json` **自相矛盾**：
+ *    `promotion-file.mjs` 明确**拒绝**投稿者声明 `author_github_id` /
+ *    `submitted_by_pr`（理由写在那里：投稿者只能声明只有他知道的事），
+ *    而 `skill.json` 这条路径却要求投稿者自己写同样两个字段。
+ *    同一个仓库里两套相反的判断，其中一套是错的。
+ *
+ * 🔴 **这里选择 fail-closed 而不是静默改写。** 直接用真实值覆盖也能堵住漏洞，
+ *    但那样「投稿者写错了」和「投稿者试图伪造」都会无声通过，
+ *    而这两件事需要有人看见。写错了就报错，让人改。
+ *
+ * ⚠️ `vendored` 的 `imported_at` **没有在这里核对** —— build-inputs 拿不到 PR 的
+ *    创建时刻（`review` 里没有这个字段）。这不是「已缓解」，是一处**已知的缺口**：
+ *    投稿者仍可把 `imported_at` 写成任意时间。要闭合它得把 createdAt 一路传进来。
+ *
+ * @param {object} a
+ * @param {object} a.provenance
+ * @param {object} a.review   `{pr, author, headSha, approvedBy}`
+ * @param {string} a.where    出错时指认是哪个制品
+ * @returns {object} 原样返回（校验通过时）
+ */
+export function assertProvenanceMatchesPr({ provenance, review, where }) {
+  const mustEqual = (field, got, want) => {
+    if (got !== want) {
+      bad(`${where} 的 provenance.${field} 是 ${JSON.stringify(got)}，`
+        + `但这张 PR 的事实是 ${JSON.stringify(want)}。\n`
+        + '  🔴 provenance 里的「PR 事实」不能由投稿者说了算 —— 它是整条信任链\n'
+        + '     要建立的那件事本身。请改成真实值，或删掉让 promote 填。\n'
+        + '  ⚠️ 这里刻意不静默改写：写错了和试图伪造，都需要有人看见。');
+    }
+  };
+  if (provenance.kind === 'original') {
+    mustEqual('author_github_id', provenance.author_github_id, review.author);
+    mustEqual('submitted_by_pr', provenance.submitted_by_pr, review.pr);
+  } else if (provenance.kind === 'vendored') {
+    mustEqual('imported_by_pr', provenance.imported_by_pr, review.pr);
+  }
+  return provenance;
+}
+
 export function resolveOwner({ owners, namespace, claims = {}, authorId = null }) {
   const known = owners.namespaces[namespace];
   if (known !== undefined) {
@@ -335,7 +384,7 @@ export function buildInputs({
     });
 
     // provenance：skill 在 manifest 里；pack 的 manifest 键集里**没有**这个字段
-    const provenance = a.kind === 'skill' ? manifest.provenance : provenanceOf[a.id];
+    let provenance = a.kind === 'skill' ? manifest.provenance : provenanceOf[a.id];
     if (provenance === undefined) {
       bad(
         `${a.id} 没有 provenance。`
@@ -344,6 +393,7 @@ export function buildInputs({
           : 'skill.json 必填它。'),
       );
     }
+    provenance = assertProvenanceMatchesPr({ provenance, review, where: a.id });
 
     artifacts[a.id] = {
       status: 'published',

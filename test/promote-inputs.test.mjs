@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   capabilityTier, assertApprovalsSatisfyTier, readOwners, resolveOwner,
-  buildInputs, INPUTS_SCHEMA, OWNERS_SCHEMA, MAX_TIER,
+  buildInputs, INPUTS_SCHEMA, OWNERS_SCHEMA, MAX_TIER, assertProvenanceMatchesPr,
 } from '../scripts/promote/build-inputs.mjs';
 import { stringify, parseStrict } from '../src/canonical-json.mjs';
 import { makeSkillArtifact, makePackArtifact, cleanupTrees } from './fixtures/pack-tree.mjs';
@@ -29,7 +29,10 @@ const mkroot = () => { const d = mkdtempSync(join(tmpdir(), 'geoly-promo-in-'));
 after(() => { for (const d of roots) { try { rmSync(d, { recursive: true, force: true }); } catch { /* 尽力 */ } } });
 
 const OWNER = { kind: 'org', login: 'geoly-ai', id: 'MDQ6' };
-const PROV = { kind: 'original', author_github_id: '123', submitted_by_pr: 118 };
+// ⚠️ 必须与 REVIEW 自洽 —— 2026-09-01 起 assertProvenanceMatchesPr 会核对
+//    provenance 里的「PR 事实」与真实 PR 是否一致。早先 PROV 写 123/118、
+//    REVIEW 写 null/118，两者从来没被核对过，fixture 自己就是矛盾的。
+const PROV = { kind: 'original', author_github_id: 'chovizzz', submitted_by_pr: 1 };
 const HEAD = 'c'.repeat(40);
 const OWNERS = { schema: OWNERS_SCHEMA, namespaces: { geoly: OWNER } };
 
@@ -46,7 +49,10 @@ function place(root, art) {
   return art;
 }
 
-const REVIEW = { pr: 118, headSha: HEAD, approvedBy: ['m1'], author: null };
+// ⚠️ author 与 PROV.author_github_id 必须一致 —— 2026-09-01 加了
+//    assertProvenanceMatchesPr 之后，fixture 自己对不上就会红。
+//    早先这里是 `author: null` 而 PROV 写 '123'，两者从来没被核对过。
+const REVIEW = { pr: 1, headSha: HEAD, approvedBy: ['m1'], author: 'chovizzz' };
 const build = (root, over = {}) => buildInputs({
   artifactsRoot: join(root, 'artifacts'),
   owners: OWNERS,
@@ -165,13 +171,13 @@ test('🔴 只处理本次新增；历史 record 的 review / status 原样继�
 
   // 历史那条：review 与 status 都没被本次 PR 改写
   const old = inputs.artifacts['skill:geoly/old@0.1.0'];
-  assert.equal(old.review.pr, 7, '🔴 改成 118 就是篡改审计记录');
+  assert.equal(old.review.pr, 7, `🔴 改成 ${REVIEW.pr} 就是篡改审计记录`);
   assert.deepEqual(old.review.approved_by, ['很久以前的维护者']);
   assert.equal(old.status, 'deprecated', '🔴 抹成 published 会让一个已弃用的制品复活');
   assert.equal(old.owner.login, '老作者');
 
   // 新增那条：用本次 PR 的事实
-  assert.equal(inputs.artifacts[s.record.id].review.pr, 118);
+  assert.equal(inputs.artifacts[s.record.id].review.pr, REVIEW.pr);
 });
 
 test('🔴 yanked / degraded 不能作为 status 输入 —— 还原成 published 交给 build-snapshot 重算', () => {
@@ -293,7 +299,7 @@ test('🔴 产出的 inputs 能直接喂给 build-snapshot，且快照过得了�
   assert.equal(snap.artifacts[0].id, s.record.id);
   // ⚠️ parseStrict 的产物是 **null 原型**对象，deepStrictEqual 会因原型不同而失败
   assert.deepEqual({ ...snap.artifacts[0].owner }, OWNER);
-  assert.equal(snap.artifacts[0].review.pr, 118);
+  assert.equal(snap.artifacts[0].review.pr, REVIEW.pr);
 });
 
 test('🔴 CLI 真调用：pack 也要走得通（第一版这里必崩 —— main 从没传成员 capability）', () => {
@@ -320,7 +326,11 @@ test('🔴 CLI 真调用：pack 也要走得通（第一版这里必崩 —— m
     '--artifacts', join(root, 'artifacts'), '--owners', ownersFile,
     '--new-ids', pack.record.id, '--previous-snapshot', prevSnap,
     '--provenance-of', provFile,
-    '--pr', '118', '--head-sha', HEAD, '--approved-by', 'm1', '--out', out,
+    // ⚠️ --author / --pr 必须与 fixture 的 provenance 自洽：2026-09-01 起
+    //    assertProvenanceMatchesPr 会核对。早先这里不传 --author（review.author
+    //    是 null）、--pr 传 118 而 provenance 写 1，三者互不相干也没人发现。
+    '--pr', '1', '--author', 'chovizzz',
+    '--head-sha', HEAD, '--approved-by', 'm1', '--out', out,
   ], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(existsSync(out));
@@ -397,4 +407,41 @@ test('yank 是只增的：本次新增的与继承的合并，按 id 去重、�
   assert.equal(inputs.yanked.find((y) => y.id === 'skill:geoly/a@1.0.0').reason, '旧原因',
     '继承的优先 —— 已经记下的 yank 原因不该被后来的一次 promotion 改写');
   assert.ok(inputs.yanked.find((y) => y.id === 'skill:geoly/b@1.0.0'));
+});
+
+
+// ── provenance 的「PR 事实」必须与真实 PR 对得上 ────────────────────────────
+//
+// 🔴 2026-09-01 发现的洞：`manifest.provenance` 原本被**原样取用**，从不与
+//    `review.pr` / `review.author` 核对 —— 而那两个值就在同一个作用域里。
+//    投稿者可以在自己的 skill.json 里写任意 author_github_id / submitted_by_pr，
+//    它会原样进快照成为**权威出处记录**。provenance 正是整条信任链要建立的
+//    那件事本身。
+//    ⚠️ 它还与 PROMOTION.json 自相矛盾：那边明确**拒绝**投稿者声明这两个字段。
+test('provenance 与真实 PR 一致时通过', () => {
+  const p = { kind: 'original', author_github_id: 'U_real', submitted_by_pr: 42 };
+  assert.equal(assertProvenanceMatchesPr({
+    provenance: p, review: { pr: 42, author: 'U_real' }, where: 'x',
+  }), p);
+});
+
+test('🔴 provenance 伪造作者 / PR 号一律拒绝（fail-closed，不静默改写）', () => {
+  const review = { pr: 42, author: 'U_real' };
+  assert.throws(() => assertProvenanceMatchesPr({
+    provenance: { kind: 'original', author_github_id: 'U_someone_else', submitted_by_pr: 42 },
+    review, where: 'skill:a/b@1.0.0',
+  }), /author_github_id/);
+  assert.throws(() => assertProvenanceMatchesPr({
+    provenance: { kind: 'original', author_github_id: 'U_real', submitted_by_pr: 999 },
+    review, where: 'x',
+  }), /submitted_by_pr/);
+});
+
+// 🔴 直接用真实值覆盖也能堵住洞，但那样「写错了」和「试图伪造」都会无声通过。
+//    这条钉住我们选的是报错而不是改写。
+test('🔴 vendored 的 imported_by_pr 同样核对', () => {
+  assert.throws(() => assertProvenanceMatchesPr({
+    provenance: { kind: 'vendored', imported_by_pr: 7 },
+    review: { pr: 42, author: 'U_real' }, where: 'x',
+  }), /imported_by_pr/);
 });
