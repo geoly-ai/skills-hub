@@ -153,6 +153,13 @@ const FIELDS = {
 };
 
 /**
+ * 白名单键名，**只读**。给服务端用：它按这张表 pick 已知键、丢弃多余字段
+ * （规格 §5.3「多余字段服务端丢弃，不要信客户端」）。
+ * 🔴 导出的是键名不是 FIELDS 本身 —— 校验器不该被外面拿去改。
+ */
+export const FIELD_NAMES = Object.freeze(Object.keys(FIELDS));
+
+/**
  * 🔴 隐私契约的执行点。落盘、读队列、上报、导出 —— 四个边界都走这一个函数。
  * 任何不合规的事件都**不得**离开本机。
  */
@@ -389,6 +396,79 @@ export function readAll() { return readFiles(queueFiles()); }
 
 /** 报表用的历史。上报**不**消费它，所以发完了报表照样有数据看。 */
 export function readHistory() { return readFiles(historyFiles()); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 首次运行告知
+//
+// 🔴 2026-09-01 用户拍板：上报**默认开**（有内置默认端点，见 upload.mjs）。
+//    默认出网而**不告知**是这件事最糟的形态 —— 那才是真正会被称作「偷偷上传」的
+//    做法。所以默认开必须与「首次运行显眼告知」捆在一起，两者是同一个决定的两半，
+//    不许只落地前一半。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const noticeMarkPath = () => join(stateDir(), 'telemetry', 'upload-notice.v1');
+
+/** 告知文案。抽成函数是为了让测试断言它、也让端点变了文案自动跟着变。 */
+export function uploadNoticeText(url) {
+  const bar = '─'.repeat(74);
+  return `${bar}
+skills-hub 会上报匿名使用埋点（首次运行提示，只显示这一次）
+
+  收什么      装了哪个制品、哪个 client、成功还是失败、耗时，
+              以及 CLI / OS / arch / Node 版本和一个「本机随机 ID」
+              （随机 UUID，与账号、机器名、用户名、MAC 无任何映射，删了就换一个）
+  不收什么    路径、目录清单、文件内容、用户名、命令行原文、异常栈
+              —— 采集面是穷举白名单，整张表见 docs/telemetry/00-spec.md §2
+  发到哪      ${url}
+  什么时候发  只在你显式运行 \`skills-hub telemetry flush\` 时；
+              平时的 install / check 只写本地，不出网
+  怎么关      GEOLY_TELEMETRY_UPLOAD=0   只留本地统计，不上报
+              GEOLY_TELEMETRY=0          完全关闭，本地一个字节都不写
+              --offline                  单次命令禁止一切网络出口
+
+  本机记了什么：skills-hub stats      当前开关与端点：skills-hub telemetry status
+${bar}
+`;
+}
+
+/**
+ * 首次运行时把告知打出来，并落一个标记，之后不再打。
+ *
+ * 🔴 **顺序是「先打印、后落标记」。** 反过来时，崩在两步之间的用户**永远看不到**
+ *    这段告知 —— 而告知漏掉一次的代价（用户不知道默认在上报）比多看一次大得多。
+ *    并发首跑会重复打印一次，那是可接受的一侧。
+ *
+ * ⚠️ 这里的判据是「标记文件在不在」，看着像 §5.2.4 禁止的那条，其实不是：
+ *    标记的**内容从来没有人读**，空文件与写满的文件含义完全相同。
+ *    §5.2.4 禁的是拿存在性去断言「内容完整/可用」。
+ *
+ * @param {(s: string) => void} write 写出口（必须是 stderr —— `--json` 下
+ *        stdout 只能有一个 JSON 对象，见 09-cli.md §7）
+ * @param {string|null} url 生效中的端点；null / 上报关掉时不打（没有出网就没什么可告知的）
+ * @returns {boolean} 这次是否打了
+ */
+export function maybeNoticeUpload(write, url) {
+  try {
+    if (!enabled() || !uploadEnabled() || !url) return false;
+    const p = noticeMarkPath();
+    if (existsSync(p)) return false;
+    mkdirSync(join(stateDir(), 'telemetry'), { recursive: true });
+    write(uploadNoticeText(url));
+    // 'wx' = 原子 no-replace：并发首跑只有一个能建成，别的走 catch，
+    // 但那时告知已经打过了，重复的只是打印，不是漏打。
+    // 不 fsync：丢了标记的后果只是多打一次告知，为它在**每个用户的第一条命令**上
+    // 加一次同步 fsync 不划算（T-5：埋点不得让主命令变慢）。
+    try {
+      const fd = openSync(p, 'wx', 0o644);
+      try { appendFileSync(fd, `shown-at=${new Date().toISOString()}\nendpoint=${url}\n`); } finally { closeSync(fd); }
+    } catch { /* 别人抢先建了，或建不了 —— 都不影响主命令 */ }
+    return true;
+  } catch (err) {
+    // 🔴 告知失败绝不能影响主命令（T-5）。留在 lastError 供 telemetry status 诊断。
+    _lastError = err;
+    return false;
+  }
+}
 
 /** 导出 canonical JSON（给静态页读）。导出也是一个出口，同样过校验。 */
 export function exportJson(events = readHistory()) {

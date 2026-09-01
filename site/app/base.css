@@ -1,0 +1,143 @@
+/* 基础排版与页面骨架。只用 tokens.css 的变量，不写字面量色值。
+   规格：DESIGN.md §2（台账隐喻）、§5（尺度）、§8（响应式）、§9（动效）、§10（可访问性）。 */
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font: 400 var(--fs-base)/1.65 var(--f-body);
+  /* 台账里的数字要对齐 —— 等宽数字是这套隐喻的一部分，不是装饰 */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  /* 🔴 页面本身**不许**横向滚动。宽内容各自包在 .tablescroll / .scroll-x 里滚。 */
+  overflow-x: hidden;
+}
+
+/* 标题用 Archivo 的 wdth 轴拉宽 —— 分量来自宽度而不是字号，像标牌与钢印。 */
+h1, h2, h3, h4 {
+  font-family: var(--f-display);
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.2;
+  font-variation-settings: "wdth" 112;
+  letter-spacing: -0.005em;
+}
+
+p { margin: 0; }
+ul, ol { margin: 0; padding-left: var(--sp-5); }
+li + li { margin-top: var(--sp-1); }
+
+a {
+  color: var(--c-ink);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--c-ink) 35%, transparent);
+}
+a:hover { border-bottom-color: var(--c-ink); }
+
+code, .mono { font-family: var(--f-mono); }
+
+/* 键盘焦点必须立刻可见，且**无过渡** */
+:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 2px; border-radius: 1px; }
+
+/* 🔴 .label 永远只放拉丁/数字：text-transform:uppercase 对中文无效，
+      letter-spacing 会把中文拉散。中文小标签用 .label-cn。 */
+.label {
+  font-family: var(--f-mono); font-size: var(--fs-label); font-weight: 500;
+  letter-spacing: .10em; text-transform: uppercase; color: var(--c-text-dim);
+}
+.label-cn { font-family: var(--f-body); font-size: 13px; color: var(--c-text-dim); letter-spacing: 0; }
+
+/*
+ * 🔴 **凡是要放中文的小标签，都必须挂 `.cn`。**（DESIGN.md §4.3）
+ *    `text-transform: uppercase` 对中文无效，而 `letter-spacing: .09em` 会把中文**拉散**成
+ *    一个个孤立的字 —— 实测在 provenance 轨迹与表头上很明显。
+ *    这条规则集中在这里，是为了让「哪些地方会letter-space」只有一处答案。
+ */
+.label.cn,
+.members th.cn,
+.trace .t.cn,
+.fact .k.cn,
+.ledger > dt.cn,
+.chain .cellname {
+  font-family: var(--f-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.wrap { max-width: 1160px; margin: 0 auto; padding: 0 var(--sp-5); }
+
+.skip-link {
+  position: absolute; left: var(--sp-3); top: calc(-1 * var(--sp-8)); z-index: 30;
+  padding: var(--sp-2) var(--sp-3); background: var(--c-surface);
+  border: 1px solid var(--c-ink); border-radius: var(--r-panel);
+  transition: top 120ms linear;
+}
+.skip-link:focus { top: var(--sp-3); }
+
+/* ── 站头：56px，底边 2px 栏线 ─────────────────────────────────────── */
+.site-header {
+  border-bottom: 2px solid var(--c-rule);
+  background: var(--c-surface);
+  position: sticky; top: 0; z-index: 20;
+}
+.site-header .wrap { display: flex; align-items: center; gap: var(--sp-4); min-height: 56px; flex-wrap: wrap; }
+.site-header__brand {
+  font-family: var(--f-display); font-size: 17px; font-weight: 600;
+  font-variation-settings: "wdth" 118; color: var(--c-text); border: 0;
+}
+.site-header__brand:hover { border: 0; color: var(--c-ink); }
+.site-header__nav { display: flex; gap: var(--sp-4); font-family: var(--f-mono); font-size: var(--fs-xs); }
+.spacer { flex: 1; }
+
+/* ── 页面骨架 ──────────────────────────────────────────────────────── */
+/* 🔴 **不设右侧 metadata 栏。** 一旦有右栏，信任信息就会被塞进去，然后降级成脚注
+      —— 那正是 npm 的做法，DESIGN.md §7.1 明确反对。正文是唯一的列。 */
+.page { padding: var(--sp-6) 0 var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-7); }
+.section { display: flex; flex-direction: column; gap: var(--sp-3); }
+/*
+ * 🔴 **flex 子项必须显式 `min-width: 0`。** 默认的 `min-width: auto` 让子项可以撑到
+ *    内容宽度而不收缩 —— 于是 `.tablescroll`（自己有 overflow-x:auto）在 360px 视口下
+ *    根本不收缩，`.members` 的 `min-width: 640px` 直接把整页顶宽。
+ *    实测：360px 视口下 `body.scrollWidth` 是 638，而 body 有 `overflow-x: hidden`，
+ *    所以表现不是"页面能横滑"，而是**右半张表被裁掉且滑不到** —— 比横滑更糟。
+ *    这一条是本设计"宽内容各自滚、页面不滚"能不能成立的前提。
+ */
+.page > *, .section > * { min-width: 0; }
+/* 区段之间用 2px 栏线划开，像账簿 */
+.section > .sechead {
+  display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap;
+  border-top: 2px solid var(--c-rule); padding-top: var(--sp-3); margin-bottom: var(--sp-2);
+}
+.section h2 { font-size: var(--fs-h2); font-variation-settings: "wdth" 118; }
+.prose { max-width: 68ch; }
+.note { color: var(--c-text-mid); font-size: var(--fs-sm); max-width: 68ch; }
+.muted { color: var(--c-text-mid); }
+.dim { color: var(--c-text-dim); }
+.sub { display: block; color: var(--c-text-dim); font-size: var(--fs-xs); margin-top: 3px; }
+
+/* 宽内容的横向滚动容器 */
+.scroll-x { overflow-x: auto; overscroll-behavior-x: contain; max-width: 100%; }
+.tablescroll {
+  overflow-x: auto; border: 1px solid var(--c-rule); border-radius: var(--r-panel);
+  background: var(--c-surface);
+}
+.tablescroll > table { min-width: 640px; }
+
+/* ── 页脚 ──────────────────────────────────────────────────────────── */
+.site-footer { margin-top: var(--sp-8); border-top: 2px solid var(--c-rule); background: var(--c-surface); }
+.site-footer .wrap { padding-top: var(--sp-5); padding-bottom: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); }
+.site-footer p { font-size: var(--fs-sm); color: var(--c-text-mid); max-width: 78ch; }
+
+/* ── 响应式（DESIGN.md §8）────────────────────────────────────────── */
+@media (max-width: 620px) {
+  .wrap { padding: 0 var(--sp-4); }
+  .page { gap: var(--sp-6); }
+}
+
+/* 🔴 「未验证」必须看起来是空的，所以没有骨架屏 shimmer；过渡一律 ≤200ms、只改颜色。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

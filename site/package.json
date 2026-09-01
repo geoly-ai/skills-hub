@@ -1,0 +1,21 @@
+{
+  "name": "@geoly-ai/skills-hub-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "skills-hub registry 的静态浏览站点（构建时把签名快照渲染成页面，运行时不查任何后端）",
+  "scripts": {
+    "prebuild": "node build.mjs",
+    "build": "next build",
+    "predev": "node build.mjs",
+    "dev": "next dev",
+    "data": "node build.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "posttest": "node build.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  }
+}

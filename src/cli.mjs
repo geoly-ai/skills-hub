@@ -48,6 +48,14 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
 🔴 没有 --no-verify、--insecure、--force、--force-unlock、--assume-idle。
    验签与摘要校验不可关闭；替换必须点名；陈旧/yank/全量各有独立开关。
 
+埋点（docs/telemetry/00-spec.md）：
+  🔴 上报**默认开**（有内置默认端点）。只在显式 \`telemetry flush\` 时才出网；
+     采集面是穷举白名单 —— 不含路径、目录清单、文件内容、用户名。
+  GEOLY_TELEMETRY=0           完全关闭：本地一个字节都不写
+  GEOLY_TELEMETRY_UPLOAD=0    只留本地统计，不上报
+  GEOLY_TELEMETRY_ENDPOINT    改上报端点（必须 https；空值视为配置错误）
+  --offline                   单次命令禁止一切网络出口，埋点上报同样被否决
+
 退出码（§6）：0 成功 · 1 用法 · 2 完整性 · 3 冲突 · 4 部分失败 · 5 需 recover/锁忙
               6 网络 · 7 认证 · 8 陈旧 · 9 平台/文件系统 · 10 不可写 · 11 CLI 版本过低
 `;
@@ -111,6 +119,13 @@ export async function main(argv, deps = {}) {
   const out = new Output({ json: globals.json, stdout, stderr });
   const cmd = rest[0];
 
+  // 🔴 首次运行的埋点告知。上报默认开（2026-09-01 拍板），所以**必须**在用户的
+  //    第一条命令上把「收什么 / 发到哪 / 怎么关」说清楚，且只说一次。
+  //    · 走 stderr：`--json` 下 stdout 只能有一个 JSON 对象（§7 输出契约）。
+  //    · 放在这里而不是各命令里：它要覆盖**所有**命令，漏一条就有人被绕过告知。
+  //    · 整个过程不许影响主命令（T-5），所以异常一律吞掉。
+  await noticeOnce(stderr);
+
   if (cmd === undefined || cmd === '-h' || cmd === '--help' || cmd === 'help') {
     if (globals.json) return out.emit('help', { help: HELP }, EXIT.OK);
     stdout.write(HELP);
@@ -140,6 +155,23 @@ export async function main(argv, deps = {}) {
     const cls = classify(err);
     return out.emitError(cmd, cls, err);
   }
+}
+
+/**
+ * 首次运行时打印埋点告知（只打一次）。任何失败都不得影响主命令。
+ *
+ * ⚠️ 端点在这里解析而不是在 telemetry.mjs 里：upload.mjs 依赖 telemetry.mjs，
+ *    反过来 import 会成环。
+ */
+async function noticeOnce(stderr) {
+  try {
+    const tm = await import('./telemetry.mjs');
+    if (!tm.enabled() || !tm.uploadEnabled()) return;   // 没有出网就没什么可告知的
+    const { endpoint } = await import('./upload.mjs');
+    let url = null;
+    try { url = endpoint(); } catch { return; }         // 端点配坏了 = 不会出网
+    tm.maybeNoticeUpload((s) => stderr.write(s), url);
+  } catch { /* 告知不是主命令的一部分（T-5） */ }
 }
 
 // ── 内部探针 ─────────────────────────────────────────────────────────────────
@@ -194,7 +226,9 @@ async function cmdTelemetry(args, stdout, stderr) {
           : '关（GEOLY_TELEMETRY_UPLOAD=0）';
       stdout.write(`埋点      ${tm.enabled() ? '开' : '关（GEOLY_TELEMETRY=0）'}\n`);
       stdout.write(`上报      ${tm.uploadEnabled() ? '开' : uploadOff}\n`);
-      stdout.write(`端点      ${ep ?? '未配置 —— 纯本地'}\n`);
+      // 🔴 端点默认开（2026-09-01 拍板），所以「这是内置默认值」必须写在脸上：
+      //    用户有权知道数据默认发去哪，而不是去翻源码才发现有个默认端点。
+      stdout.write(`端点      ${ep ?? '无'}${ep && up.isDefaultEndpoint() ? '（内置默认值 —— 未配 GEOLY_TELEMETRY_ENDPOINT）' : ''}\n`);
       stdout.write(`待上报    ${tm.readAll().length} 条\n`);
       stdout.write(`报表历史  ${tm.readHistory().length} 条（上报不消费它）\n`);
       stdout.write(`状态目录  ${tm.stateDir()}\n`);
@@ -202,8 +236,14 @@ async function cmdTelemetry(args, stdout, stderr) {
     }
     case 'flush': {
       const r = await up.flush();
-      stdout.write(r.skipped ? `未上报：${r.reason}\n` : `已上报 ${r.sent} 条\n`);
-      return r.skipped && r.reason?.startsWith('error:') ? EXIT.USAGE : EXIT.OK;
+      stdout.write(r.skipped
+        ? `未上报：${r.reason}${r.detail ? `（${r.detail}）` : ''}\n`
+        : `已上报 ${r.sent} 条\n`);
+      // 🔴 `bad-endpoint` 也要非零退出：它是**配置错误**，不是「这次没什么可发的」。
+      //    退 0 意味着脚本永远发现不了「端点变量填空了、这台机器从此不上报」。
+      //    ⚠️ `offline` / `upload-disabled` / `empty` / `busy` 都是正常状态，退 0。
+      const bad = r.skipped && (r.reason === 'bad-endpoint' || r.reason?.startsWith('error:'));
+      return bad ? EXIT.USAGE : EXIT.OK;
     }
     default:
       stderr.write('用法：skills-hub telemetry <status|flush>\n');

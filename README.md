@@ -127,13 +127,20 @@ client 生成，`test/adapters.test.mjs` 用真 git 仓库验证过它确实忽�
 
 ## 埋点与面板
 
-规格：[`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md)（v2，已过 Codex 评审）。
+规格：[`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md)（v5，已过五轮 Codex 评审）。
+端点实现见 [`server/`](server/)。
 
-🔴 **默认不向任何地方发数据** —— 没有内置端点，不配 `GEOLY_TELEMETRY_ENDPOINT`
-就是纯本地。事件只含制品坐标、客户端、操作、结果、耗时，**不含路径、目录清单、
-文件内容、用户名**；这条契约由 `assertValidEvent()` 在落盘/读回/上报/导出四个边界执行。
+🔴 **上报默认开**（2026-09-01 起，规格 §4.2）—— CLI 有内置默认端点。
+首次运行会打印一次告知（收什么、发到哪、怎么关）。
+**只在你显式运行 `skills-hub telemetry flush` 时才出网**；install / check 只写本地。
+
+事件只含制品坐标、客户端、操作、结果、耗时、CLI/OS/Node 版本和一个本机随机 ID，
+**不含路径、目录清单、文件内容、用户名、命令行原文、异常栈**；
+这条契约由 `assertValidEvent()` 在落盘/读回/上报/导出四个边界执行，
+**端点侧跑的是同一个校验器**（不另写一份，两份必然分叉）。
 
 - 关掉：`GEOLY_TELEMETRY=0`　只留本地：`GEOLY_TELEMETRY_UPLOAD=0`　断网：`--offline`
+  （⚠️ `GEOLY_TELEMETRY_ENDPOINT=` 空值是**配置错误**，不是关闭开关）
 - 面板：[`docs/dashboard/`](docs/dashboard/)（零依赖静态页，
   `skills-hub stats --export` 出的 JSON 拖进去即可）
 

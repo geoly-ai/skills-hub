@@ -1,0 +1,1215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>skills-hub · 设计样式演示</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   skills-hub design tokens
+   规格文档：site/DESIGN.md（本页是它的可视证据，token 名一一对应）
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── 中性：greenbar 台账纸。带 ~110° 的极低饱和绿偏，不是纯灰也不是暖米色 ── */
+  --c-bg:        #EEF1EC;
+  --c-surface:   #F8FAF7;
+  --c-sunken:    #E4E9E2;
+  --c-hairline:  #D3D9CF;   /* 1px 行分隔 */
+  --c-rule:      #B5BFB1;   /* 2px 区段界线 */
+  --c-text:      #171B18;
+  --c-text-mid:  #4A524C;
+  --c-text-dim:  #6E776F;
+
+  /* ── 6 个语义色。全部与 --c-ink（主强调）分开 ── */
+  --c-ink:       #2B4A9B;   /* 主强调：铁胆墨蓝。链接、聚焦环、当前项 */
+  --c-verified:  #2C6B45;   /* 已验证 / published */
+  --c-caution:   #8A5A0B;   /* 警告：deprecated、Tier 1、stale */
+  --c-revoked:   #A2352E;   /* 已 yank、Tier 2 */
+  --c-degraded:  #6E3D7A;   /* degraded：被成员拖累，不是自身有罪 */
+  --c-neutralbadge: #5E6862;/* Tier 0 / 无需注意 */
+
+  --t-verified:  color-mix(in oklab, var(--c-verified) 10%, var(--c-surface));
+  --t-caution:   color-mix(in oklab, var(--c-caution)  12%, var(--c-surface));
+  --t-revoked:   color-mix(in oklab, var(--c-revoked)  11%, var(--c-surface));
+  --t-degraded:  color-mix(in oklab, var(--c-degraded) 11%, var(--c-surface));
+  --t-ink:       color-mix(in oklab, var(--c-ink)      10%, var(--c-surface));
+
+  /* ── 字体 ── */
+  --f-display: "Archivo", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  --f-body:    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+               "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  --f-mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+               Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+
+  /* ── 尺度 ── */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+  --fs-display: 30px; --fs-h2: 21px; --fs-h3: 14px;
+  --fs-lg: 16px; --fs-base: 15px; --fs-sm: 13.5px;
+  --fs-mono: 12.5px; --fs-xs: 12px; --fs-label: 11px;
+
+  --r-chip: 2px; --r-panel: 3px;
+  --shadow-pop: 0 2px 6px rgba(20,26,22,.10), 0 0 0 1px var(--c-hairline);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --c-bg:       #111519;
+    --c-surface:  #171C21;
+    --c-sunken:   #0C1013;
+    --c-hairline: #29323A;
+    --c-rule:     #3B4650;
+    --c-text:     #E3E9E5;
+    --c-text-mid: #A8B2AB;
+    --c-text-dim: #7E8880;
+
+    --c-ink:      #8FB0FF;
+    --c-verified: #6FCB8F;
+    --c-caution:  #E0A64A;
+    --c-revoked:  #F08C82;
+    --c-degraded: #C79BD6;
+    --c-neutralbadge: #939E97;
+
+    --t-verified: color-mix(in oklab, var(--c-verified) 14%, var(--c-surface));
+    --t-caution:  color-mix(in oklab, var(--c-caution)  15%, var(--c-surface));
+    --t-revoked:  color-mix(in oklab, var(--c-revoked)  14%, var(--c-surface));
+    --t-degraded: color-mix(in oklab, var(--c-degraded) 14%, var(--c-surface));
+    --t-ink:      color-mix(in oklab, var(--c-ink)      14%, var(--c-surface));
+    --shadow-pop: 0 2px 8px rgba(0,0,0,.5), 0 0 0 1px var(--c-hairline);
+  }
+}
+:root[data-theme="dark"] {
+  --c-bg:       #111519;
+  --c-surface:  #171C21;
+  --c-sunken:   #0C1013;
+  --c-hairline: #29323A;
+  --c-rule:     #3B4650;
+  --c-text:     #E3E9E5;
+  --c-text-mid: #A8B2AB;
+  --c-text-dim: #7E8880;
+
+  --c-ink:      #8FB0FF;
+  --c-verified: #6FCB8F;
+  --c-caution:  #E0A64A;
+  --c-revoked:  #F08C82;
+  --c-degraded: #C79BD6;
+  --c-neutralbadge: #939E97;
+
+  --t-verified: color-mix(in oklab, var(--c-verified) 14%, var(--c-surface));
+  --t-caution:  color-mix(in oklab, var(--c-caution)  15%, var(--c-surface));
+  --t-revoked:  color-mix(in oklab, var(--c-revoked)  14%, var(--c-surface));
+  --t-degraded: color-mix(in oklab, var(--c-degraded) 14%, var(--c-surface));
+  --t-ink:      color-mix(in oklab, var(--c-ink)      14%, var(--c-surface));
+  --shadow-pop: 0 2px 8px rgba(0,0,0,.5), 0 0 0 1px var(--c-hairline);
+}
+
+/* ── 基础 ─────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--c-bg); color: var(--c-text);
+  font: 400 var(--fs-base)/1.65 var(--f-body);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--c-ink); text-decoration: none; border-bottom: 1px solid color-mix(in oklab, var(--c-ink) 35%, transparent); }
+a:hover { border-bottom-color: var(--c-ink); }
+:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 2px; border-radius: 1px; }
+h1,h2,h3,h4 { font-family: var(--f-display); font-weight: 600; margin: 0; line-height: 1.2;
+              font-variation-settings: "wdth" 112; letter-spacing: -0.005em; }
+code, .mono { font-family: var(--f-mono); }
+
+.wrap { max-width: 1160px; margin: 0 auto; padding: 0 var(--sp-5); }
+
+/* 小标签：全大写 + 字距，永远是 mono，永远不是内容本身 */
+.label {
+  font-family: var(--f-mono); font-size: var(--fs-label); font-weight: 500;
+  letter-spacing: .10em; text-transform: uppercase; color: var(--c-text-dim);
+}
+
+/* ── 演示页脚手架（非产品组件） ───────────────────────────────────────── */
+.demo-head {
+  border-bottom: 2px solid var(--c-rule); background: var(--c-surface);
+  position: sticky; top: 0; z-index: 20;
+}
+.demo-head .wrap { display: flex; align-items: center; gap: var(--sp-4); height: 56px; }
+.demo-head h1 { font-size: 17px; font-variation-settings: "wdth" 118; }
+.demo-head .spacer { flex: 1; }
+.demo-sec { padding: var(--sp-7) 0 0; }
+.demo-sec > .wrap > .sechead {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  border-top: 2px solid var(--c-rule); padding-top: var(--sp-3); margin-bottom: var(--sp-5);
+}
+.demo-sec h2 { font-size: var(--fs-h2); font-variation-settings: "wdth" 118; }
+.demo-sec .note { color: var(--c-text-mid); font-size: var(--fs-sm); max-width: 62ch; margin: calc(-1 * var(--sp-3)) 0 var(--sp-5); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); }
+@media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* ── 按钮 ─────────────────────────────────────────────────────────────── */
+.btn {
+  font: 500 13px/1 var(--f-body); color: var(--c-text);
+  background: var(--c-surface); border: 1px solid var(--c-rule); border-radius: var(--r-panel);
+  padding: 7px 11px; cursor: pointer; transition: background 120ms linear, border-color 120ms linear;
+}
+.btn:hover { background: var(--c-sunken); border-color: var(--c-text-dim); }
+.btn-mono { font-family: var(--f-mono); font-size: 12px; }
+
+/* ══ 组件 1：ArtifactId ════════════════════════════════════════════════ */
+.aid { font-family: var(--f-mono); font-weight: 500; word-break: break-all; }
+.aid .kind { color: var(--c-text-dim); }
+.aid .ns   { color: var(--c-text-mid); }
+.aid .nm   { color: var(--c-text); }
+.aid .ver  { color: var(--c-text-mid); }
+
+/* ══ 组件 2：capability 徽章（Tier 0/1/2） ═════════════════════════════ */
+.tier {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--f-mono); font-size: 11px; font-weight: 500; letter-spacing: .06em;
+  padding: 3px 7px 3px 5px; border-radius: var(--r-chip);
+  border: 1px solid currentColor; background: transparent; white-space: nowrap;
+}
+.tier .meter { display: inline-flex; gap: 2px; }
+.tier .meter i { width: 3px; height: 10px; background: currentColor; opacity: .22; }
+.tier .meter i.on { opacity: 1; }
+.tier .caps { color: var(--c-text-mid); letter-spacing: 0; text-transform: none; font-weight: 400; }
+.tier-0 { color: var(--c-neutralbadge); }
+.tier-1 { color: var(--c-caution); }
+.tier-2 { color: var(--c-revoked); border-width: 1px; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c-revoked) 30%, transparent); }
+
+/* ══ 组件 3：状态标记 ═════════════════════════════════════════════════ */
+.status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--f-mono); font-size: 11px; font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; padding: 3px 7px; border-radius: var(--r-chip);
+}
+.status svg { width: 11px; height: 11px; }
+.st-published  { color: var(--c-verified); background: var(--t-verified); }
+.st-deprecated { color: var(--c-caution);  background: var(--t-caution); }
+.st-yanked     { color: var(--c-revoked);  background: var(--t-revoked); }
+.st-degraded   { color: var(--c-degraded); background: var(--t-degraded); }
+
+/* ══ 组件 4：摘要串 ═══════════════════════════════════════════════════ */
+.digest {
+  display: inline-flex; flex-wrap: wrap; align-items: baseline;
+  font-family: var(--f-mono); font-size: var(--fs-mono); line-height: 1.5;
+  background: var(--c-sunken); border: 1px solid var(--c-hairline); border-radius: var(--r-panel);
+  padding: 3px 6px; max-width: 100%;
+}
+.digest .algo { color: var(--c-text-dim); margin-right: 6px; }
+/* 🔴 分组靠 margin，不靠插空格 —— 复制出来必须是连续 64 hex */
+.digest .hex { user-select: all; word-break: break-all; }
+.digest .hex > b { font-weight: 400; }
+.digest .hex > b + b { margin-left: 5px; }
+.digest .hex > b:nth-of-type(1),
+.digest .hex > b:nth-of-type(8) { font-weight: 600; color: var(--c-text); }
+.digest.dim .hex { color: var(--c-text-mid); }
+.copy {
+  margin-left: 8px; border: 0; background: transparent; cursor: pointer; padding: 0 2px;
+  font: 500 11px/1 var(--f-mono); letter-spacing: .06em; color: var(--c-text-dim);
+  text-transform: uppercase; transition: color 120ms linear;
+}
+.copy:hover { color: var(--c-ink); }
+.copy[data-done="1"] { color: var(--c-verified); }
+/* 短形态：首 8 + 尾 8，中段折叠 */
+.digest-short .mid { color: var(--c-text-dim); margin: 0 4px; }
+
+/* ══ 组件 5：制品卡片（列表一条） ═════════════════════════════════════ */
+.list { border-top: 2px solid var(--c-rule); }
+.card {
+  display: block; border-bottom: 1px solid var(--c-hairline);
+  background: var(--c-surface); padding: var(--sp-4) var(--sp-4);
+  transition: background 120ms linear;
+  position: relative;
+}
+.card:hover { background: color-mix(in oklab, var(--c-ink) 4%, var(--c-surface)); }
+.card-r1 { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
+.card-r1 .aid { font-size: 15px; }
+.card-r1 .spacer { flex: 1; }
+.card-desc {
+  color: var(--c-text-mid); font-size: var(--fs-sm); margin: 6px 0 var(--sp-3); max-width: 76ch;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.card-facts {
+  display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4);
+  font-size: 12.5px; color: var(--c-text-mid); align-items: center;
+}
+.fact { display: inline-flex; align-items: baseline; gap: 6px; }
+.fact .k { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .09em;
+           text-transform: uppercase; color: var(--c-text-dim); }
+.fact .v { font-family: var(--f-mono); font-size: 12px; }
+.card-badges { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; margin-top: var(--sp-3); }
+.card.is-yanked   { background: var(--t-revoked); }
+.card.is-degraded { background: var(--t-degraded); }
+
+/* ══ 组件 6：信任链条（chain strip） ══════════════════════════════════ */
+.chain {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--c-rule); border-top-width: 3px; border-radius: var(--r-panel);
+  background: var(--c-surface); overflow: hidden;
+}
+.chain > div { padding: var(--sp-3) var(--sp-4); border-left: 1px solid var(--c-hairline); min-width: 0; }
+.chain > div:first-child { border-left: 0; }
+.chain .st { display: flex; align-items: center; gap: 6px; font-family: var(--f-mono);
+             font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
+.chain .ok   { color: var(--c-verified); }
+.chain .warn { color: var(--c-caution); }
+.chain .bad  { color: var(--c-revoked); }
+.chain .none { color: var(--c-text-dim); }
+.chain .v { margin-top: 5px; font-family: var(--f-mono); font-size: 12px;
+            color: var(--c-text-mid); overflow-wrap: anywhere; }
+@media (max-width: 780px) {
+  .chain { grid-template-columns: 1fr; }
+  .chain > div { border-left: 0; border-top: 1px solid var(--c-hairline); }
+  .chain > div:first-child { border-top: 0; }
+}
+
+/* ══ 组件 7：信任面板（键值台账） ═════════════════════════════════════ */
+.panel { border: 1px solid var(--c-rule); border-radius: var(--r-panel); background: var(--c-surface); }
+.panel > header {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--c-rule);
+  background: var(--c-sunken);
+}
+.panel > header h3 { font-size: var(--fs-h3); font-variation-settings: "wdth" 118; letter-spacing: .01em; }
+.panel > header .spacer { flex: 1; }
+.ledger { display: grid; grid-template-columns: 168px minmax(0,1fr); }
+.ledger > dt {
+  padding: 10px var(--sp-4); border-bottom: 1px solid var(--c-hairline);
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--c-text-dim); background: color-mix(in oklab, var(--c-sunken) 45%, var(--c-surface));
+}
+.ledger > dd {
+  margin: 0; padding: 10px var(--sp-4); border-bottom: 1px solid var(--c-hairline);
+  font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere;
+}
+.ledger > dt:last-of-type, .ledger > dd:last-of-type { border-bottom: 0; }
+.ledger .sub { display: block; color: var(--c-text-dim); font-size: 12px; margin-top: 3px; }
+@media (max-width: 620px) {
+  .ledger { grid-template-columns: 1fr; }
+  .ledger > dt { border-bottom: 0; padding-bottom: 2px; background: transparent; }
+  .ledger > dd { padding-top: 2px; }
+}
+
+/* 可复核：每一行都能自己跑一遍 */
+.recheck {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin-top: var(--sp-2); padding: 6px 8px; border-radius: var(--r-panel);
+  background: var(--c-sunken); border: 1px dashed var(--c-hairline);
+  font-family: var(--f-mono); font-size: 11.5px; color: var(--c-text-mid); overflow-x: auto;
+}
+.recheck .prompt { color: var(--c-text-dim); user-select: none; }
+
+/* ══ 组件 8：provenance ═══════════════════════════════════════════════ */
+.prov { border: 1px solid var(--c-rule); border-radius: var(--r-panel); background: var(--c-surface); }
+.prov > header {
+  display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--c-rule); background: var(--c-sunken);
+}
+.prov h3 { font-size: 14px; }
+.prov .kindtag {
+  font-family: var(--f-mono); font-size: 11px; font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; padding: 2px 6px; border-radius: var(--r-chip);
+}
+.prov-original .kindtag { color: var(--c-verified); background: var(--t-verified); }
+.prov-vendored .kindtag { color: var(--c-ink); background: var(--t-ink); }
+/* vendored：一条真正的「搬运轨迹」，不是又一张键值表 */
+.trace { padding: var(--sp-4); display: grid; grid-template-columns: 14px minmax(0,1fr); gap: 0 var(--sp-3); }
+.trace .rail { grid-column: 1; position: relative; }
+.trace .rail::before {
+  content: ""; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 1px;
+  background: repeating-linear-gradient(to bottom, var(--c-rule) 0 3px, transparent 3px 6px);
+}
+.trace .node { grid-column: 1; width: 9px; height: 9px; margin: 5px 0 0 2px; border-radius: 50%;
+               border: 2px solid var(--c-ink); background: var(--c-surface); position: relative; z-index: 1; }
+.trace .node.end { background: var(--c-ink); }
+.trace .body { grid-column: 2; padding-bottom: var(--sp-4); min-width: 0; }
+.trace .body:last-child { padding-bottom: 0; }
+.trace .t { font-family: var(--f-mono); font-size: 11px; letter-spacing: .09em;
+            text-transform: uppercase; color: var(--c-text-dim); }
+.trace .m { font-family: var(--f-mono); font-size: 13px; overflow-wrap: anywhere; margin-top: 2px; }
+.trace .n { font-size: 12.5px; color: var(--c-text-mid); margin-top: 4px; }
+
+/* ══ 组件 9：警示条 ═══════════════════════════════════════════════════ */
+.notice {
+  border: 1px solid var(--c-hairline); border-top: 3px solid var(--c-rule);
+  border-radius: var(--r-panel); padding: var(--sp-3) var(--sp-4); background: var(--c-surface);
+  display: grid; grid-template-columns: 18px minmax(0,1fr); gap: var(--sp-3);
+}
+.notice .ic { margin-top: 3px; }
+.notice .ic svg { width: 16px; height: 16px; display: block; }
+.notice h4 { font-family: var(--f-display); font-size: 14.5px; font-weight: 600;
+             font-variation-settings: "wdth" 118; margin: 0 0 3px; }
+.notice p { margin: 0; font-size: 13.5px; color: var(--c-text-mid); }
+.notice .acts { margin-top: var(--sp-3); display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.n-yank     { border-top-color: var(--c-revoked);  background: var(--t-revoked); }
+.n-yank .ic, .n-yank h4 { color: var(--c-revoked); }
+.n-degraded { border-top-color: var(--c-degraded); background: var(--t-degraded); }
+.n-degraded .ic, .n-degraded h4 { color: var(--c-degraded); }
+.n-deprecated { border-top-color: var(--c-caution); background: var(--t-caution); }
+.n-deprecated .ic, .n-deprecated h4 { color: var(--c-caution); }
+
+/* ══ 组件 10：pack 成员表 ═════════════════════════════════════════════ */
+.members { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.members th {
+  text-align: left; font: 500 11px/1 var(--f-mono); letter-spacing: .09em; text-transform: uppercase;
+  color: var(--c-text-dim); padding: 8px var(--sp-3); border-bottom: 1px solid var(--c-rule);
+  white-space: nowrap;
+}
+.members td { padding: 10px var(--sp-3); border-bottom: 1px solid var(--c-hairline); vertical-align: top; }
+.members tr.blame { background: var(--t-revoked); }
+.members tr.skipped td { color: var(--c-text-dim); }
+.members .role { font-family: var(--f-mono); font-size: 11px; letter-spacing: .06em;
+                 text-transform: uppercase; color: var(--c-text-mid); }
+.tablescroll { overflow-x: auto; border: 1px solid var(--c-rule); border-radius: var(--r-panel);
+               background: var(--c-surface); }
+.tablescroll > table { min-width: 640px; }
+/* 「被谁拖累」：一条自成一段的因果句，而不是表里的第 N 列 */
+.blameline {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  font-family: var(--f-mono); font-size: 12.5px; padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--c-hairline); background: var(--c-sunken); color: var(--c-text-mid);
+}
+.blameline .arrow { color: var(--c-degraded); }
+
+/* ══ 组件 11：搜索 / 筛选 ═════════════════════════════════════════════ */
+.search { display: flex; border: 1px solid var(--c-rule); border-radius: var(--r-panel);
+          background: var(--c-surface); align-items: center; padding: 0 var(--sp-3); gap: var(--sp-2); }
+.search:focus-within { border-color: var(--c-ink); box-shadow: 0 0 0 2px color-mix(in oklab, var(--c-ink) 25%, transparent); }
+.search svg { width: 15px; height: 15px; color: var(--c-text-dim); flex: none; }
+.search input {
+  flex: 1; border: 0; background: transparent; color: var(--c-text);
+  font: 400 14px/1 var(--f-mono); padding: 11px 0; min-width: 0;
+}
+.search input:focus { outline: none; }
+.search input::placeholder { color: var(--c-text-dim); font-family: var(--f-mono); }
+.search kbd {
+  font: 500 11px/1 var(--f-mono); color: var(--c-text-dim); border: 1px solid var(--c-hairline);
+  border-radius: var(--r-chip); padding: 3px 5px; background: var(--c-sunken);
+}
+.filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); align-items: center; }
+.fgroup { display: flex; align-items: center; gap: var(--sp-2); }
+.chip {
+  font: 500 12px/1 var(--f-mono); letter-spacing: .02em; padding: 6px 9px;
+  border: 1px solid var(--c-hairline); border-radius: var(--r-chip);
+  background: var(--c-surface); color: var(--c-text-mid); cursor: pointer;
+  transition: background 120ms linear, border-color 120ms linear, color 120ms linear;
+}
+.chip:hover { border-color: var(--c-text-dim); }
+.chip[aria-pressed="true"] { background: var(--t-ink); border-color: var(--c-ink); color: var(--c-ink); }
+.chip .n { color: var(--c-text-dim); margin-left: 5px; }
+.divider-v { width: 1px; align-self: stretch; background: var(--c-hairline); margin: 0 var(--sp-2); }
+
+/* ══ 组件 12：空状态 ══════════════════════════════════════════════════ */
+.empty { border: 1px solid var(--c-rule); border-radius: var(--r-panel); background: var(--c-surface); }
+.empty > .top { padding: var(--sp-6) var(--sp-6) var(--sp-5); border-bottom: 1px solid var(--c-rule); }
+.empty h2 { font-size: 26px; font-variation-settings: "wdth" 118; margin-bottom: var(--sp-3); }
+.empty .lede { font-size: 15px; color: var(--c-text-mid); max-width: 64ch; margin: 0; }
+.empty .cols { display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); }
+.empty .cols > * { padding: var(--sp-5) var(--sp-6); }
+.empty .cols > :first-child { border-right: 1px solid var(--c-hairline); }
+@media (max-width: 820px) {
+  .empty .cols { grid-template-columns: 1fr; }
+  .empty .cols > :first-child { border-right: 0; border-bottom: 1px solid var(--c-hairline); }
+  .empty > .top { padding: var(--sp-5) var(--sp-4); }
+  .empty .cols > * { padding: var(--sp-5) var(--sp-4); }
+}
+/* 计数为 0：把 0 当成一个已签名的事实来排版，而不是一句「暂无数据」 */
+.zerocount { display: flex; align-items: baseline; gap: var(--sp-3); margin: var(--sp-5) 0 0; }
+.zerocount .num { font-family: var(--f-display); font-variation-settings: "wdth" 100;
+                  font-size: 64px; line-height: .9; font-weight: 600; color: var(--c-text); }
+.zerocount .cap { font-size: 13.5px; color: var(--c-text-mid); max-width: 34ch; }
+/* 投稿流水线：横向阶段条 */
+.pipeline { list-style: none; margin: var(--sp-4) 0 0; padding: 0; display: grid; gap: 0; }
+.pipeline li { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: var(--sp-3);
+               padding-bottom: var(--sp-4); position: relative; }
+.pipeline li:last-child { padding-bottom: 0; }
+.pipeline li::before {
+  content: ""; position: absolute; left: 9px; top: 16px; bottom: -2px; width: 1px;
+  background: var(--c-hairline);
+}
+.pipeline li:last-child::before { display: none; }
+.pipeline .dot {
+  width: 19px; height: 19px; border-radius: 50%; border: 1px solid var(--c-rule);
+  background: var(--c-surface); display: grid; place-items: center; z-index: 1;
+  font: 600 10px/1 var(--f-mono); color: var(--c-text-dim);
+}
+.pipeline .s { font-family: var(--f-mono); font-size: 12.5px; font-weight: 500; }
+.pipeline .d { font-size: 12.5px; color: var(--c-text-mid); margin-top: 2px; }
+
+/* 空搜索结果：给出可执行的下一步，而不是一个居中的插画 */
+.emptyrow {
+  border: 1px dashed var(--c-rule); border-radius: var(--r-panel); padding: var(--sp-5);
+  background: color-mix(in oklab, var(--c-sunken) 60%, var(--c-surface));
+}
+
+/* ══ 演示：色板 / 字体样张 ════════════════════════════════════════════ */
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px,1fr)); gap: var(--sp-3); }
+.sw { border: 1px solid var(--c-hairline); border-radius: var(--r-panel); overflow: hidden; background: var(--c-surface); }
+.sw .chipc { height: 54px; }
+.sw .meta { padding: 8px 10px; font-family: var(--f-mono); font-size: 11px; }
+.sw .meta b { display: block; font-weight: 600; letter-spacing: .04em; }
+.sw .meta span { color: var(--c-text-dim); }
+.specimen { border: 1px solid var(--c-hairline); border-radius: var(--r-panel); background: var(--c-surface); padding: var(--sp-4); }
+.specimen > div + div { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--c-hairline); }
+
+/* 规格 §8 要求的三条，落到实处 */
+@media (max-width: 620px) {
+  .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .filters::-webkit-scrollbar { display: none; }
+  .fgroup { flex: none; }
+}
+@media (max-width: 420px) {
+  .card-r1 .aid, .aid { font-size: var(--fs-sm); word-break: break-all; }
+  .zerocount .num { font-size: 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+footer.pagefoot { margin: var(--sp-8) 0 var(--sp-7); border-top: 2px solid var(--c-rule); padding-top: var(--sp-4);
+                  font-size: 12.5px; color: var(--c-text-dim); }
+</style>
+</head>
+<body>
+
+<!-- ══ 图标：一律 inline SVG，不用 emoji ══ -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M2.5 8.5l3.5 3.5 7.5-8" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-bang" viewBox="0 0 16 16"><path d="M8 2v7.5M8 12.2v1.6" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-block" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M2.6 10.6L10.6 2.6M5.4 13.4L13.4 5.4" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-fail" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-unverified" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4L14 14" stroke="currentColor" stroke-width="1.6"/></symbol>
+</svg>
+
+<header class="demo-head">
+  <div class="wrap">
+    <h1>skills-hub · 设计样式演示</h1>
+    <span class="label" style="border-left:1px solid var(--c-hairline);padding-left:16px">DESIGN.md 的可视证据</span>
+    <span class="spacer"></span>
+    <button class="btn btn-mono" id="themeBtn">主题：跟随系统</button>
+    <span id="live" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"></span>
+  </div>
+</header>
+
+<!-- ═════════════ 1. 色板 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">01</span><h2>配色</h2></div>
+  <p class="note">中性色是「greenbar 台账纸」——极低饱和的绿偏（≈110°，S≈6%），不是纯灰、也不是暖米色。
+  主强调 <code>--c-ink</code> 是铁胆墨蓝，只负责「可点、当前、聚焦」；四个状态语义色与它完全分离，
+  彼此的色相跨度足够大，灰度打印下也能靠明度分开。</p>
+  <div class="swatches">
+    <div class="sw"><div class="chipc" style="background:var(--c-ink)"></div><div class="meta"><b>--c-ink</b><span>强调 · 链接 / 聚焦 / 当前</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-verified)"></div><div class="meta"><b>--c-verified</b><span>published · 验证通过</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-caution)"></div><div class="meta"><b>--c-caution</b><span>deprecated · Tier 1 · stale</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-revoked)"></div><div class="meta"><b>--c-revoked</b><span>yanked · Tier 2</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-degraded)"></div><div class="meta"><b>--c-degraded</b><span>degraded · 被成员拖累</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-neutralbadge)"></div><div class="meta"><b>--c-neutralbadge</b><span>Tier 0 · 无需注意</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-bg);box-shadow:inset 0 0 0 1px var(--c-hairline)"></div><div class="meta"><b>--c-bg</b><span>页面底</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-surface);box-shadow:inset 0 0 0 1px var(--c-hairline)"></div><div class="meta"><b>--c-surface</b><span>面板 / 行</span></div></div>
+    <div class="sw"><div class="chipc" style="background:var(--c-sunken);box-shadow:inset 0 0 0 1px var(--c-hairline)"></div><div class="meta"><b>--c-sunken</b><span>表头 / 摘要底 / 命令行</span></div></div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 2. 字体 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">02</span><h2>字体与排版尺度</h2></div>
+  <p class="note">三种角色：Archivo（标题，用 <code>wdth</code> 轴拉宽，像标牌与钢印）、IBM Plex Sans（正文）、
+  IBM Plex Mono（<b>主力</b>：ArtifactId、摘要、命令、全部字段名）。中文永远走系统栈
+  （PingFang SC → 苹方 / 微软雅黑 / 思源黑体），<b>不 web 加载 CJK 字体</b>。</p>
+  <div class="specimen">
+    <div>
+      <span class="label">display · Archivo 600 / wdth 118</span>
+      <div style="font-family:var(--f-display);font-variation-settings:'wdth' 118;font-weight:600;font-size:30px;line-height:1.15;margin-top:8px">
+        skill:geoly/plaud-theme-dev</div>
+      <div style="font-family:var(--f-display);font-variation-settings:'wdth' 118;font-weight:600;font-size:21px;margin-top:6px">
+        这张快照由 release.yml 身份签署</div>
+    </div>
+    <div>
+      <span class="label">body · IBM Plex Sans 400 / 15px / 1.65</span>
+      <p style="margin:8px 0 0;max-width:66ch">
+        registry 里的每一条记录都带着一条可以自己走一遍的链：Sigstore 签名 → Rekor 透明日志条目 →
+        树摘要 → 它所属的那张已签快照。页面上写出来的每一个值，都能在本机用一条命令复算出来。
+        Every value shown here is reproducible offline — 0123456789.</p>
+    </div>
+    <div>
+      <span class="label">mono · IBM Plex Mono 400 / 12.5px</span>
+      <div class="mono" style="font-size:12.5px;margin-top:8px;line-height:1.7">
+        geoly-tree-v1:sha256:9f2c…&nbsp;&nbsp;·&nbsp;&nbsp;0O1lI · abcdef0123456789<br>
+        npx @geoly/skills-hub verify skill:geoly/plaud-theme-dev@0.3.6
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 3. 制品卡片 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">03</span><h2>制品卡片（列表一条）</h2></div>
+  <p class="note">🔴 <b>两条轴不许混：</b><span class="mono">published / deprecated / yanked / degraded</span>
+  是<b>生命周期</b>（快照里的 <span class="mono">status</span> 字段）；
+  <span class="mono">verified / stale / unverified / failed</span> 是<b>本次验证结果</b>（<span class="mono">resolveCurrent()</span> 算出来的，不在快照里）。
+  卡片上的标记是前者，信任链条（§05）是后者。验签失败<b>绝不</b>渲染成 yanked。<br>
+  卡片第一行不是描述，是 <b>身份 + 状态 + Tier</b>。描述排第二。第三行是四个可复核事实：
+  出处、审批、树摘要（短形态）、资产字节数。<b>没有任何使用量数字</b>——我们没有这种数据。</p>
+
+  <div class="list">
+    <!-- 正常 Tier 0 · vendored -->
+    <article class="card">
+      <div class="card-r1">
+        <span class="aid"><span class="kind">skill:</span><span class="ns">geoly/</span><span class="nm">plaud-theme-dev</span><span class="ver">@0.3.6</span></span>
+        <span class="status st-published"><svg><use href="#i-check"/></svg>published</span>
+        <span class="spacer"></span>
+        <span class="label" title="latest 是快照里的投影，不是实时结论">截至 hub-42 · latest</span>
+      </div>
+      <p class="card-desc">Plaud 品牌 Shopify 主题的通用开发通道：bug 修复、性能优化、UX 微调；不做影响面收集，也无权宣布可交付。</p>
+      <div class="card-facts">
+        <span class="fact"><span class="k">出处</span><span class="v">vendored · chovizzz/plaud-theme-matrix@0aa77117</span></span>
+        <span class="fact"><span class="k">审批</span><span class="v">PR #118 · chovizzz</span></span>
+        <span class="fact"><span class="k">树摘要</span><span class="v digest-short">9f2c4a71<span class="mid">…</span>b0d3e8af</span></span>
+        <span class="fact"><span class="k">资产</span><span class="v">48,213 B</span></span>
+      </div>
+      <div class="card-badges">
+        <span class="tier tier-0"><span class="meter"><i class="on"></i><i></i><i></i></span>TIER 0<span class="caps">none</span></span>
+        <span class="fact"><span class="k">clients</span><span class="v">claude · cursor · codex · agents</span></span>
+        <span class="fact"><span class="k">license</span><span class="v">MIT</span></span>
+      </div>
+    </article>
+
+    <!-- Tier 1 · original -->
+    <article class="card">
+      <div class="card-r1">
+        <span class="aid"><span class="kind">skill:</span><span class="ns">geoly/</span><span class="nm">social-hub-cli</span><span class="ver">@0.2.1</span></span>
+        <span class="status st-published"><svg><use href="#i-check"/></svg>published</span>
+      </div>
+      <p class="card-desc">Social Hub CLI 的调用约定：命令表、退出码、鉴权前置检查。</p>
+      <div class="card-facts">
+        <span class="fact"><span class="k">出处</span><span class="v">original · @chovizzz</span></span>
+        <span class="fact"><span class="k">审批</span><span class="v">PR #204 · chovizzz</span></span>
+        <span class="fact"><span class="k">树摘要</span><span class="v digest-short">4b81e0c3<span class="mid">…</span>77aa1d95</span></span>
+        <span class="fact"><span class="k">资产</span><span class="v">21,504 B</span></span>
+      </div>
+      <div class="card-badges">
+        <span class="tier tier-1"><span class="meter"><i class="on"></i><i class="on"></i><i></i></span>TIER 1<span class="caps">network · external-tool</span></span>
+        <span class="fact"><span class="k">clients</span><span class="v">claude · codex</span></span>
+        <span class="fact"><span class="k">license</span><span class="v">Apache-2.0</span></span>
+      </div>
+    </article>
+
+    <!-- Tier 2 · 非 geoly namespace -->
+    <article class="card">
+      <div class="card-r1">
+        <span class="aid"><span class="kind">skill:</span><span class="ns">acme/</span><span class="nm">repo-surgeon</span><span class="ver">@1.4.0</span></span>
+        <span class="status st-published"><svg><use href="#i-check"/></svg>published</span>
+      </div>
+      <p class="card-desc">批量重写 git 历史与提交元数据；会调用本机 shell 并读取 git 凭据助手。</p>
+      <div class="card-facts">
+        <span class="fact"><span class="k">出处</span><span class="v">original · @acme-tools</span></span>
+        <span class="fact"><span class="k">审批</span><span class="v">PR #241 · chovizzz + rui-w（两名）</span></span>
+        <span class="fact"><span class="k">树摘要</span><span class="v digest-short">c70df2a4<span class="mid">…</span>0e5b93cc</span></span>
+        <span class="fact"><span class="k">资产</span><span class="v">96,880 B</span></span>
+      </div>
+      <div class="card-badges">
+        <span class="tier tier-2"><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i></span>TIER 2<span class="caps">shell · credentials · writes-repo</span></span>
+        <span class="fact"><span class="k">clients</span><span class="v">codex · agents</span></span>
+        <span class="fact"><span class="k">license</span><span class="v">MPL-2.0</span></span>
+      </div>
+    </article>
+
+    <!-- 已 yank -->
+    <article class="card is-yanked">
+      <div class="card-r1">
+        <span class="aid"><span class="kind">skill:</span><span class="ns">acme/</span><span class="nm">legacy-deploy</span><span class="ver">@0.9.2</span></span>
+        <span class="status st-yanked"><svg><use href="#i-x"/></svg>yanked</span>
+        <span class="spacer"></span>
+        <span class="label" style="color:var(--c-revoked)">GSA-2026-0007</span>
+      </div>
+      <p class="card-desc">把部署密钥写进仓库内的临时文件，且未在结束时删除。</p>
+      <div class="card-facts">
+        <span class="fact"><span class="k">yank 于</span><span class="v">2026-08-19T03:41:00Z</span></span>
+        <span class="fact"><span class="k">替代版本</span><span class="v"><a href="#">skill:acme/legacy-deploy@0.9.3</a></span></span>
+        <span class="fact"><span class="k">树摘要</span><span class="v digest-short">e11908bd<span class="mid">…</span>5c2fa740</span></span>
+      </div>
+      <div class="card-badges">
+        <span class="tier tier-2"><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i></span>TIER 2<span class="caps">shell · credentials</span></span>
+      </div>
+    </article>
+
+    <!-- degraded pack -->
+    <article class="card is-degraded">
+      <div class="card-r1">
+        <span class="aid"><span class="kind">pack:</span><span class="ns">geoly/</span><span class="nm">plaud-theme-matrix</span><span class="ver">@0.3.6</span></span>
+        <span class="status st-degraded"><svg><use href="#i-block"/></svg>degraded</span>
+        <span class="spacer"></span>
+        <span class="label" style="color:var(--c-degraded)">被 latest 排除</span>
+      </div>
+      <p class="card-desc">Plaud 品牌 Shopify 主题开发的 10 个 skill 矩阵。pack 只锁引用，不含成员内容。</p>
+      <div class="card-facts">
+        <span class="fact"><span class="k">成员</span><span class="v">10 matrix · 1 bundled</span></span>
+        <span class="fact"><span class="k">本版被拖累于</span><span class="v">skill:acme/legacy-deploy@0.9.2（yanked · matrix 必装）</span></span>
+        <span class="fact"><span class="k">树摘要</span><span class="v digest-short">2ad6cf19<span class="mid">…</span>84be07d1</span></span>
+      </div>
+      <div class="card-badges">
+        <span class="tier tier-2"><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i></span>TIER 2<span class="caps">shell · credentials · network（members + bundled 并集）</span></span>
+        <span class="fact"><span class="k">clients</span><span class="v">claude · codex（members 交集，bundled 不参与）</span></span>
+      </div>
+    </article>
+
+    <!-- deprecated -->
+    <article class="card">
+      <div class="card-r1">
+        <span class="aid"><span class="kind">skill:</span><span class="ns">geoly/</span><span class="nm">plaud-theme-dev</span><span class="ver">@0.2.9</span></span>
+        <span class="status st-deprecated"><svg><use href="#i-bang"/></svg>deprecated</span>
+      </div>
+      <p class="card-desc">旧版通道，仍可安装、仍参与 refcount，但不再维护。</p>
+      <div class="card-facts">
+        <span class="fact"><span class="k">出处</span><span class="v">vendored · chovizzz/plaud-theme-matrix@7c4b0d21</span></span>
+        <span class="fact"><span class="k">树摘要</span><span class="v digest-short">6d0a3311<span class="mid">…</span>ff29b4e0</span></span>
+      </div>
+    </article>
+  </div>
+</div></section>
+
+<!-- ═════════════ 4. Tier 徽章 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">04</span><h2>capability 徽章</h2></div>
+  <p class="note">三档同时用<b>两个通道</b>编码：分段计量条（1/2/3 格，色盲与灰度下仍可读）+ 色相。
+  Tier 徽章一律 <b>描边、透明底</b>；状态标记一律 <b>无边、着色底</b>——形态不同，
+  所以 Tier 2 与 yanked 共用红色也不会被误读成同一件事。徽章后面永远直接跟真实 capability 名，
+  不让人去记「Tier 2 是什么意思」。</p>
+  <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap;align-items:center">
+    <span class="tier tier-0"><span class="meter"><i class="on"></i><i></i><i></i></span>TIER 0<span class="caps">none</span></span>
+    <span class="tier tier-1"><span class="meter"><i class="on"></i><i class="on"></i><i></i></span>TIER 1<span class="caps">network</span></span>
+    <span class="tier tier-1"><span class="meter"><i class="on"></i><i class="on"></i><i></i></span>TIER 1<span class="caps">network · external-tool</span></span>
+    <span class="tier tier-2"><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i></span>TIER 2<span class="caps">shell · credentials · writes-repo</span></span>
+  </div>
+  <div style="margin-top:var(--sp-4)">
+    <div class="notice n-deprecated" role="group" aria-labelledby="ntc1">
+      <span class="ic"><svg><use href="#i-bang"/></svg></span>
+      <div>
+        <h4 id="ntc1">非 geoly namespace 的 Tier 1/2 制品，安装时会强制展示 capability 并要求确认</h4>
+        <p><code>--yes</code> 可以跳过确认，但跳过这件事本身会写进安装账本。列表页把这句话放在徽章旁边，
+          而不是等到用户敲命令时才第一次看见。</p>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 5. 信任链条 + 信任面板 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">05</span><h2>信任链条与信任面板</h2></div>
+  <p class="note">详情页里信任面板<b>紧贴标题、位于描述之上</b>，占满正文宽度——不是右栏的一小格。
+  顶部的链条把「验过了」拆成四件独立的事，因为一个笼统的绿勾会掩盖到底验了哪一环。
+  🔴 链条表达的是<b>验证轴</b>，与 <span class="mono">status</span> 生命周期轴无关：
+  一个 <span class="mono">published</span> 的制品完全可能验签失败，一个 <span class="mono">yanked</span> 的制品签名照样有效。
+  验证失败用<b>圈叉</b>（<svg style="width:12px;height:12px;vertical-align:-1px;color:var(--c-revoked)"><use href="#i-fail"/></svg>），
+  与 yanked 的<b>裸叉</b>刻意不同形。</p>
+
+  <div class="chain" style="margin-bottom:var(--sp-4)">
+    <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>签名</div>
+      <div class="v">release.yml@refs/heads/main<br><span style="color:var(--c-text-dim)">issuer: token.actions.githubusercontent.com</span></div></div>
+    <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>Rekor 条目</div>
+      <div class="v">#218 774 903<br><span style="color:var(--c-text-dim)">2026-08-25T12:00:04Z</span></div></div>
+    <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>树摘要</div>
+      <div class="v">geoly-tree-v1<br><span style="color:var(--c-text-dim)">9f2c4a71…b0d3e8af</span></div></div>
+    <div><div class="st warn"><svg style="width:12px;height:12px"><use href="#i-bang"/></svg>快照时效</div>
+      <div class="v">hub-42 · timestamp v137<br><span style="color:var(--c-text-dim)">stale：valid_until 已过 2h11m</span></div></div>
+  </div>
+
+  <p class="label" style="margin:0 0 8px">同一组件的另外两种形态</p>
+  <div class="chain" style="margin-bottom:var(--sp-3)">
+    <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>签名</div>
+      <div class="v">release.yml@refs/heads/main</div></div>
+    <div><div class="st bad"><svg style="width:12px;height:12px"><use href="#i-fail"/></svg>Rekor 条目</div>
+      <div class="v">取不回条目（E_SIGNATURE）<br><span style="color:var(--c-revoked)">本页数据未通过验证，不要据此安装</span></div></div>
+    <div><div class="st none"><svg style="width:12px;height:12px"><use href="#i-unverified"/></svg>树摘要</div>
+      <div class="v">未验证——前一环没过，不继续</div></div>
+    <div><div class="st none"><svg style="width:12px;height:12px"><use href="#i-unverified"/></svg>快照时效</div>
+      <div class="v">未验证</div></div>
+  </div>
+  <div class="chain" style="margin-bottom:var(--sp-4)">
+    <div><div class="st none"><svg style="width:12px;height:12px"><use href="#i-unverified"/></svg>签名</div>
+      <div class="v">尚未验证（页面刚打开 / 离线）</div></div>
+    <div><div class="st none"><svg style="width:12px;height:12px"><use href="#i-unverified"/></svg>Rekor 条目</div>
+      <div class="v">—</div></div>
+    <div><div class="st none"><svg style="width:12px;height:12px"><use href="#i-unverified"/></svg>树摘要</div>
+      <div class="v">—</div></div>
+    <div><div class="st none"><svg style="width:12px;height:12px"><use href="#i-unverified"/></svg>快照时效</div>
+      <div class="v">—</div></div>
+  </div>
+
+  <div class="panel">
+    <header><h3>信任台账</h3><span class="spacer"></span><span class="label">snapshot hub-42 · 逐字节可复算</span></header>
+    <dl class="ledger">
+      <dt>签名身份</dt>
+      <dd><span class="mono">https://github.com/geoly-ai/skills-hub/.github/workflows/release.yml@refs/heads/main</span>
+        <span class="sub">精确比对，不做前缀匹配。timestamp 用的是另一个身份（timestamp.yml），两者不可互换。</span></dd>
+
+      <dt>OIDC issuer</dt>
+      <dd><span class="mono">https://token.actions.githubusercontent.com</span></dd>
+
+      <dt>Rekor 条目</dt>
+      <dd><a href="#" class="mono">logIndex 218774903</a> · <span class="mono">2026-08-25T12:00:04Z</span>
+        <span class="sub">透明日志是公开的：任何人都能独立取回同一条条目，不需要经过本站。</span></dd>
+
+      <dt>树摘要</dt>
+      <dd>
+        <span class="digest" role="group" aria-label="摘要，64 位十六进制"><span class="algo">geoly-tree-v1:sha256:</span><span class="hex" id="d1"><b>9f2c4a71</b><b>3e05b8d2</b><b>c41a7f60</b><b>88ed3b19</b><b>a2760cf5</b><b>1d94e307</b><b>6bb2ca48</b><b>b0d3e8af</b></span><button class="copy" data-copy="9f2c4a713e05b8d2c41a7f6088ed3b19a2760cf51d94e3076bb2ca48b0d3e8af">复制</button></span>
+        <span class="sub">覆盖载荷全部文件的 路径 + mode + 字节。目录 mode、mtime、uid/gid 不在摘要里，由规范强制取值。</span>
+        <div class="recheck"><span class="prompt">$</span>npx @geoly/skills-hub verify skill:geoly/plaud-theme-dev@0.3.6 --print-tree-digest</div>
+      </dd>
+
+      <dt>资产摘要</dt>
+      <dd>
+        <span class="digest dim" role="group" aria-label="摘要，64 位十六进制"><span class="algo">sha256:</span><span class="hex"><b>7c1e08b4</b><b>ff3920ad</b><b>5be6c072</b><b>19d4a83e</b><b>e0721cb6</b><b>34af5d90</b><b>8817be2c</b><b>a35f0d61</b></span><button class="copy" data-copy="7c1e08b4ff3920ad5be6c07219d4a83ee0721cb634af5d908817be2ca35f0d61">复制</button></span>
+        <span class="sub"><span class="mono">skill_geoly_plaud-theme-dev_0.3.6.tar.gz</span> · 48,213 B（47.1 KiB）</span></dd>
+
+      <dt>快照来源</dt>
+      <dd><span class="mono">hub-42.json</span>（previous <span class="mono">hub-41</span>）· created_at <span class="mono">2026-08-25T12:00:00Z</span>
+        <span class="sub">快照里<b>不含</b>生成它自己的 commit SHA（那会自引用）。想知道是哪条流水线生成的，看单独签名的 attestation。</span></dd>
+
+      <dt>Attestation</dt>
+      <dd><span class="mono">hub-42.intoto.jsonl</span> · DSSE · <span class="mono">payloadType: application/vnd.in-toto+json</span>
+        <span class="sub"><span class="mono">predicateType: https://geoly.ai/skills-hub/release/v1</span></span>
+        <span class="sub">subject[0].name <span class="mono">hub-42.json</span> ·
+          subject[0].digest.sha256 <span class="mono">4e0d91c7f2a6538b01cc74ed9b3a2f5170de8c4419ab6d20f83e77c5a8f13b25</span>
+          （必须与 <span class="mono">timestamp.snapshot_sha256</span> 一致）</span>
+        <span class="sub">sourceRepo <span class="mono">geoly-ai/skills-hub</span> ·
+          sourceCommit <span class="mono">9a71c3f0b2e14d5a8c6f37b9e0d4a1c85f2e6b30</span> ·
+          workflowRef <span class="mono">.github/workflows/release.yml@9a71c3f0b2e14d5a8c6f37b9e0d4a1c85f2e6b30</span>
+          （🔴 这里必须钉到 40 位 commit，<b>不接受</b> <span class="mono">@refs/heads/main</span>——分支引用可变）·
+          promotionPr <a href="#">#214</a></span>
+        <span class="sub"><b>这是取证输入，不是安装输入</b>：CLI 的安装链路不读它。上面「签名身份」那行用的
+          <span class="mono">@refs/heads/main</span> 是 signer identity，规范就是这么定的，两者不是一回事。</span>
+      </dd>
+
+      <dt>审批</dt>
+      <dd>PR <a href="#" class="mono">#118</a> · 批准人 <span class="mono">chovizzz</span> · head_sha <span class="mono">c1d2a90f4b77e3168d0a52cc9e41b6730fa8215d</span>
+        <span class="sub">head_sha 指向投稿 PR 的 head，早于本快照存在，因此允许出现。git 坐标是定位提示，不是信任输入。</span></dd>
+
+      <dt>capability 分级</dt>
+      <dd><span class="tier tier-0"><span class="meter"><i class="on"></i><i></i><i></i></span>TIER 0<span class="caps">none</span></span></dd>
+    </dl>
+  </div>
+</div></section>
+
+<!-- ═════════════ 6. provenance ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">06</span><h2>provenance：original 与 vendored</h2></div>
+  <p class="note">两种形态刻意长得不一样。original 只有两件事可说，就只占两行；
+  vendored 是一条<b>搬运轨迹</b>——上游 commit → 子路径 → 上游树摘要 → 导入时新增了哪些文件 → hub 的树摘要，
+  用带节点的时间线呈现，让「双摘要为什么不相等」在版式上就说得通。</p>
+  <div class="grid2">
+    <div class="prov prov-original">
+      <header><h3>出处</h3><span class="kindtag">original</span></header>
+      <div class="trace">
+        <span class="node end"></span>
+        <div class="body">
+          <div class="t">author_github_id</div>
+          <div class="m">@chovizzz</div>
+          <div class="n">原生投稿，没有上游仓库。</div>
+        </div>
+        <span class="node end"></span>
+        <div class="body">
+          <div class="t">submitted_by_pr</div>
+          <div class="m"><a href="#">#204</a></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="prov prov-vendored">
+      <header><h3>出处</h3><span class="kindtag">vendored</span></header>
+      <div class="trace">
+        <span class="node"></span>
+        <div class="body">
+          <div class="t">origin_repo · origin_ref</div>
+          <div class="m"><a href="#">chovizzz/plaud-theme-matrix</a> · <span style="color:var(--c-text-mid)">v0.3.6</span></div>
+        </div>
+        <span class="node"></span>
+        <div class="body">
+          <div class="t">origin_commit（40 位，不接受 tag）</div>
+          <div class="m">0aa7711707bcc3a7856a558e6cb9ca28b79555bf</div>
+          <div class="n">tag 可以被移动，那正是「审核后换内容」的攻击路径。</div>
+        </div>
+        <span class="node"></span>
+        <div class="body">
+          <div class="t">origin_subpath</div>
+          <div class="m">plaud-theme-dev/</div>
+        </div>
+        <span class="node"></span>
+        <div class="body">
+          <div class="t">origin_tree_digest（上游原始文件集）</div>
+          <div class="m"><span class="digest dim" role="group" aria-label="摘要，64 位十六进制" style="font-size:12px"><span class="algo">geoly-tree-v1:sha256:</span><span class="hex"><b>3b7f2e11</b><b>90c4a6d8</b><b>2f180be5</b><b>cc73940a</b><b>61d20f8b</b><b>4a9e5c37</b><b>d8016fa2</b><b>75be3c04</b></span></span></div>
+        </div>
+        <span class="node"></span>
+        <div class="body">
+          <div class="t">added_files（白名单）</div>
+          <div class="m">skill.json</div>
+          <div class="n">载荷去掉 <span class="mono">skill.json</span> 之后必须逐字节等于上游那棵树。
+            所以制品级 <span class="mono">tree_digest</span> 与上面这个值<b>本就不相等</b>——不是不一致。</div>
+        </div>
+        <span class="node end"></span>
+        <div class="body">
+          <div class="t">license_evidence · imported</div>
+          <div class="m">LICENSE @ origin_commit</div>
+          <div class="n">2026-08-24T09:12:00Z · 由 PR <a href="#">#3</a> 导入</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 7. 警示条 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">07</span><h2>yank / degraded / deprecated 警示条</h2></div>
+  <p class="note">这些是<b>事实，不是错误</b>：所以没有大图标、没有全宽实心红条、没有感叹号轰炸。
+  统一形态是「一根 3px 顶边 + 极淡底色 + 一句陈述句标题 + 可执行的下一步」。
+  三者顶边颜色不同、图标不同、措辞的主语不同（yank 是「它被撤了」，degraded 是「它被别人拖累了」）。</p>
+
+  <div style="display:grid;gap:var(--sp-4)">
+    <div class="notice n-yank" role="group" aria-labelledby="ntc2">
+      <span class="ic"><svg><use href="#i-x"/></svg></span>
+      <div>
+        <h4 id="ntc2">此版本已于 2026-08-19 被 yank：默认拒绝新装</h4>
+        <p>reason：把部署密钥写进仓库内的临时文件，且未在结束时删除。
+          公告 <a href="#">GSA-2026-0007</a>；替代版本 <span class="mono">0.9.3</span>。
+          显式 <span class="mono">--allow-yanked</span> 仍可安装，且这次跳过会写进安装账本。
+          已装的实例不会被强制卸载，<span class="mono">check</span> 会报告它。文件不会被删除。</p>
+        <div class="acts">
+          <button class="btn btn-mono">查看公告</button>
+          <button class="btn btn-mono">跳到 0.9.3（替代版本）</button>
+          <button class="btn btn-mono">仍要查看内容</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="notice n-yank" role="group" aria-labelledby="ntc3">
+      <span class="ic"><svg><use href="#i-x"/></svg></span>
+      <div>
+        <h4 id="ntc3">此版本已于 2026-07-02 被 yank：默认拒绝新装</h4>
+        <p>reason：作者请求下架，内容与 <span class="mono">geoly/social-hub-cli</span> 重复。
+          <b>未声明替代版本</b>，<b>无安全公告</b>——<span class="mono">advisory</span> 与
+          <span class="mono">superseded_by</span> 都是可选字段，缺席时只展示必填的 <span class="mono">reason</span>，
+          不要渲染一个点不开的「查看公告」按钮。</p>
+      </div>
+    </div>
+
+    <div class="notice n-degraded" role="group" aria-labelledby="ntc4">
+      <span class="ic"><svg><use href="#i-block"/></svg></span>
+      <div>
+        <h4 id="ntc4">此 pack 被标记为 degraded：它锁定的一个必装成员已被 yank</h4>
+        <p>pack 不可变，改不了它锁定的成员，所以 hub 不会自动 yank 它，而是在每张新快照里重算这个派生状态。
+          🔴 <b><span class="mono">--allow-yanked</span> 不放行 degraded</b>——这是它与 yanked 最大的行为差别；
+          <span class="mono">latest</span> 投影也会跳过它。</p>
+        <div class="acts">
+          <button class="btn btn-mono">看是哪个成员</button>
+          <button class="btn btn-mono">找可安装的版本</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="notice n-deprecated" role="group" aria-labelledby="ntc5">
+      <span class="ic"><svg><use href="#i-bang"/></svg></span>
+      <div>
+        <h4 id="ntc5">此版本已弃用，但仍可安装</h4>
+        <p>维护者不再更新它。它仍参与 refcount，也仍出现在解析结果里；只是 <span class="mono">latest</span> 已指向 0.3.6。</p>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 8. pack 成员 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">08</span><h2>pack 成员与「被谁拖累」</h2></div>
+  <p class="note">成员表按 <code>order</code> 展示（<code>order</code> 只管展示，不影响安装顺序）。
+  拖累关系不做成表里的一列——它是一句因果，单独占一条横贯全表的行，从「谁」指向「所以它」。</p>
+  <div class="panel">
+    <header>
+      <h3>成员</h3>
+      <span class="status st-degraded" style="margin-left:8px"><svg><use href="#i-block"/></svg>degraded</span>
+      <span class="spacer"></span>
+      <span class="label" style="text-align:right;line-height:1.6">精确版本 + 摘要锁定，不接受 semver range<br>
+        clients = members 交集（不含 bundled）<br>
+        capabilities = members + bundled 并集，Tier 取其最高</span>
+    </header>
+    <div class="tablescroll" style="border:0;border-radius:0">
+      <table class="members">
+        <thead><tr>
+          <th style="width:34px">#</th><th>成员</th><th>role</th><th>tree_digest</th><th>状态</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="mono">0</td>
+            <td><span class="aid" style="font-size:13px"><span class="kind">skill:</span><span class="ns">geoly/</span><span class="nm">plaud-theme-shared</span><span class="ver">@0.3.6</span></span></td>
+            <td><span class="role">matrix · 必装</span></td>
+            <td><span class="digest-short mono" style="font-size:12px">a10f7c22<span class="mid">…</span>3e94b1d7</span></td>
+            <td><span class="status st-published"><svg><use href="#i-check"/></svg>published</span></td></tr>
+          <tr><td class="mono">1</td>
+            <td><span class="aid" style="font-size:13px"><span class="kind">skill:</span><span class="ns">geoly/</span><span class="nm">plaud-theme-dev</span><span class="ver">@0.3.6</span></span></td>
+            <td><span class="role">matrix · 必装</span></td>
+            <td><span class="digest-short mono" style="font-size:12px">9f2c4a71<span class="mid">…</span>b0d3e8af</span></td>
+            <td><span class="status st-published"><svg><use href="#i-check"/></svg>published</span></td></tr>
+          <tr class="blame"><td class="mono">2</td>
+            <td><span class="aid" style="font-size:13px"><span class="kind">skill:</span><span class="ns">acme/</span><span class="nm">legacy-deploy</span><span class="ver">@0.9.2</span></span></td>
+            <td><span class="role">matrix · 必装</span></td>
+            <td><span class="digest-short mono" style="font-size:12px">e11908bd<span class="mid">…</span>5c2fa740</span></td>
+            <td><span class="status st-yanked"><svg><use href="#i-x"/></svg>yanked</span></td></tr>
+          <tr><td class="mono">3</td>
+            <td><span class="aid" style="font-size:13px"><span class="kind">skill:</span><span class="ns">geoly/</span><span class="nm">plaud-theme-qa</span><span class="ver">@0.3.6</span></span></td>
+            <td><span class="role">matrix · 必装</span></td>
+            <td><span class="digest-short mono" style="font-size:12px">55c0ab38<span class="mid">…</span>2f7d604e</span></td>
+            <td><span class="status st-deprecated"><svg><use href="#i-bang"/></svg>deprecated</span></td></tr>
+          <tr class="skipped"><td class="mono">—</td>
+            <td><span class="aid" style="font-size:13px"><span class="kind">skill:</span><span class="ns">geoly/</span><span class="nm">yidian-draft-pr</span><span class="ver">@0.3.6</span></span></td>
+            <td><span class="role">bundled · --no-bundled 可跳过</span></td>
+            <td><span class="digest-short mono" style="font-size:12px">81be47f0<span class="mid">…</span>c60a2b95</span></td>
+            <td><span class="status st-published"><svg><use href="#i-check"/></svg>published</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="blameline" style="border-top:1px solid var(--c-hairline)">
+      <span class="label" style="color:var(--c-text-dim)">逐版本</span>
+      <span>0.3.6 → legacy-deploy@0.9.2 ·&nbsp; 0.3.5 → legacy-deploy@0.9.1 ·&nbsp; 0.3.4 → <span style="color:var(--c-verified)">无（published）</span></span>
+      <span class="arrow">⟶</span>
+      <span><span class="mono">latest</span> 指向 <span class="mono">0.3.4</span>，不是最高版</span>
+    </div>
+    <div class="blameline">
+      <span class="aid" style="font-size:12.5px"><span class="kind">skill:</span><span class="ns">acme/</span><span class="nm">legacy-deploy</span><span class="ver">@0.9.2</span></span>
+      <span>被 yank（<a href="#">GSA-2026-0007</a>）</span>
+      <span class="arrow">⟶</span>
+      <span>它是 <b>本版</b> <span class="role">matrix</span> 角色的必装成员</span>
+      <span class="arrow">⟶</span>
+      <span style="color:var(--c-degraded);font-weight:500">所以 <span class="mono">pack:geoly/plaud-theme-matrix@0.3.6</span> 是 degraded</span>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 9. 摘要串 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">09</span><h2>摘要串（64 hex）的三种形态</h2></div>
+  <p class="note" id="digest-note">🔴 分组间距靠 <code>margin</code>，DOM 里<b>没有空格</b>——复制出来必须是连续 64 hex，否则粘到终端里就是坏值。
+  首尾两组加粗，因为人核对摘要时看的就是首尾。整串 <code>user-select: all</code>，点一下就全选。</p>
+  <div class="specimen">
+    <div>
+      <span class="label">full · 详情页 / 信任台账</span>
+      <div style="margin-top:8px">
+        <span class="digest" role="group" aria-label="摘要，64 位十六进制"><span class="algo">geoly-tree-v1:sha256:</span><span class="hex"><b>9f2c4a71</b><b>3e05b8d2</b><b>c41a7f60</b><b>88ed3b19</b><b>a2760cf5</b><b>1d94e307</b><b>6bb2ca48</b><b>b0d3e8af</b></span><button class="copy" data-copy="9f2c4a713e05b8d2c41a7f6088ed3b19a2760cf51d94e3076bb2ca48b0d3e8af">复制</button></span>
+      </div>
+    </div>
+    <div>
+      <span class="label">short · 列表 / 表格单元</span>
+      <div class="mono digest-short" style="margin-top:8px;font-size:12.5px">9f2c4a71<span class="mid">…</span>b0d3e8af
+        <span style="color:var(--c-text-dim);font-family:var(--f-body);font-size:12.5px">（首 8 + 尾 8；hover 出全串，点击展开为 full）</span></div>
+    </div>
+    <div>
+      <span class="label">pair · vendored 双摘要并列</span>
+      <div style="margin-top:8px;display:grid;gap:6px">
+        <span class="digest" role="group" aria-label="摘要，64 位十六进制"><span class="algo">上游 origin_tree_digest</span><span class="hex"><b>3b7f2e11</b><b>90c4a6d8</b><b>2f180be5</b><b>cc73940a</b><b>61d20f8b</b><b>4a9e5c37</b><b>d8016fa2</b><b>75be3c04</b></span></span>
+        <span class="digest" role="group" aria-label="摘要，64 位十六进制"><span class="algo">hub&nbsp; tree_digest&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="hex"><b>9f2c4a71</b><b>3e05b8d2</b><b>c41a7f60</b><b>88ed3b19</b><b>a2760cf5</b><b>1d94e307</b><b>6bb2ca48</b><b>b0d3e8af</b></span></span>
+        <div style="font-size:var(--fs-sm);color:var(--c-text-mid);max-width:70ch">
+          🔴 <b>不做字符级 diff、不给任何一组染色。</b> 哈希是雪崩的——两串没有一个字符对得上，
+          染色只会暗示「某几段不同」，那是假的。
+          正确的表达是一句可复算的事实：</div>
+        <div class="recheck"><span class="prompt">$</span>去掉 added_files=[skill.json] 后重算 hub 载荷树摘要 → 3b7f2e11…75be3c04 ✓ 与上游相等</div>
+        <div style="font-size:var(--fs-sm);color:var(--c-caution)">两值不相等是<b>预期</b>（hub 侧多一个 <span class="mono">skill.json</span>），
+          所以用 caution 说明，而不是用 revoked 报错。</div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 10. 搜索 / 筛选 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">10</span><h2>搜索与筛选</h2></div>
+  <p class="note">输入框用等宽字：这里输入的东西一半是标识符和摘要。搜索框接受
+  ArtifactId、name、namespace、<b>以及一整串 64 hex 摘要</b>（粘进来直接反查是哪个制品）。
+  筛选项按「信任维度」组织，不按流行度。</p>
+  <div class="search">
+    <svg><use href="#i-search"/></svg>
+    <input type="search" placeholder="name / skill:ns/name@ver / 64 hex 摘要" aria-label="搜索 registry">
+    <kbd>/</kbd>
+  </div>
+  <div class="filters">
+    <div class="fgroup">
+      <span class="label">kind</span>
+      <button class="chip" aria-pressed="true">skill<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">pack<span class="n">0</span></button>
+    </div>
+    <span class="divider-v"></span>
+    <div class="fgroup">
+      <span class="label">tier</span>
+      <button class="chip" aria-pressed="false">0<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">1<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">2<span class="n">0</span></button>
+    </div>
+    <span class="divider-v"></span>
+    <div class="fgroup">
+      <span class="label">status</span>
+      <button class="chip" aria-pressed="true">published<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">deprecated<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">yanked<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">degraded<span class="n">0</span></button>
+    </div>
+    <span class="divider-v"></span>
+    <div class="fgroup">
+      <span class="label">provenance</span>
+      <button class="chip" aria-pressed="false">original<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">vendored<span class="n">0</span></button>
+    </div>
+    <span class="divider-v"></span>
+    <div class="fgroup">
+      <span class="label">client</span>
+      <button class="chip" aria-pressed="false">claude<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">cursor<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">codex<span class="n">0</span></button>
+      <button class="chip" aria-pressed="false">agents<span class="n">0</span></button>
+    </div>
+  </div>
+  <div class="emptyrow" style="margin-top:var(--sp-4)">
+    <div class="label">无匹配结果</div>
+    <p style="margin:8px 0 0;font-size:14px;color:var(--c-text-mid);max-width:60ch">
+      截至 <span class="mono">hub-42</span>，没有匹配 <span class="mono">“shopify”</span> 且同时满足
+      <span class="mono">kind=skill</span> + <span class="mono">status=published</span> 的记录。<br>
+      🔴 文案必须区分两种「空」：<b>筛选筛没了</b>（本例）说清是哪几个条件把结果筛空的；
+      <b>registry 本身是空的</b>（见 §11）则要明说「这张快照收录 0 个制品，任何查询都不会有结果，
+      不是筛选条件写错了」——不要用同一句话糊过去。</p>
+    <div style="margin-top:var(--sp-3);display:flex;gap:var(--sp-2);flex-wrap:wrap">
+      <button class="btn btn-mono">清空筛选</button>
+      <button class="btn btn-mono">看看 registry 现在是什么状态</button>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 11. 空状态 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">11</span><h2>空状态（registry 一个制品都没有）</h2></div>
+  <p class="note">这个状态会被看很久，所以它不是缺省页，是<b>首页本身</b>。
+  做法：把「0 个制品」当成一条<b>已签名的事实</b>来排版——快照 hub-0 是真实存在、真实被签过的对象，
+  它此刻的内容恰好是空的。空状态因此变成这套信任链的<b>活演示</b>：你现在就能自己验一遍。</p>
+
+  <div class="empty">
+    <div class="top">
+      <div class="label" style="margin-bottom:10px">geoly-ai/skills-hub · snapshot hub-0</div>
+      <h2>这张快照是空的，而它是被签过名的空。</h2>
+      <p class="lede">registry 目前收录 0 个制品。这不是页面没加载出来——
+        <span class="mono">hub-0.json</span> 由 <span class="mono">release.yml</span> 身份签署、
+        进了 Rekor 透明日志、被一张 7 天有效期的 timestamp 指向。
+        下面这条链现在就成立，等第一个 skill 进来时也不会变。</p>
+      <div class="zerocount">
+        <span class="num">0</span>
+        <span class="cap">artifacts &nbsp;·&nbsp; 0 yanked &nbsp;·&nbsp; latest 映射为空对象<br>
+          <span style="color:var(--c-text-dim)">previous: —&nbsp;&nbsp;created_at: 2026-08-30T00:00:00Z</span></span>
+      </div>
+    </div>
+
+    <div class="chain" style="border:0;border-top:1px solid var(--c-hairline);border-bottom:1px solid var(--c-hairline);border-radius:0">
+      <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>签名</div>
+        <div class="v">release.yml@refs/heads/main</div></div>
+      <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>Rekor 条目</div>
+        <div class="v">#218 774 512</div></div>
+      <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>snapshot sha256</div>
+        <div class="v">4e0d91c7…a8f13b25</div></div>
+      <div><div class="st ok"><svg style="width:12px;height:12px"><use href="#i-check"/></svg>timestamp</div>
+        <div class="v">v1 · 剩余 6 天 3 小时</div></div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <div class="label">现在就能做的事</div>
+        <p style="font-size:14px;color:var(--c-text-mid);margin:10px 0 0;max-width:52ch">
+          不需要 registry 里有东西，也能验证这条链是真的——把下面这条跑一遍，
+          它会取 timestamp、验两个不同的签名身份、比对快照字节摘要，然后告诉你里面有几条记录。</p>
+        <div class="recheck" style="margin-top:12px"><span class="prompt">$</span>npx @geoly/skills-hub snapshot --verify --explain</div>
+        <div class="recheck"><span class="prompt">$</span>npx @geoly/skills-hub search '' --json</div>
+        <p style="font-size:12.5px;color:var(--c-text-dim);margin-top:12px">
+          没有 <span class="mono">--no-verify</span>，也没有 <span class="mono">--insecure</span>：
+          验签器没接上，CLI 就直接拒绝运行，而不是静默放行。</p>
+      </div>
+      <div>
+        <div class="label">第一个制品会这样进来</div>
+        <ol class="pipeline">
+          <li><span class="dot">1</span><div><div class="s">submissions/&lt;ns&gt;/&lt;name&gt;@&lt;ver&gt;/</div>
+            <div class="d">开一个 PR。结构门自动跑：路径 grammar、USTAR 可编码性、manifest 与 ArtifactId 的六项绑定。</div></div></li>
+          <li><span class="dot">2</span><div><div class="s">人工门</div>
+            <div class="d">按 capability 定 Tier：none → 一名维护者；network / external-tool → 一名 + 逐条回答外部依赖；shell / credentials / writes-repo → 两名。</div></div></li>
+          <li><span class="dot">3</span><div><div class="s">promotion</div>
+            <div class="d">制品落到 <span class="mono">artifacts/</span>（此后字节不可变），算树摘要，生成 <span class="mono">hub-1.json</span>。</div></div></li>
+          <li><span class="dot">4</span><div><div class="s">签名与 timestamp</div>
+            <div class="d">快照由 release.yml 身份签，timestamp 由<b>另一个</b>身份签，两者不可互换。</div></div></li>
+        </ol>
+        <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-mono">投稿指南</button>
+          <button class="btn btn-mono">看 hub-0.json 原文</button>
+          <button class="btn btn-mono">命名空间与保留名</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ═════════════ 12. 动效 ═════════════ -->
+<section class="demo-sec"><div class="wrap">
+  <div class="sechead"><span class="label">12</span><h2>动效清单（全部）</h2></div>
+  <div class="panel"><dl class="ledger">
+    <dt>hover / press</dt><dd>背景与边框 <span class="mono">120ms linear</span>。只改颜色，不改尺寸——列表行不许在 hover 时位移。</dd>
+    <dt>复制反馈</dt><dd>「复制」→「已复制」，颜色切到 verified，<span class="mono">1200ms</span> 后复位。无缩放、无弹跳。</dd>
+    <dt>折叠展开</dt><dd><span class="mono">grid-template-rows: 0fr → 1fr</span>，<span class="mono">160ms ease-out</span>。用于摘要短→全、成员表展开。</dd>
+    <dt>加载中</dt><dd>静态占位横线（用 <span class="mono">--c-sunken</span>），<b>不做 shimmer 扫光</b>：那会让「还没验证完」看起来像已经有内容了。</dd>
+    <dt>禁止</dt><dd>入场动画、视差、数字滚动、渐变流动、页面切换过渡。<span class="mono">prefers-reduced-motion</span> 下上面全部归零。</dd>
+  </dl></div>
+</div></section>
+
+<footer class="pagefoot"><div class="wrap">
+  样式演示页 · 假数据：快照字段按 <span class="mono">parseSnapshot()</span> 的键集编造；description 与 pack <span class="mono">members</span> 来自<b>制品载荷</b>（<span class="mono">skill.json</span> / <span class="mono">pack.json</span>），不在快照 record 里 ·
+  页面内不含任何使用量 / 下载量 / 评分数字（registry 没有这类数据）
+</div></footer>
+
+<script>
+// 主题切换：三态 系统 → 亮 → 暗
+(function () {
+  const btn = document.getElementById('themeBtn');
+  const modes = [
+    { v: null,    t: '主题：跟随系统' },
+    { v: 'light', t: '主题：亮' },
+    { v: 'dark',  t: '主题：暗' },
+  ];
+  let i = 0;
+  btn.addEventListener('click', () => {
+    i = (i + 1) % modes.length;
+    const m = modes[i];
+    if (m.v) document.documentElement.setAttribute('data-theme', m.v);
+    else document.documentElement.removeAttribute('data-theme');
+    btn.textContent = m.t;
+  });
+})();
+
+// 复制：拿 data-copy 的原始 64 hex，不从 DOM 文本取（DOM 里虽然也没空格，但显式更稳）
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.copy');
+  if (!b) return;
+  const raw = b.getAttribute('data-copy') || '';
+  const done = () => {
+    const old = b.textContent;
+    b.textContent = '已复制'; b.dataset.done = '1';
+    const live = document.getElementById('live'); if (live) live.textContent = '摘要已复制到剪贴板';
+    setTimeout(() => { b.textContent = old; delete b.dataset.done; }, 1200);
+  };
+  if (navigator.clipboard) navigator.clipboard.writeText(raw).then(done, done);
+  else done();
+});
+
+// 筛选 chip 的按下态（演示用）
+document.addEventListener('click', (e) => {
+  const c = e.target.closest('.chip');
+  if (!c) return;
+  c.setAttribute('aria-pressed', c.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+});
+</script>
+</body>
+</html>

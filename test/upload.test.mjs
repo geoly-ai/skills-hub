@@ -19,14 +19,44 @@ const fresh = async () => {
   return { tm: await import('../src/telemetry.mjs' + q), up: await import('../src/upload.mjs' + q) };
 };
 
-test('没配端点 = 纯本地，不发任何请求', async () => {
+// 🔴 这条测试的语义在 2026-09-01 被产品决定翻转了：上报**默认开**，
+//    GEOLY_TELEMETRY_ENDPOINT 有内置默认值（规格 v5 §4）。
+//    「没配端点 = 不出网」不再成立 —— 现在不配就是**用内置默认端点发**。
+//    留着旧断言等于让测试替一条已经作废的保证背书。
+test('🔴 没配端点 = 用内置默认端点（默认开）', async () => {
   iso();
   const { tm, up } = await fresh();
   tm.record({ kind: 'install', result: 'ok' });
+  let seen = null;
+  const r = await up.flush({ fetchImpl: async (u) => { seen = u; return { ok: true, status: 200 }; } });
+  assert.equal(seen, up.DEFAULT_ENDPOINT);
+  assert.equal(r.sent, 1);
+  assert.equal(up.isDefaultEndpoint(), true);
+});
+
+test('🔴 内置默认端点自己也要过 https / 凭据校验（不给默认值开后门）', async () => {
+  iso();
+  const { up } = await fresh();
+  const u = new URL(up.DEFAULT_ENDPOINT);
+  assert.equal(u.protocol, 'https:');
+  assert.equal(u.username, '');
+  assert.equal(u.password, '');
+  assert.equal(up.endpoint(), u.toString());
+});
+
+test('🔴 端点被设成空串 = 配置错误，不是"静默关掉上报"', async () => {
+  iso();
+  const { tm, up } = await fresh();
+  // 部署模板漏填变量最常见的形态就是空串。把它当"关闭"会让整片机器悄悄不上报，
+  // 而没有任何人会注意到 —— 关上报有明确的开关（GEOLY_TELEMETRY_UPLOAD=0）。
+  process.env.GEOLY_TELEMETRY_ENDPOINT = '';
+  tm.record({ kind: 'install', result: 'ok' });
+  assert.throws(() => up.endpoint(), /空值/);
   let called = false;
   const r = await up.flush({ fetchImpl: async () => { called = true; } });
-  assert.equal(called, false);
-  assert.equal(r.reason, 'no-endpoint');
+  assert.equal(called, false, '配错了也不能构造请求');
+  assert.equal(r.reason, 'bad-endpoint');
+  assert.match(r.detail, /GEOLY_TELEMETRY_UPLOAD=0/, '要告诉用户正确的关法');
 });
 
 test('🔴 http 端点被拒（只允许 https）', async () => {

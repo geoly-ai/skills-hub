@@ -1,6 +1,7 @@
 // 上报通道。🔴 硬约束：
 //   1. 只发已过 assertValidEvent 的事件，出网前**再校验一遍**（纵深防御）
-//   2. 端点必须是 https，且必须由 GEOLY_TELEMETRY_ENDPOINT 显式给出 —— 没配就是纯本地
+//   2. 端点必须是 https。**有内置默认端点**（2026-09-01 用户拍板：上报默认开），
+//      默认值与用户配的值走**同一套**校验，见 DEFAULT_ENDPOINT
 //   3. 失败不影响主命令：任何异常都吞掉，事件留在本地等下次
 //   4. `--offline` 一票否决，连请求都不构造
 import {
@@ -32,16 +33,83 @@ const tombPath = () => join(stateDir(), 'telemetry', 'sending.tomb.ndjson');
 /** 墓碑在 retire 结束时的字节长度。之后再长出来的都是晚到的、没发过的。 */
 const tombMarkPath = () => join(stateDir(), 'telemetry', 'sending.tomb.mark');
 
+/**
+ * 🔴 内置默认端点 —— **2026-09-01 用户拍板：上报默认开。**
+ *
+ * 这一条直接推翻了规格 v4 §4 那句「没有内置默认端点」（原文称它是"本规格最强的
+ * 一条保证"）。规格已同步改成实话，见 00-spec.md §4 与变更记录 v5。
+ *
+ * 换来的：数据真的会回来 —— 「哪些 skill 在被用、装失败集中在哪」这三个问题
+ * （§1）在「默认不发」下的实际答案是"没有数据"。
+ * 代价：默认值就是"没人配也会出网"，T-11（源 IP + install_id 时间线）从
+ * "配端点的人自负其责"变成**我们替所有人默认承担**。
+ * 因此默认开与两件事捆死，缺一不可：
+ *   ① 首次运行显眼告知（telemetry.mjs 的 maybeNoticeUpload）
+ *   ② 端点侧不记 IP / UA，且这条约束要落到前置代理（server/index.mjs 的部署约束）
+ *
+ * ⚠️ 这个值仍是**占位**，上线前必须确认真实域名与路径。
+ */
+export const DEFAULT_ENDPOINT = 'https://telemetry.geoly.ai/v1/events';
+
 export function endpoint() {
   const raw = process.env.GEOLY_TELEMETRY_ENDPOINT;
-  if (!raw) return null;
+  // 🔴 空串**不是**"关掉上报"，是配置错误：
+  //    部署模板漏填变量最常见的形态就是空串，把它当"静默关闭"会让整片机器
+  //    悄无声息地不上报，而没有任何人会注意到。要关上报有明确的开关
+  //    （GEOLY_TELEMETRY_UPLOAD=0），不要给同一件事第二个隐式入口。
+  if (raw !== undefined && raw.trim() === '') {
+    throw new Error('telemetry: GEOLY_TELEMETRY_ENDPOINT 被设成空值 —— 要关上报请用 GEOLY_TELEMETRY_UPLOAD=0');
+  }
+  // 未配置 = 用内置默认（默认开）。**默认值走同一套校验**，不给它开后门。
+  const eff = raw ?? DEFAULT_ENDPOINT;
   let u;
-  try { u = new URL(raw); } catch { throw new Error('telemetry: 上报端点不是合法 URL'); }
+  try { u = new URL(eff); } catch { throw new Error('telemetry: 上报端点不是合法 URL'); }
   // 用 URL 解析而不是 startsWith：`https:/\evil` 之类的写法能骗过前缀判断
   if (u.protocol !== 'https:') throw new Error('telemetry: 上报端点必须是 https');
   // URL 里的凭据会随重定向和日志一起泄漏
   if (u.username || u.password) throw new Error('telemetry: 上报端点不得内嵌凭据');
   return u.toString();
+}
+
+/** 端点是不是内置默认值（`telemetry status` 要把这件事显式说出来） */
+export const isDefaultEndpoint = () => process.env.GEOLY_TELEMETRY_ENDPOINT === undefined;
+
+/**
+ * 校验服务端的 ACK。
+ *
+ * 🔴 「HTTP 2xx」不足以证明**服务端收下了这一批**。中间的代理、登录墙、
+ *    错误页都可能回 200 + 一段 HTML；照着 2xx 就 retire，等于把本地队列
+ *    消费掉换来一个没人收到的批次 —— 静默丢事件。
+ *
+ * 判据：body 能解析成 ack 信封，且 `accepted + duplicate + rejected` 恰好等于
+ * 这一批的条数。`rejected > 0` **仍然 retire**：那是服务端**永久**拒收的事件，
+ * 重发一万次也是同一个结果，留着只会让这批永远卡住（§5.2.3）。
+ *
+ * ⚠️ 拿不到 body（`res.text` 不是函数）时退回「2xx 即成功」。
+ *    **任何真实的 HTTP 栈返回的 Response 都有 `text()`**，所以走到这条退路
+ *    只可能是调用方注入了一个测试替身 —— 生产路径（`globalThis.fetch`）到不了这里。
+ *    ⚠️ 这条退路仍然是个**已知的宽口**：写出来是因为默认沉默地放行比说清楚糟。
+ *
+ * 🔴 body 的读取也在同一个 `AbortController` 的超时里（调用方在 ackOk 之后才
+ *    clearTimeout）：一个端点可以只回 header 然后**永远不发 body**，
+ *    那会让 flush 无限挂着、并且一直**持有上报锁**——违反 T-5。
+ */
+const MAX_ACK_BYTES = 64 * 1024;
+
+async function ackOk(res, n) {
+  if (typeof res.text !== 'function') return true;
+  // ACK 只有几十个字节；声明得比这大得多的一律不读
+  const declared = Number(res.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_ACK_BYTES) return false;
+  let body;
+  try { body = await res.text(); } catch { return false; }
+  if (body.length > MAX_ACK_BYTES) return false;
+  let ack;
+  try { ack = parseStrict(body); } catch { return false; }
+  if (!ack || typeof ack !== 'object' || ack.schema !== 'geoly.skills.telemetry-ack/1') return false;
+  const nums = [ack.accepted, ack.duplicate, ack.rejected];
+  if (!nums.every((v) => Number.isInteger(v) && v >= 0)) return false;
+  return ack.accepted + ack.duplicate + ack.rejected === n;
 }
 
 /**
@@ -210,8 +278,15 @@ export async function flush({ fetchImpl = globalThis.fetch, timeoutMs = 3000 } =
   try {
     if (offline()) return { sent: 0, skipped: true, reason: 'offline' };
     if (!uploadEnabled()) return { sent: 0, skipped: true, reason: 'upload-disabled' };
-    const url = endpoint();
-    if (!url) return { sent: 0, skipped: true, reason: 'no-endpoint' };
+    // 🔴 顺序要紧：offline / upload-disabled 在**取端点之前**判完，
+    //    所以两个开关任一置位时连端点都不解析，更不构造请求。
+    let url;
+    try {
+      url = endpoint();
+    } catch (e) {
+      // 端点配错了要说出来，不能静默不发（默认开之后，"不发"必须是有人明确要求的）
+      return { sent: 0, skipped: true, reason: 'bad-endpoint', detail: e.message };
+    }
 
     // 🔴 stage 与 retire 必须在同一把锁下，否则两个 flush 会各 stage 一半、重复上报。
     // 锁是内核释放的，进程猝死也不留死锁。
@@ -233,6 +308,9 @@ export async function flush({ fetchImpl = globalThis.fetch, timeoutMs = 3000 } =
     for (const e of pending) assertValidEvent(e);
 
     const ac = new AbortController();
+    // 🔴 这个超时要覆盖到**读完 ACK 为止**，不能在 fetch 一返回就 clear：
+    //    header 回来了、body 永不到达的端点会让 flush 无限挂着，而且它这时
+    //    **正持有上报锁** —— 后面每一次 flush 都会 busy。（T-5）
     const t = setTimeout(() => ac.abort(), timeoutMs);
     let res;
     try {
@@ -246,11 +324,14 @@ export async function flush({ fetchImpl = globalThis.fetch, timeoutMs = 3000 } =
         // 手写序列化，理由同 serializeEvent：不给 toJSON 污染留口子
         body: `{"schema":"geoly.skills.telemetry-batch/1","events":[${pending.map(serializeEvent).join(',')}]}`,
       });
-    } finally { clearTimeout(t); }
 
-    // 发失败：sending 原样留着，下一轮接着发，一条都不丢
-    if (res.redirected) return { sent: 0, skipped: true, reason: 'redirect-refused' };
-    if (!res.ok) return { sent: 0, skipped: true, reason: `http-${res.status}` };
+      // 发失败：sending 原样留着，下一轮接着发，一条都不丢
+      if (res.redirected) return { sent: 0, skipped: true, reason: 'redirect-refused' };
+      if (!res.ok) return { sent: 0, skipped: true, reason: `http-${res.status}` };
+      // 2xx 还不够 —— 必须是我们认识的 ACK，且条数对得上（见 ackOk）。
+      // 🔴 在 clearTimeout **之前**读，否则读 body 这一步没有超时可言。
+      if (!await ackOk(res, pending.length)) return { sent: 0, skipped: true, reason: 'bad-ack' };
+    } finally { clearTimeout(t); }
 
     // 清理失败要说出来：sending 删不掉会导致同一批被无限重发
     const cleaned = retire(new Set(pending.map((e) => e.eid)));

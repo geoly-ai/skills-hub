@@ -5,3 +5,10 @@ node_modules/
 /.tmp-test/
 docs/dashboard/data.json
 node_modules/
+
+# 站点（site/）—— Next.js 静态导出
+site/node_modules/
+site/.next/
+site/out/
+# 构建期生成的站点数据：由 site/build.mjs 从签名快照产出，不进版本库
+site/.generated/
