@@ -36,6 +36,7 @@ import { join } from 'node:path';
 
 import { stringify, parseStrict } from '../../src/canonical-json.mjs';
 import { parseArtifactId, contractPathsChanged } from '../../src/pack.mjs';
+import { approvalsWaived, effectiveApprovers, exclusionNote, waiverNotice } from '../submission/approval-policy.mjs';
 
 export const INPUTS_SCHEMA = 'geoly.skills.promotion-inputs/1';
 export const OWNERS_SCHEMA = 'geoly.skills.owners/1';
@@ -103,13 +104,24 @@ export function assertApprovalsSatisfyTier({ tier, approvedBy, author = null, wh
     if (typeof a !== 'string' || a === '') bad(`${where}.approved_by 里有空项`);
     return a;
   }))];
-  const effective = author === null ? uniq : uniq.filter((a) => a !== author);
   const need = tier >= MAX_TIER ? 2 : 1;
+  // 🔴 **第三处审批判定。** 2026-09-01 之前这里自己写了一遍作者排除，与
+  //    tier-gate（合并前）、verify-merged-pr（promote 时）各不相干 —— 三份逻辑、
+  //    一句注释都没有互相提及。统一策略那次我按「两处」去修，**漏了这一处**，
+  //    直到第一次真跑 promote 才在这里红。
+  //    ⚠️ 教训：「有几处」不能靠读注释确认，要靠搜实现形状（这里是
+  //    `.filter(a => a !== author)`）。当时那条不变式只盯了两个文件，
+  //    于是它证明的是「我知道的那两处没分叉」，不是「没有分叉」。
+  if (approvalsWaived({ authorId: author })) {
+    process.stderr.write(waiverNotice({ where: `build-inputs（${where}）`, authorId: author, need }));
+    return [];
+  }
+  const effective = effectiveApprovers({ all: uniq, authorId: author });
   if (effective.length < need) {
     bad(
       `${where}：Tier ${tier} 需要 ${need} 名维护者 approve，实际只有 ${effective.length} 名`
       + `（去重后：${effective.join(', ') || '(无)'}`
-      + (author !== null && uniq.includes(author) ? `；已排除投稿者本人 ${author}` : '')
+      + exclusionNote({ all: uniq, authorId: author }).replace(/\n\s*（?/, '；').replace('）', '')
       + '）',
     );
   }

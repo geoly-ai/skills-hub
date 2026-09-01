@@ -83,9 +83,18 @@ test('Tier 0/1 一名、Tier 2 两名；同一个人两次不算两名；投稿�
   assert.throws(() => assertApprovalsSatisfyTier({ tier: 2, approvedBy: ['a'] }), /需要 2 名/);
   assert.throws(() => assertApprovalsSatisfyTier({ tier: 2, approvedBy: ['a', 'a'] }), /需要 2 名/);
   assert.deepEqual(assertApprovalsSatisfyTier({ tier: 2, approvedBy: ['b', 'a'] }), ['a', 'b']);
+  // 2026-09-01：作者排除**已关闭**（scripts/submission/approval-policy.mjs）。
+  // 这一处是三处审批判定里的第三处，当时统一策略时被漏掉了 —— 详见那个文件
+  // 与 test/approval-policy.test.mjs 里那条全仓搜的不变式。
+  assert.deepEqual(
+    assertApprovalsSatisfyTier({ tier: 2, approvedBy: ['author', 'm1'], author: 'author' }),
+    ['author', 'm1'],
+    '作者排除已关闭，作者本人的 approve 计入',
+  );
+  // 🔴 但作者仍然只算**一票**：Tier 2 要两个不同的人。
   assert.throws(
-    () => assertApprovalsSatisfyTier({ tier: 2, approvedBy: ['author', 'm1'], author: 'author' }),
-    /已排除投稿者本人 author/,
+    () => assertApprovalsSatisfyTier({ tier: 2, approvedBy: ['author'], author: 'author' }),
+    /需要 2 名/,
   );
 });
 

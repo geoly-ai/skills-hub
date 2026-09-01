@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -10,7 +10,13 @@ import { assertTierApprovals } from '../scripts/submission/tier-gate.mjs';
 import { assertApprovalsCurrent } from '../scripts/promote/verify-merged-pr.mjs';
 
 const REPO = dirname(fileURLToPath(new URL('.', import.meta.url).href)).replace(/\/test$/, '');
-const SITES = ['scripts/submission/tier-gate.mjs', 'scripts/promote/verify-merged-pr.mjs'];
+// 🔴 **不要在这里维护一份「已知调用点」清单。**
+//    2026-09-01 的教训：这条不变式最初写死了两个文件，于是它证明的是
+//    「我知道的那两处没分叉」，而不是「没有分叉」。实际有**三处** ——
+//    `scripts/promote/build-inputs.mjs` 里的 assertApprovalsSatisfyTier
+//    自己又写了一遍作者排除，谁也没提到谁，直到第一次真跑 promote 才红。
+//    现在改成**全仓搜实现形状**：新增一处而不接策略，这条会自己发现。
+const CODE_DIRS = ['scripts'];
 
 test('作者算不算数：当前策略是「算」（2026-09-01 用户拍板）', () => {
   assert.equal(EXCLUDE_AUTHOR, false);
@@ -39,13 +45,43 @@ test('策略翻回 true 时两个函数都要跟着变（证明它们真的读�
 //    问的是同一个问题；分叉的后果是「合并前过了、promote 时不过」——
 //    PR 已经进了 main、发布却卡住，而两边的日志各自都说自己是对的。
 //    早先这段逻辑就是各写一遍、靠注释提醒"必须一致"。注释拦不住复制粘贴。
-test('🔴 两处审批判定必须共用 approval-policy，不许自己 filter 作者', () => {
-  for (const rel of SITES) {
+test('🔴 任何自己 filter 作者的地方都必须改用 approval-policy（全仓搜，不维护清单）', () => {
+  const files = [];
+  const walk = (d) => {
+    for (const e of readdirSync(join(REPO, d), { withFileTypes: true })) {
+      const rel = `${d}/${e.name}`;
+      if (e.isDirectory()) walk(rel);
+      else if (e.name.endsWith('.mjs')) files.push(rel);
+    }
+  };
+  for (const d of CODE_DIRS) walk(d);
+  assert.ok(files.length > 5, '一个源文件都没扫到 —— 这条断言正在空跑');
+
+  // 「自己排除作者」的两种实现形状：与 authorId 比，或与 author 比。
+  const SELF_FILTER = /\.filter\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*\1\s*!==\s*(authorId|author)\b/;
+  const offenders = [];
+  for (const f of files) {
+    const src = readFileSync(join(REPO, f), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '');
+    // approval-policy.mjs 自己那一处 filter 是**唯一该存在的实现**，跳过。
+    if (f.endsWith('/approval-policy.mjs')) continue;
+    if (SELF_FILTER.test(src) && !src.includes('approval-policy.mjs')) offenders.push(f);
+  }
+  assert.deepEqual(offenders, [],
+    `这些文件自己判作者、却没接 approval-policy：${offenders.join('、')}。\n`
+    + '  🔴 分叉的后果是「合并前过了、promote 时不过」——PR 已经进了 main、发布却卡住。');
+});
+
+// 🔴 三处都必须真的读同一份策略 —— 上面那条只证明「没有自己写的 filter」，
+//    证明不了「确实调用了共享函数」。少了这条，一处直接 `return all` 也能过。
+test('🔴 三处审批判定都必须调用 effectiveApprovers', () => {
+  for (const rel of [
+    'scripts/submission/tier-gate.mjs',
+    'scripts/promote/verify-merged-pr.mjs',
+    'scripts/promote/build-inputs.mjs',
+  ]) {
     const src = readFileSync(join(REPO, rel), 'utf8').replace(/^[ \t]*\/\/.*$/gm, '');
-    assert.ok(src.includes('effectiveApprovers('),
-      `${rel} 没有用 effectiveApprovers —— 它在自己判作者，会与另一处分叉`);
-    assert.ok(!/\.filter\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\s*!==\s*authorId/.test(src),
-      `${rel} 里还留着自己写的「排除 authorId」过滤 —— 那正是分叉的形状`);
+    assert.ok(src.includes('effectiveApprovers('), `${rel} 没有用 effectiveApprovers`);
+    assert.ok(src.includes('approvalsWaived('), `${rel} 没有用 approvalsWaived —— 豁免会在这一处失效`);
   }
 });
 
