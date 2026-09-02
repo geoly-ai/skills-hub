@@ -1,21 +1,6 @@
 ---
 name: plaud-theme-section-build
-description: >
-  PLAUD 主题矩阵 Path B 的 Implement 阶段（order 4）：把 Figma 设计稿按 vendor 规范实现成 sa- 前缀 section。
-  触发："按设计稿做模块""按稿搭模块""设计还原/切图还原""Figma 转 Shopify""Figma link/node"
-  "新建 sa- 开头的 section""做个 SA: 模块""Section AI""新增主题编辑器模块"；
-  在新建 sa- section 语境下也覆盖 vendor §8 文案配置 / §9 按钮 / §10 价格 / §11 轮播 怎么写、
-  schema label 要不要 t:、能不能自创按钮类名、运营素材能不能放 assets、设计稿数值在 spec 阶梯上两可取哪档。
-  产出 sa- 前缀 section/snippet/CSS + SA: schema + BEM 根类名，container 与 section_top_pc/section_bottom_pc 间距，
-  同时加 gradient 与动态 color- 类，复用 section-header，三层响应式变量，素材走 schema 不写死 assets，空/满配置双测。
-  开工前须消费 plaud-theme-impact 的 IntegrationSurface 评估；写入任何存量文件（或新增文件被存量机制自动消费）
-  即升级 LegacyImpact 回 impact 重评。设计稿值等距两可或无近邻 token 时停机问用户。
-  不做验收、不判定可交付（唯 plaud-theme-qa 有权），恒输出 ReadyForDelivery 为 No。
-  不用于改已有 section、bug、性能、无 Figma 上下文的新功能（走 plaud-theme-dev）；
-  不用于 UX Spec v1.3 迁移与刷模块（走 plaud-theme-ux-migration）；
-  B+C 交叉（新建 sa- 且要对齐 v1.3）单一 ChangeSet 装得下就直接用本 skill，只有需拆出第二个
-  可独立验收 ChangeSet 时才走 plaud-theme-orchestrator；
-  不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
+description: PLAUD 主题矩阵 Path B 的 Implement 阶段（order 4）：把 Figma 设计稿按 vendor 规范实现成 sa- 前缀 section。 触发："按设计稿做模块""按稿搭模块""设计还原/切图还原""Figma 转 Shopify""Figma link/node" "新建 sa- 开头的 section""做个 SA: 模块""Section AI""新增主题编辑器模块"； 在新建 sa- section 语境下也覆盖 vendor §8 文案配置 / §9 按钮 / §10 价格 / §11 轮播 怎么写、 schema label 要不要 t:、能不能自创按钮类名、运营素材能不能放 assets、设计稿数值在 spec 阶梯上两可取哪档。 产出 sa- 前缀 section/snippet/CSS + SA: schema + BEM 根类名，container 与 section_top_pc/section_bottom_pc 间距， 同时加 gradient 与动态 color- 类，复用 section-header，三层响应式变量，素材走 schema 不写死 assets，空/满配置双测。 开工前须消费 plaud-theme-impact 的 IntegrationSurface 评估；写入任何存量文件（或新增文件被存量机制自动消费） 即升级 LegacyImpact 回 impact 重评。设计稿值等距两可或无近邻 token 时停机问用户。 不做验收、不判定可交付（唯 plaud-theme-qa 有权），恒输出 ReadyForDelivery 为 No。 不用于改已有 section、bug、性能、无 Figma 上下文的新功能（走 plaud-theme-dev）； 不用于 UX Spec v1.3 迁移与刷模块（走 plaud-theme-ux-migration）； B+C 交叉（新建 sa- 且要对齐 v1.3）单一 ChangeSet 装得下就直接用本 skill，只有需拆出第二个 可独立验收 ChangeSet 时才走 plaud-theme-orchestrator； 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
 ---
 
 # PLAUD Theme Section Build（Path B · Implement）

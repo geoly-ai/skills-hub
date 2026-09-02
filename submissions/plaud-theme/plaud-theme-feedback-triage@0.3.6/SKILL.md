@@ -1,23 +1,6 @@
 ---
 name: plaud-theme-feedback-triage
-description: >
-  PLAUD Shopify 主题矩阵的反馈归因入口（order 8）：把运营/PM/QA/线上来的反馈逐条判成
-  「交付缺陷」还是「需求演进」，并给出依据与去向。按《DTC 开发交付标准 v1.0》§六、§七执行。
-  用户说这条反馈算不算 bug、算缺陷还是变更、算不算返工、这轮返工几条、
-  运营说不好看要不要改、验收反馈来了、QA 打回了、PM 说要改、线上反馈、用户投诉、
-  这是需求变更吧、改稿算不算变更、要不要计返工轮次、责任归谁、扣不扣工时、
-  Linear 状态怎么点、Feedback Revision、Requirement Change、Requirement Interruption、
-  Ready for QA、被阻塞了状态要不要改 时使用。
-  判定口径：能在 PRD、Figma 或 UX Spec 里找到依据 = DeliveryDefect（计返工）；
-  找不到依据 = RequirementEvolution（算变更，不计返工）；依据不明 = Undetermined。
-  产出 ArtifactKind: FeedbackTriage 工件：逐条 ClassificationRecommendation、EvidenceRefs、
-  PMDecision、NextRoute、LinearStatusAdvice。
-  三条硬规则：**判定人是 PM，本 skill 只给建议**；**判为缺陷必须新开工作项从 Assess 重进，
-  不得复用旧 ChangeSet 打补丁**；**Linear 状态不自动改，只给建议**。
-  本 skill 不写代码、不修 bug、不做影响面评估、不做验收判定、不判可交付、不发版。
-  不要路由到本 skill：直接改 bug → plaud-theme-dev；影响面 → plaud-theme-impact；
-  提测材料 → plaud-theme-qa-intake；技术验收 → plaud-theme-qa；推站发版 → plaud-theme-release-ops。
-  不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
+description: PLAUD Shopify 主题矩阵的反馈归因入口（order 8）：把运营/PM/QA/线上来的反馈逐条判成 「交付缺陷」还是「需求演进」，并给出依据与去向。按《DTC 开发交付标准 v1.0》§六、§七执行。 用户说这条反馈算不算 bug、算缺陷还是变更、算不算返工、这轮返工几条、 运营说不好看要不要改、验收反馈来了、QA 打回了、PM 说要改、线上反馈、用户投诉、 这是需求变更吧、改稿算不算变更、要不要计返工轮次、责任归谁、扣不扣工时、 Linear 状态怎么点、Feedback Revision、Requirement Change、Requirement Interruption、 Ready for QA、被阻塞了状态要不要改 时使用。 判定口径：能在 PRD、Figma 或 UX Spec 里找到依据 = DeliveryDefect（计返工）； 找不到依据 = RequirementEvolution（算变更，不计返工）；依据不明 = Undetermined。 产出 ArtifactKind: FeedbackTriage 工件：逐条 ClassificationRecommendation、EvidenceRefs、 PMDecision、NextRoute、LinearStatusAdvice。 三条硬规则：**判定人是 PM，本 skill 只给建议**；**判为缺陷必须新开工作项从 Assess 重进， 不得复用旧 ChangeSet 打补丁**；**Linear 状态不自动改，只给建议**。 本 skill 不写代码、不修 bug、不做影响面评估、不做验收判定、不判可交付、不发版。 不要路由到本 skill：直接改 bug → plaud-theme-dev；影响面 → plaud-theme-impact； 提测材料 → plaud-theme-qa-intake；技术验收 → plaud-theme-qa；推站发版 → plaud-theme-release-ops。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
 ---
 
 # PLAUD Theme Feedback Triage（反馈归因）
