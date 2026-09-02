@@ -434,6 +434,25 @@ jobs:
             --bundle attestation.sigstore.json \
             --expect-source-commit "$GITHUB_SHA"
 
+          # 🔴 **再验一遍它的密码学部分 —— 上一行只做语义解析。**
+          #
+          #    2026-09-02 Codex 指出：attestation 的 gate 一直只解析 dsseEnvelope
+          #    与语义字段，**从没验过 DSSE 签名、Fulcio 身份、Rekor 条目**。
+          #    此前那些「自验」覆盖的是 messageSignature 形态的制品与快照 ——
+          #    而 `src/sigstore.mjs` 显式拒绝 dsseEnvelope（那对安装路径是对的：
+          #    messageSignature 的签名与我们手上的字节真的绑定）。
+          #    结果就是：**我们自己发的 attestation，自己的工具从没验过它的签名。**
+          #    对一个立论是「我们的工具能验我们签的东西」的项目，这说不过去。
+          #
+          # 🔴 那份脚本里最要紧的是**第 ④ 步**：DSSE 的签名只覆盖 envelope 自己，
+          #    「签名验过了」**不等于**「它说的是我手上这个文件」——
+          #    拿一个身份正确、签名有效的 DSSE bundle 配任意快照，密码学那层照样过。
+          #    所以它还要把 subject 的摘要与**真实文件**的摘要绑上。
+          node --no-warnings scripts/release/verify-attestation-signature.mjs \
+            --bundle attestation.sigstore.json \
+            --subject "$newest" \
+            --expect-source-commit "$GITHUB_SHA"
+
       - name: 🔴 发布（dry_run 时跳过）
         if: ${{ inputs.dry_run == false }}
         env:
