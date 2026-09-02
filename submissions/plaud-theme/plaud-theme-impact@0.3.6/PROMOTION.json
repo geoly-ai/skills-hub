@@ -1,0 +1,4 @@
+{
+  "schema": "geoly.skills.promotion-file/1",
+  "claim_owner": { "kind": "org", "login": "geoly-ai" }
+}
