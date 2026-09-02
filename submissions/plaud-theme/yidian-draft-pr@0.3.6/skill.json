@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "Enforce the yidian pull request workflow for GitHub repos. Use when a user asks to create, inspect, or prepare a PR for a yidian repo, especially requests involving cherry-picking selected commits onto a fresh PR branch (any base branch — develop, us/yidian-dev, global/yidian-dev, jp/yidian-main, us/yidian-main, main, or any other). This skill requires cherry-pick based PR branches, requires all created PRs to be Draft PRs, and requires the yidian Shopify PR body sections for summary, verification evidence, screenshots, risk, rollback, and regression matrix. It does not restrict which branch a PR targets. It does restrict which FILES reach the PR: only Shopify theme code goes in — editor/agent droppings and caches are dropped outright, and any other non-theme path (CI, repo scripts, docs, lockfiles) is confirmed with the user path by path before it stays.",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "yidian-draft-pr",
+  "namespace": "plaud-theme",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 10
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.3.6"
+}
