@@ -13,11 +13,11 @@
   "kind": "skill",
   "license": "MIT",
   "name": "prompt-map-delivery",
-  "namespace": "geoly-ai",
+  "namespace": "prompts-map",
   "provenance": {
     "author_github_id": "U_kgDODu4RvA",
     "kind": "original",
-    "submitted_by_pr": 7
+    "submitted_by_pr": 9
   },
   "replaces": [],
   "schema": "geoly.skills.skill/1",
