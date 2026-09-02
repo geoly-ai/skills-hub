@@ -14,6 +14,7 @@
 //     [--expect-source-commit <40 位 sha>]
 import { readFileSync } from 'node:fs';
 import { parseAttestationForForensics } from '../../src/attestation.mjs';
+import { dsseEnvelopeOf } from './dsse-envelope.mjs';
 
 function arg(name, dflt) {
   const i = process.argv.indexOf(`--${name}`);
@@ -41,18 +42,8 @@ if (!dsse) {
   process.exit(1);
 }
 
-const envelope = {
-  payloadType: dsse.payloadType,
-  payload: dsse.payload,
-  signatures: (dsse.signatures ?? []).map((x) => {
-    // parseAttestationForForensics 对 signatures[] 做 exact-keys 校验，
-    // 只允许 sig 与可选的 keyid。cosign 可能带别的字段，这里显式投影，
-    // 而不是把整个对象塞进去然后期待它宽容。
-    const out = { sig: x.sig };
-    if (x.keyid !== undefined && x.keyid !== '') out.keyid = x.keyid;
-    return out;
-  }),
-};
+// 投影逻辑与 verify-attestation-signature.mjs 共用一份 —— 见 dsse-envelope.mjs
+const envelope = dsseEnvelopeOf(bundle);
 
 let parsed;
 try {
