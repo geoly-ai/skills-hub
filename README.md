@@ -6,6 +6,22 @@
 `geoly-ai` 的 skill 分发中心：一条命令装单个 skill、装矩阵包，
 并支持外部投稿与过审。
 
+## 线上
+
+| | |
+|---|---|
+| registry 浏览站 | **https://skills-hub-pearl.vercel.app/** |
+| 埋点摄入端 | `https://skills-hub-telemetry.vercel.app/v1/events` |
+
+🔴 **不是 `skills-hub.vercel.app`** —— `.vercel.app` 子域名全局唯一，项目名撞车时
+Vercel 会自动追加一个随机词（这就是 `-pearl` 的来历）。那个裸域名**不属于本项目**，
+访问它拿到的是 Vercel 边缘层的 `NOT_FOUND`（`text/plain`，不是站点自己的 404 页）。
+
+⚠️ 这一条踩过：看到裸域名 404 就以为站点坏了，实际站点一直好好的。
+   ⚠️ 更值得记的是随之而来的第二个错误 —— 曾经在**那个 404 页面**上
+   `grep _vercel/insights` 来判断「站点有没有引 analytics 脚本」。
+   **在错误的 URL 上取证，结论就算碰巧对了也是无效的。**
+
 ## 安装
 
 ```sh

@@ -8,40 +8,43 @@
 
 ## 0. 一句话
 
-**投稿 → 审核 → promote → 生成第一张快照，整条链已经跑通了；
-卡在最后一步：promotion PR（#8）被 router 拒，修复已经在 main 上但还没验证。**
+**整条链已经全自动跑通，registry 里有 20 个制品，CLI 0.2.0 已发 npm。**
+📌 本文档的「下一步」与「卡点」几节写于 2026-09-02 早些时候，
+   那时链条还卡着 —— 保留它们是因为**踩过的坑仍然适用**，
+   但「现在的状态」以第 1 节为准。
 
 ---
 
-## 1. 现在的状态（`main` = `eb7ea27`）
+## 1. 现在的状态（`main` = `4c24e66`，2026-09-02 晚）
 
 | 东西 | 状态 |
 |---|---|
-| `@geoly-ai/skills-hub` (npm) | **0.1.0 已发布** |
-| `submissions/geoly-ai/` | 9 个 skill，`prompt-map-*@0.7.0` |
-| `artifacts/` | **空** —— 还没有任何制品被 promote 进来 |
-| `registry/snapshots/` | **空** |
-| `registry/owners.json` | **空**（`namespaces: {}`）—— `geoly-ai` 还没注册 |
-| 分支 `promotion/hub-0` | **在远端**，装着 promote 生成的完整成果 |
-| PR **#8** | promotion PR，**开着**，`route` / `pr-gate` 红 |
+| `@geoly-ai/skills-hub` (npm) | **0.2.0 已发布**（带 provenance；0.1.0 起埋点由「只写本地」变成**默认上报**） |
+| `registry/snapshots/` | **`hub-0.json` → `hub-1.json`** |
+| `artifacts/` | **20 个制品**：`prompts-map/*@0.7.0`（9）+ `plaud-theme/*@0.3.6`（11） |
+| `registry/owners.json` | `prompts-map` 与 `plaud-theme` 都归 `geoly-ai` 组织 |
+| `submissions/` | 空 —— 全部已搬进 `artifacts/` |
+| 站点 | https://skills-hub-pearl.vercel.app/ |
+| 埋点摄入端 | `https://skills-hub-telemetry.vercel.app/v1/events`（Vercel + Neon） |
 
-⚠️ **`promotion/hub-0` 那个分支是真金**：它里面有 promote 已经算出来的
-`registry/snapshots/hub-0.json`（创世快照，9 个制品、tree_digest 齐全）和铺好的
-`artifacts/`。**别删它**，除非你打算重跑一遍 promote。
+**整条链已经全自动跑通过一次**：投稿 PR 合并 → promote 铺制品、生成快照、
+release bot **自动开** promotion PR → 合并 → 制品进 registry。
+`release.yml` 也真跑过：签名、时间戳、attestation、npm publish 全绿。
 
-### 快照长这样（已经生成，未合并）
+### 快照长这样
 
 ```
-snapshot = 0   previous = 0        ← 创世
-制品 = 9 个 skill，全部 Tier 2
-owner = {kind: org, login: geoly-ai, id: O_kgDOD7uDqA}
-provenance = {kind: original, author_github_id: U_kgDODu4RvA, submitted_by_pr: 7}
-created_at = 2026-09-01T14:43:08Z
+hub-1:  snapshot = 1   previous = 0        ← 编号连续
+        制品 = 20（plaud-theme 11 + prompts-map 9），全部 Tier 2
+        owner = {kind: org, login: geoly-ai, id: O_kgDOD7uDqA}
 ```
+
+🔴 **最难验的那条在 hub-1 上验过了**：上一批 9 个制品的 `review.pr` **仍是 11**，
+没有被本次 PR #14 顶掉 —— 审批归属被原样继承，审计记录没被篡改。
+这条只有真的存在两代快照才走得到，本地测试很难覆盖。
 
 `owner.id` 是 `O_` 开头的**组织** node id，不是投稿者的用户 id —— 这是对的
 （记成个人 id 等于把 namespace 给了这个人却显示成组织的）。
-
 ---
 
 ## 2. 下一步：三件事，按顺序
@@ -261,9 +264,20 @@ promote 这条路上一直没有，因为它假定「能进 main 的都可信」
 
 | | |
 |---|---|
-| `site/` | registry 浏览站，已部署 Vercel。`DESIGN.md` 是 2026-09-01 重写的 v2（Claude/Anthropic 设计语言），**还没套用到实现上** |
-| `dashboard/` | skill 埋点数据平台，Next.js，94 测试。**还没在 Vercel 上开项目** —— 要 Root Directory=`dashboard`、关掉「包含根目录之外的文件」、配三个仅服务端变量 |
-| `server/` | 埋点端点。有一个子代理把它改成了 Postgres/Vercel 版本，**那份改动还没验收合并**（worktree 已删，需要重做或从 agent 分支找回） |
+| `site/` | registry 浏览站，**已上线**：https://skills-hub-pearl.vercel.app/ 。`DESIGN.md` 是 2026-09-01 重写的 v2，**还没套用到实现上** |
+| `dashboard/` | skill 埋点数据平台，Next.js，94 测试。部署进行中 |
+| `server/` | 埋点摄入端，**已上线**：`https://skills-hub-telemetry.vercel.app/v1/events`（Vercel + Neon Postgres） |
+
+🔴 **站点的地址不是 `skills-hub.vercel.app`。** `.vercel.app` 子域名全局唯一，
+项目名撞车时 Vercel 自动追加随机词 —— 裸域名**不属于本项目**，访问它拿到的是
+边缘层的 `NOT_FOUND`（`text/plain`），不是站点自己的 404 页（那会是 HTML）。
+
+⚠️ **这里踩过两次，第二次更值得记**：
+① 看到裸域名 404 就以为是自己误部署搞坏了 —— 站点一直是好的，
+   两件不相干的事被连成了因果。
+② 更早还在**那个 404 页面**上 `grep _vercel/insights` 判断「站点有没有引
+   analytics」。**在错误的 URL 上取证，结论就算碰巧对也是无效的。**
+   与本仓库反复出现的那条同形：「看起来没有」往往由你正在看的那个东西决定。
 
 ⚠️ `site/` 和 `site/DESIGN.md` 里的 v2 设计有**九条 🔴 硬约束是正确性不是审美**
 （不出任何使用量数字、信任信息不进右栏、不给综合绿勾而拆四格、
