@@ -115,6 +115,41 @@ jobs:
             echo "name=$(jq -r .name package.json)"
           } >> "$GITHUB_OUTPUT"
 
+      # 🔴 **版本没占用过 —— 必须在任何不可逆动作之前查。**
+      #
+      #    `publish-check.mjs` 查的是 package.json 的元数据形状，**不查 npm 上
+      #    有没有这个版本**（它也不该查：那道门在本地也会被人手跑，不能依赖网络）。
+      #    而 release.yml 里签名排在发布**前面**：
+      #      打包 → Sigstore 签名（写 Rekor）→ 自验 → 签快照 → attestation → 发布
+      #    版本忘了 bump 的话，前面那一串**已经在公开的透明日志上留下永久条目**，
+      #    最后才在 npm 那里因为「版本已存在」失败 —— 白烧一串不可逆动作。
+      #
+      #    ⚠️ 放在 guard 里（这个 job 没有 OIDC、没有写权限），比 publish job 里的
+      #    canary 还早一步。
+      - name: 🔴 版本在 npm 上必须还空着（真发布是硬门）
+        env:
+          NAME: ${{ steps.meta.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # `npm view <pkg>@<ver> version` 命中则输出版本号，未命中则输出为空。
+          # ⚠️ 包整个不存在时 npm 会以非零退出 —— 那是**合法**的（首发），
+          #    所以这里区分「命令失败」与「查到了」，不能一律当成占用。
+          got=$(npm view "$NAME@$VERSION" version 2>/dev/null || true)
+          if [ -n "$got" ]; then
+            msg="$NAME@$VERSION 在 npm 上已经存在 —— 请先 bump 版本。"
+            if [ "$DRY" = "false" ]; then
+              echo "::error::$msg"
+              echo "::error::  🔴 拦在这里是有意的：再往下走会先签名、写 Rekor（永久且公开），"
+              echo "::error::     最后才在 npm 那一步失败。"
+              exit 1
+            fi
+            echo "::warning::$msg（dry_run 不阻断）"
+          else
+            echo "::notice::$NAME@$VERSION 在 npm 上还空着 ✅"
+          fi
+
   # ── ② 全量测试（与 CI 同一份矩阵） ─────────────────────────────────────
   # 🔴 这个 job **没有任何 write 权限**，也不碰 OIDC。
   #    Codex 评审点：别在持有 id-token / contents:write 的 job 里跑测试 ——

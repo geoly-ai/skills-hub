@@ -11,6 +11,39 @@
 
 ---
 
+## [0.2.0] — 2026-09-02
+
+### 🔴 升级前必读：埋点上报现在**默认开**
+
+0.1.0 只在本地记事件，不外发。**0.2.0 起，`install` 成功收尾后会静默上报一次**
+（24 小时最多一次、超时 1 秒、失败不影响安装）。
+
+- 采集面是**穷举白名单** —— 不含路径、目录清单、文件内容、用户名
+- ⚠️ **平台请求日志会记录你的 IP，我们关不掉**。这是**明确接受的残余风险
+  T-20，不是「已缓解」**（`docs/telemetry/00-spec.md`）
+- 完全关闭：`GEOLY_TELEMETRY=0`（本地一个字节都不写）
+- 只看不发：`skills-hub telemetry status` / `stats`
+
+### 新增
+
+- `install --all`：一条 `all@snapshot:N` root 全量安装
+- `vendor <pack> --out <dir>`：把 pack 与全部成员物化成目录树，**不走安装账本**
+- `skills-hub stats` / `telemetry <status|flush>`
+- §9 的 token 存储（keychain 优先、文件回落），并**拒绝 `npx github:` 形态**
+
+### 修复
+
+- **创世快照建不出来**：registry 为空时 `--previous` 缺省成 `null`，
+  读取端拒绝。现在创世补 0，而**非创世缺 `previous` 一律报错** ——
+  静默填 0 会让第 42 张快照声称自己接在创世后面，且读取端看不出来
+- **投稿门不解析 SKILL.md frontmatter**：于是问题拖到 promote 建快照才暴露，
+  而那时投稿已经合并进 main
+- **provenance 从不与真实 PR 核对**：投稿者可以在自己的 `skill.json` 里写任意
+  `author_github_id` / `submitted_by_pr`，原样进快照成为权威出处记录
+- 不可见字符扫描器有两处绕过；Tier 2 的审批门本该在合并前
+
+---
+
 ## [未发布]
 
 ### 平台契约
