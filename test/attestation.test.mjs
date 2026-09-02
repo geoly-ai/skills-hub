@@ -108,3 +108,41 @@ test('payload 的 base64 必须 canonical（非标准填充被拒）', () => {
   const env = { payload: 'YQ', payloadType: DSSE_PAYLOAD_TYPE, signatures: [{ sig: 'c2ln' }] };
   expectViolation('E_B64', () => parseAttestationForForensics(Buffer.from(stringify(env))));
 });
+
+// ── `_type` 是**两个精确串的枚举** ─────────────────────────────────────────
+//
+// 2026-09-02 第一次真跑 release（dry_run）时发现：cosign v2.4.3 产出的是
+// `Statement/v0.1`，而契约写死了 v1。**不存在能让它输出 v1 的参数** ——
+// `--type` 设的是 predicateType，不是 `_type`（Codex 核实）。
+//
+// 🔴 放宽的是「允许的证据方言」，不是「允许的证据内容」：`_type` 在 DSSE payload
+//    内部、被 PAE 签名覆盖，攻击者不能把已签的 v0.1 改标成 v1。
+test('cosign 实际产出的 v0.1 与规范的 v1 都收', () => {
+  for (const t of ['https://in-toto.io/Statement/v0.1', 'https://in-toto.io/Statement/v1']) {
+    const { bytes } = makeAttestationBytes({ statementType: t });
+    parseAttestationForForensics(bytes, { expectSourceCommit: COMMIT });
+  }
+});
+
+// 🔴 **不许退化成前缀匹配或正则。** 那等于给未来任何一个没审过的版本发通行证 ——
+//    而「未知版本」正是我们最不该默认放行的东西。
+test('🔴 只认那两个精确串：前缀相同的、大小写不同的、未知版本一律拒', () => {
+  const bad = [
+    'https://in-toto.io/Statement/v2',          // 未来版本 —— 没审过
+    'https://in-toto.io/Statement/v1.1',
+    'https://in-toto.io/Statement/v0.1.0',
+    'https://in-toto.io/Statement/v1x',         // 前缀匹配会放行
+    'https://in-toto.io/Statement/V1',          // 大小写
+    'http://in-toto.io/Statement/v1',           // 降级成 http
+    'https://in-toto.io/statement/v1',
+  ];
+  for (const t of bad) {
+    const { bytes } = makeAttestationBytes({ statementType: t });
+    assert.throws(
+      () => parseAttestationForForensics(bytes, { expectSourceCommit: COMMIT }),
+      // ⚠️ WireError 把码放在 message 前缀里，`e.code` 不是那个码（实测是 1）。
+      /E_STATEMENT_TYPE/,
+      `${t} 本该被拒`,
+    );
+  }
+});

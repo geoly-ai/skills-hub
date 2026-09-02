@@ -14,6 +14,34 @@ import {
 export const DSSE_PAYLOAD_TYPE = 'application/vnd.in-toto+json';
 export const PREDICATE_TYPE = 'https://geoly.ai/skills-hub/release/v1';
 export const BUILD_TYPE = 'geoly-skills/release/v1';
+/**
+ * 🔴 **两个精确值的枚举，不是前缀、不是正则、不是「未知版本放行」。**
+ *
+ * 2026-09-02 第一次真跑 release（dry_run）时，`check-attestation-bundle.mjs`
+ * 解析 cosign **实际写出来的** envelope，报 `_type` 是 `Statement/v0.1` 而不是 v1。
+ * ⚠️ 那道双重检查正是为此设的：`build-attestation.mjs` 的自检用的是我们自己拼的
+ *    **占位** envelope，它证明不了 cosign 最后产出的东西也满足契约。它抓到了。
+ *
+ * **不存在能让 cosign v2.4.3 输出 v1 的参数**（Codex 2026-09-02 核实）：
+ * `--type https://geoly.ai/...` 设的是 `predicateType`，**不是 `_type`**；
+ * cosign 自己包装 Statement，固定 v0.1。
+ *
+ * **为什么接受 v0.1 的安全代价很低**：`_type` 位于 DSSE payload **内部**，
+ * 已被 PAE 签名覆盖 —— 攻击者不能把一份已签的 v0.1 改标成 v1。
+ * 我们真正依赖的属性一条都没松：DSSE payloadType、固定 predicateType、
+ * 唯一 subject、唯一 sha256 digest、snapshot 交叉绑定、固定 sourceRepo、
+ * 以及 E-2 绑定（workflowRef 钉的 sha === sourceCommit）。
+ * **放宽的是「允许的证据方言」，不是「允许的证据内容」。**
+ *
+ * ⚠️ 代价是互操作性：只认 v1 的外部工具会拒绝我们（cosign v2）的实际产物。
+ * 📌 当前 producer 输出 v0.1；本验证器接受 v0.1 / v1 两个**精确字符串**。
+ *    🔴 不要改成前缀匹配或正则 —— 那等于给未来任何一个没审过的版本发通行证。
+ */
+export const STATEMENT_TYPES = Object.freeze([
+  'https://in-toto.io/Statement/v0.1',
+  'https://in-toto.io/Statement/v1',
+]);
+/** @deprecated 保留给只需要「我们首选哪个」的调用方；判定一律用 STATEMENT_TYPES。 */
 export const STATEMENT_TYPE = 'https://in-toto.io/Statement/v1';
 
 const RE_COMMIT = /^[0-9a-f]{40}$/;
@@ -72,8 +100,9 @@ export function parseAttestationForForensics(bytes, { expectSnapshotSha256, expe
   const payload = decodeB64Strict(env.payload, 'attestation.payload');
   const stmt = parseWireJson(payload, 'attestation.payload');
   assertExactKeys(stmt, STATEMENT_KEYS, 'attestation.payload');
-  if (stmt._type !== STATEMENT_TYPE) {
-    throw new WireError('E_STATEMENT_TYPE', `_type 必须是 ${STATEMENT_TYPE}，得到 ${JSON.stringify(stmt._type)}`);
+  if (!STATEMENT_TYPES.includes(stmt._type)) {
+    throw new WireError('E_STATEMENT_TYPE',
+      `_type 必须是 ${STATEMENT_TYPES.join(' 或 ')}，得到 ${JSON.stringify(stmt._type)}`);
   }
   if (stmt.predicateType !== PREDICATE_TYPE) {
     throw new WireError('E_PREDICATE_TYPE', `predicateType 必须是固定字符串 ${PREDICATE_TYPE}（变更即升版本）`);

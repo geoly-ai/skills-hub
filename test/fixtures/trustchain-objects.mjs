@@ -95,7 +95,7 @@ export function fakeVerifier({ signAs = null, corruptSha = false } = {}) {
 
 export function makeAttestationBytes(over = {}) {
   const stmt = {
-    _type: STATEMENT_TYPE,
+    _type: over.statementType ?? STATEMENT_TYPE,
     subject: over.subject ?? [{ name: 'hub-42.json', digest: { sha256: hex(3) } }],
     predicateType: over.predicateType ?? PREDICATE_TYPE,
     predicate: {
