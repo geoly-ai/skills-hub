@@ -395,7 +395,14 @@ jobs:
           # 为了让下一次跑**明确报出来**，而不是接着往上堆。
           # 🔴 §2.2 要求 created_at 写进描述，由**人**比对 ——
           #    它是复算的输入之一，而复算是拿它当既定事实的，覆盖不了它自己。
-          gh pr create --base main --head "$branch" \
+          # 🔴 **开 PR 失败时要把「人接着怎么做」直接打出来。**
+          #    2026-09-02 实测：release bot 的细粒度 PAT 缺 `Pull requests: write`，
+          #    分支推上去了、PR 开不了，而失败信息只有一句
+          #    `Resource not accessible by personal access token` ——
+          #    人还得自己回来拼一条 gh pr create。分支已经在远端了，
+          #    这一步失败**不代表前面的产物有问题**，说清楚这一点很重要，
+          #    否则下一个人会以为要从头重跑。
+          if ! gh pr create --base main --head "$branch" \
             --title "promote: 快照 $N（来自 #$PR）" \
             --body "$(printf '%s\n' \
               "自动生成的 promotion PR —— 阶段 A 的全部产物都在这里，**可被人复算**。" \
@@ -411,4 +418,14 @@ jobs:
               "🔴 **\`created_at\` 请人工比对**：它是确定性复算的**输入**，" \
               "复算是拿它当既定事实的，因此覆盖不了它自己（06-submission §2.2）。" \
               "" \
-              "复算与不可变门由 \`validate-pr.yml\` 的 \`promotion-gates\` 跑。")"
+              "复算与不可变门由 \`validate-pr.yml\` 的 \`promotion-gates\` 跑。")"; then
+            echo "::error::开 promotion PR 失败 —— 但**分支 $branch 已经推上去了**，"
+            echo "::error::  阶段 A 的产物都在里面，不需要重跑 promote。"
+            echo "::error::  最常见的原因：RELEASE_BOT_TOKEN 缺 \`Pull requests: write\`。"
+            echo "::error::  手工补一刀（在本仓库任意 checkout 下跑）："
+            echo "::error::    gh pr create --base main --head $branch \\"
+            echo "::error::      --title 'promote: 快照 $N（来自 #$PR）' --body '见分支内容；created_at=$CREATED'"
+            echo "::error::  ⚠️ 开 PR 的账号必须是 RELEASE_BOT_ID（$RELEASE_BOT_ID）对应的那个，"
+            echo "::error::     否则 router 会把它判成 submission 并按路径白名单拒掉。"
+            exit 1
+          fi
