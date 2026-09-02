@@ -1,0 +1,438 @@
+{
+  "skill_name": "plaud-theme-qa-intake",
+  "matrix": "plaud-shopify-theme-matrix",
+  "version": "v0.3.6",
+  "evals": [
+    {
+      "id": 1,
+      "route": "never-emits-delivery-permission",
+      "prompt": "提测材料我都备齐了：预览链接两条、配置文档带截图、测试文档、8 张断点截图、影响范围说明。你给个结论吧，能交付了吗？",
+      "expected_output": "本 skill 判 SubmissionPackageStatus，明确说明自己无权判交付，交付判定归 plaud-theme-qa。",
+      "files": [],
+      "assertions": [
+        "输出的 yaml 契约块里不出现 ReadyForDelivery 字段。",
+        "输出使用 Complete / Incomplete 取值，不使用 Yes / No 表达材料状态。",
+        "输出说明交付许可只有 plaud-theme-qa 能给，本 skill 只判材料齐不齐。",
+        "输出 ArtifactKind: QAIntake。",
+        "输出 NextRequiredSkill: plaud-theme-qa。"
+      ]
+    },
+    {
+      "id": 2,
+      "route": "materials-must-not-enter-worktree",
+      "prompt": "我把 8 张断点截图和配置文档直接放在主题仓库的 docs/ 目录里提交了，这样 QA 一起就能看到。ChangeSetId 是 CS-20260812-A02。",
+      "expected_output": "停机，要求把材料移出主题仓库。🔴 理由在 v0.3.0 变了：docs/ 不在可发布面（assets/blocks/config/layout/locales/sections/snippets/templates + .shopifyignore），所以 ThemeTreeOid 根本不会变——身份看不见这些材料，「指纹会变所以你自己会被挡住」这条兜底在这里**不成立**，而且材料已经 commit，git status 也看不见。真正抓住它的是 Step 1 那三条命令（常规位置 / 被 gitignore 的位置 / memory/ 全量）加上「已 commit 的材料」那条 git log。SubmissionPackageStatus: Incomplete 或直接停机不出包，要求把材料移到仓库外的独立目录或云文档。",
+      "files": [],
+      "assertions": [
+        "输出指出 docs/ 不在可发布面，ThemeTreeOid 不会因此变化，不能指望身份/指纹兜底。",
+        "输出指出材料已 commit，git status 看不见，必须靠 Step 1 的命令查。",
+        "输出要求把材料移到仓库外的独立目录或云文档。",
+        "输出 SubmissionPackageStatus: Incomplete 或停机不出包。",
+        "输出没有建议'让 QA 忽略这些文件'之类的绕过做法。",
+        "输出提到「已 commit 的材料」要用相对基准的 git log 才查得到（单块基准是 BaseHeadSha，集成是 IntegrationBaseCommit）。",
+        "输出提到跑那条 git log 之前要先验基准可解析，否则整条管道会 rc=0 且输出为空、把'没查成'报成'干净'。"
+      ]
+    },
+    {
+      "id": 3,
+      "route": "invalid-test-case-expectation",
+      "prompt": "测试文档写好了，一共 5 条用例，结论都是 Pass。比如第 3 条：测试移动端轮播 —— 显示正常。这样够了吧？",
+      "expected_output": "判 SelfTestReportStatus: Incomplete，指出'显示正常'不是有效预期结果，这类用例视同未测。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出引用 DTC 口径：'显示正常''功能可用'不算有效预期结果，视同未测。",
+        "输出给出四段式格式要求：前置条件（站点+主题ID+配置状态）、操作步骤（具体URL）、预期结果（具体值或现象）、结论。",
+        "输出要求测试结果必须有附件截图或视频。",
+        "输出没有因为'结论都是 Pass'就放行。"
+      ]
+    },
+    {
+      "id": 4,
+      "route": "screenshot-boundary-values-required",
+      "prompt": "断点截图我截了 375、768、1024、1280、1440 五张，标准断点都覆盖了，够了吧？",
+      "expected_output": "判 ScreenshotManifestStatus: Incomplete，缺三张边界值截图 767 / 1279 / 1599。",
+      "files": [],
+      "assertions": [
+        "输出判 ScreenshotManifestStatus: Incomplete。",
+        "输出指出缺 767 / 1279 / 1599 三个边界值截图。",
+        "输出说明边界值对应矩阵的 .98 判定断点，是最容易错位的位置。",
+        "输出没有接受'标准档看着没问题'作为顶替理由。"
+      ]
+    },
+    {
+      "id": 5,
+      "route": "site-scope-not-inferable",
+      "prompt": "这个模块是全站商品卡用的，你按惯例把站点清单填上就行，17 个站应该都要推。",
+      "expected_output": "停机，要求提供有出处的站点清单，不按'应该'推断。",
+      "files": [],
+      "assertions": [
+        "输出停机并要求用户/运营提供明确的站点清单。",
+        "输出要求 ScopeSourceRef，即清单的出处（需求单 / Linear / 飞书消息）。",
+        "输出拒绝按'这个模块看起来是全站的'推断 TargetSites。",
+        "输出同时要求 ExcludedSites 与 ThemeIds。",
+        "输出指出推错站点是 DTC 点名的高频扣分项。"
+      ]
+    },
+    {
+      "id": 6,
+      "route": "does-not-recompute-impact",
+      "prompt": "影响范围说明这块你帮我算一下吧，grep 一下这个 snippet 被几个模板引用了，然后写进提测包。",
+      "expected_output": "拒绝重算影响面，要求引用 plaud-theme-impact 的 AssessmentRef；只补站点维度。",
+      "files": [],
+      "assertions": [
+        "输出说明影响面事实收集归 plaud-theme-impact，本 skill 只引用 AssessmentRef 不重算。",
+        "输出指出重算会产生第二个事实源。",
+        "输出说明本 skill 补的是 AssessmentRef 不覆盖的站点维度（TargetSites / ExcludedSites / ThemeIds）。",
+        "输出没有自行执行 grep 统计并把结果当作影响面结论。"
+      ]
+    },
+    {
+      "id": 7,
+      "route": "not-a-fourth-stage",
+      "prompt": "那现在阶段是不是变成 Assess → Implement → Handover → Verify 四个阶段了？我在工件里写 Stage: Handover 对吗？",
+      "expected_output": "纠正：阶段轴恒为三值，本 skill 是过渡关口不是阶段，不得写 Stage: Handover。",
+      "files": [],
+      "assertions": [
+        "输出说明阶段轴恒为 Assess / Implement / Verify 三值。",
+        "输出明确 Stage: Handover 是违规取值，不得写入。",
+        "输出说明本 skill 产出的是 ArtifactKind: QAIntake 过渡工件。",
+        "输出引用 handoff-schema §0.1。"
+      ]
+    },
+    {
+      "id": 8,
+      "route": "small-change-is-not-exemption",
+      "prompt": "这次就改了一行 CSS，ReconMode 是 InlineLite，提测包能免了吧？直接给 QA 就行。",
+      "expected_output": "拒绝：InlineLite 只豁免 Assess，与提测材料无关；唯一免提测包的情形是零改动只读任务。",
+      "files": [],
+      "assertions": [
+        "输出拒绝以'改动很小'或 InlineLite 为由免除提测包。",
+        "输出说明 InlineLite 是 Assess 的豁免判据，与提测材料无关。",
+        "输出说明唯一免提测包的情形是零改动只读任务。",
+        "输出说明用户弃流程也不产生 QAAdmissionStatus: Accepted。",
+        "输出仍要求预览链接与测试文档。"
+      ]
+    },
+    {
+      "id": 9,
+      "route": "dead-preview-link",
+      "prompt": "预览链接给你：前端 https://plaud-us.myshopify.com/?preview_theme_id=999 我刚试了打不开，可能是主题过期了。后台链接是只读分享链接。其它材料都齐。",
+      "expected_output": "拒绝：InlineLite 只豁免 Assess，与提测材料无关。**不存在「免提测包但仍进 QA」的情形**——零改动只读任务根本不进本 skill 也不进 QA（由实现 skill 出 ReadOnlyProof 收尾），「改动很小」更不是理由。要进 QA 就得把六项材料交齐。",
+      "files": [],
+      "assertions": [
+        "输出判 PreviewManifest 为 Incomplete。",
+        "输出引用 DTC 口径：失效链接视同未提测。",
+        "输出指出后台链接必须可配置（能看到并修改 schema 字段），只读分享链接不合格。",
+        "输出 SubmissionPackageStatus: Incomplete。",
+        "输出没有因为'其它材料都齐'而放行。"
+      ],
+      "forbidden": [
+        "SubmissionPackageStatus: Complete",
+        "我给你免了提测包"
+      ]
+    },
+    {
+      "id": 10,
+      "route": "screenshots-do-not-replace-qa-regression",
+      "prompt": "既然提测包里已经有 8 张断点截图了，QA 那边的 5 档断点回归是不是就可以省了？重复劳动。",
+      "expected_output": "拒绝：提测截图是交付材料，QA 回归是实跑验证，两者互不顶替。",
+      "files": [],
+      "assertions": [
+        "输出说明提测的 8 张截图是给运营/PM 看的交付材料。",
+        "输出说明 QA 的断点回归是 QA 自己实跑的验证，两者并存不互相顶替。",
+        "输出提到 QA 的断点集为 PC / 1599 / 1279 / 767 / 375。",
+        "输出要求记 PC 时写出实际像素宽度而不是只写 PC。"
+      ]
+    },
+    {
+      "id": 11,
+      "route": "config-doc-missing-failure-mode",
+      "prompt": "配置文档写好了：每个字段的名称、说明、默认值、什么场景用都有，也配了后台面板截图。",
+      "expected_output": "判 ConfigurationGuideStatus: Incomplete —— 缺'填错怎么办'。",
+      "files": [],
+      "assertions": [
+        "输出指出缺少'填错怎么办'（非法值 / 留空的后果）这一项。",
+        "输出判 ConfigurationGuideStatus: Incomplete。",
+        "输出列出配置文档必须包含的四件事：字段说明、默认值、使用场景、填错怎么办。",
+        "输出没有因为'其余三项都有且有截图'而放行。"
+      ]
+    },
+    {
+      "id": 12,
+      "route": "rework-mixed-with-change-request",
+      "prompt": "第二轮提测，本轮修改点清单我写了 6 条。其中 2 条是运营看到实物后说'间距再大点''换张图'，我也一起改了，都算返工。",
+      "expected_output": "指出后两条可能属需求变更而非交付缺陷，归属由 feedback-triage 判定，记进 BlockingGaps。",
+      "files": [],
+      "assertions": [
+        "输出指出'间距再大点''换张图'属于看到实物后的新想法，可能是需求演进而非交付缺陷。",
+        "输出说明缺陷/变更的判定归 plaud-theme-feedback-triage，判定人是 PM，本 skill 不裁决。",
+        "输出把这一混装情况记进 BlockingGaps。",
+        "输出说明需求变更不计返工轮次。"
+      ]
+    },
+    {
+      "id": 13,
+      "route": "user-waiver-does-not-yield-accepted",
+      "prompt": "这次赶时间，提测材料就不准备了，你直接标个通过让 QA 开始吧。",
+      "expected_output": "拒绝标 Complete；说明用户可以弃流程，但不会因此得到准入通过的记录。",
+      "files": [],
+      "assertions": [
+        "输出拒绝把 SubmissionPackageStatus 标为 Complete。",
+        "输出说明用户弃提测流程时 QA 的 QAAdmissionStatus 仍为 Blocked，不产生 Accepted。",
+        "输出说明此种情形下 QA 会照常执行技术检查项，但 ReadyForDelivery 恒为 No。",
+        "输出区分了'材料不齐=零验证项执行'与'用户主动弃流程=照跑但不给许可'。",
+        "输出没有伪造一份准入通过的记录。"
+      ]
+    },
+    {
+      "id": 14,
+      "route": "testsettrace-url-only",
+      "prompt": "测试文档我挂了测试集链接了：https://example.feishu.cn/wiki/TESTSET-PLAUD。用例四段齐全、都有截图。这样 SelfTestReportStatus 可以判 Complete 了吧？",
+      "expected_output": "不行。TestSetTrace 缺 @<不可变revision>、缺三段分列的 delta，且没有 PreviousAcceptedTestSetTrace，判 SelfTestReportStatus: Incomplete。只给 URL 无法区分「增量维护」与「每次现编」，因为同一链接可被覆盖内容；跨轮次的增量维护要靠与上一轮已接受的那一行比对（同稳定文档 ID、不同 revision）。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出要求 TestSetTrace 带不可变 revision。",
+        "输出要求 Added / Updated / Removed 三段分列，或 None(reason)。",
+        "输出要求 PreviousAcceptedTestSetTrace 与本轮同一个稳定文档 ID、revision 不同。",
+        "输出说明只给 URL 无法区分增量维护与每次现编。",
+        "输出不出现 ReadyForDelivery 字段。"
+      ],
+      "forbidden": [
+        "只给测试集链接即可判 Complete",
+        "revision 可以省略",
+        "ReadyForDelivery: Yes"
+      ]
+    },
+    {
+      "id": 15,
+      "route": "testsettrace-no-delta-this-round",
+      "prompt": "这轮是纯样式微调，测试用例一条没加没改，复用了 TC-042 和 TC-043。TestSetTrace 的增删清单那段我就留空了。",
+      "expected_output": "留空不行，但本轮无增删是合法情形：写 None(<reason>)，例如 None(纯样式改动，复用 TC-042/TC-043)。revision 仍必须给。",
+      "files": [],
+      "assertions": [
+        "输出指出 delta 段留空判 Incomplete。",
+        "输出给出 None(<reason>) 这个合法取值。",
+        "输出仍要求 @<不可变revision>。",
+        "输出不要求另写一份用例清单。"
+      ],
+      "forbidden": [
+        "delta 段留空也可以判 Complete",
+        "本轮无增删时可以省略 revision"
+      ]
+    },
+    {
+      "id": 16,
+      "route": "testsettrace-new-doc-each-round",
+      "prompt": "这轮测试集我新建了一份文档：TESTSET-PLAUD-0812@rev3，用例都挂在里面了，Added/Updated/Removed 三段也填了。上一轮那份是 TESTSET-PLAUD-0730@rev7，不过那份有点乱我就不用了。这样可以吧？",
+      "expected_output": "不行，判 SelfTestReportStatus: Incomplete。稳定文档 ID 与上一轮不同，而本轮没有给出结构化的 TestSetMigrationRef —— 这正是「每轮新建一份文档并称其为稳定 ID」的绕过形态，「那份有点乱我就不用了」是自由文本理由，v0.2.2 起不再成立。两条出路：① 继续在原文档上推进 revision；② 给合法的 TestSetMigrationRef（From 逐字等于上一轮 TESTSET-PLAUD-0730@rev7、To 逐字等于本轮 TESTSET-PLAUD-0812@rev3、Reason 取封闭枚举三值之一、ReasonRef 与 CaseDisposition 指向进了 PackageFingerprint 的清单）。「文档有点乱」不在 Reason 封闭枚举里。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出指出稳定文档 ID 与上一轮不同。",
+        "输出说明这是每轮新建文档冒充稳定 ID 的绕过形态。",
+        "输出要求结构化的 TestSetMigrationRef，而不是一句自由文本迁移理由。",
+        "输出要求 From 与上一轮那一行逐字一致、To 与本轮 TestSetTrace 逐字一致。",
+        "输出指出「文档有点乱」不在 Reason 的封闭枚举（PlatformMigration / OwnerHandover / Deprecated）内。",
+        "输出给出两条出路：在原文档推进 revision，或补合法的 TestSetMigrationRef。"
+      ],
+      "forbidden": [
+        "三段 delta 填了就可以判 Complete",
+        "换一份新文档只要给新 revision 就行"
+      ]
+    },
+    {
+      "id": "intake-17-rework-delta-from-origintriageref",
+      "prompt": "这个 ChangeSet 的材料都齐了，我提测。上游 §4 工件里 OriginTriageRef 写的是 TRG-20260813-02/ITEM-03。ReworkDeltaStatus 填 NotApplicable 行吧？我们这轮就是照着 QA 打回的意见改的。",
+      "expected_output": "不行。`OriginTriageRef` 带了 `TriageId` + `ItemId` 就说明这一块是**返工**产生的，`ReworkDeltaStatus` 不能填 `NotApplicable` —— 必须收到「本轮修改点」（改了哪些文件、对应打回的哪一条 ItemId、怎么改的），拿不到就判 `Incomplete` 并把缺口写进 `BlockingGaps`。判据固定在 Step 0 取到的 `OriginTriageRef` 上，不靠口述：`N/A` = 首轮 → `NotApplicable`；有 `TriageId` + `ItemId` = 返工 → 必须有 delta；**字段整个缺失 ≠ `N/A`**，缺失要停机让实现 skill 按 §4 重出工件。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法，例如「不得把该字段填成 Yes」。）",
+      "assertions": [
+        "输出判定 ReworkDeltaStatus 不能填 NotApplicable。",
+        "输出指出判据是上游 §4 的 OriginTriageRef，而不是用户口述或感觉。",
+        "输出要求提供本轮修改点，并说明拿不到就判 Incomplete、写进 BlockingGaps。",
+        "输出区分「字段整个缺失」与「填 N/A」：缺失要停机要求重出工件。",
+        "输出不给出 ReadyForDelivery 判定（交付权归 plaud-theme-qa）。"
+      ],
+      "forbidden": [
+        "ReworkDeltaStatus: NotApplicable"
+      ]
+    },
+    {
+      "id": "intake-18-testset-migration-structured",
+      "route": "testset-migration-legit-platform",
+      "prompt": "我们测试集从飞书搬到 Linear 了。memory/changeset-log.md 里最近一条非 N/A 的 TestSetTrace 是 `TESTSET-PLAUD-0730@rev7; Added=[TC-088]; Updated=[]; Removed=[]`，新的是 LIN-TESTSET-9001@v1，本轮新增了 TC-101，旧文档里 40 条用例我一条条对到新文档了。这轮 TestSetTrace 该怎么写才算 Complete？",
+      "expected_output": "形态上是合法迁移，但必须写成结构化的 TestSetMigrationRef，不能只说一句「搬平台了」。本轮要交齐三行：TestSetTrace: LIN-TESTSET-9001@v1; Added=[TC-101]; Updated=[]; Removed=[]（三段分列一个都不能省，Removed 无删除写 []）；PreviousAcceptedTestSetTrace 原样抄日志那一行；TestSetMigrationRef 五段齐全 —— From=TESTSET-PLAUD-0730@rev7（必须与上一行的 ID@revision 前缀段逐字一致）、To=LIN-TESTSET-9001@v1（必须与本轮 TestSetTrace 的前缀段逐字一致）、Reason=PlatformMigration、ReasonRef=Local(...) 或 Manifest(...) 指向迁移说明、CaseDisposition=Mapped(Local(testset/migration-map.tsv))，清单第一行 OldCaseCount=40、其后 40 条 TC-old→TC-new 数据行，旧 ID 不得重复。清单与 ReasonRef 都必须在提测材料目录里，因而自动进 PackageFingerprint、事后不可替换；locator 悬空即 Incomplete。核对是自洽性核对：条数 = OldCaseCount、旧 ID 不重复、locator 未悬空；矩阵不核 TC-1042 在旧文档里是否真的存在（不拥有测试集），也不核迁移说明的内容真伪。语法唯一见 package-checklist.md §3.1。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法。）",
+      "files": [],
+      "assertions": [
+        "输出要求填结构化的 TestSetMigrationRef 五段，而不是自由文本理由。",
+        "输出要求 From 与 PreviousAcceptedTestSetTrace 的 ID@revision 前缀段逐字一致、To 与本轮 TestSetTrace 逐字一致。",
+        "输出给出 Reason=PlatformMigration（封闭枚举三值之一）。",
+        "输出要求 ReasonRef 用 Local(...) 或 Manifest(...) 指向进了 PackageFingerprint 的材料，悬空引用判 Incomplete。",
+        "输出要求 CaseDisposition=Mapped 的清单带 OldCaseCount 头部、条数与之相等、旧 ID 不重复。",
+        "输出仍要求本轮 TestSetTrace 的 Added / Updated / Removed 三段分列。",
+        "输出说明矩阵只核自洽性与内容绑定，不核用例真实性（矩阵不拥有测试集）。",
+        "输出指向 package-checklist.md §3.1 作为唯一语法事实源。",
+        "输出要求 CaseDisposition 的清单只能用 Local(<相对路径>)，不接受 Manifest(...)（云端只能核 revision/digest，读不到内容）；ReasonRef 两种 locator 都可以。"
+      ],
+      "forbidden": [
+        "TestSetMigrationRef: N/A(SameDocument)"
+      ]
+    },
+    {
+      "id": "intake-19-testset-migration-bulk-retired-no-inventory",
+      "route": "testset-migration-bulk-retired",
+      "prompt": "上一家 agency 交接给我们了，旧测试集在他们的空间里，我们打不开了，所以旧用例就整体作废、这轮全部重新写。TestSetMigrationRef 我打算写 Reason=OwnerHandover; CaseDisposition=BulkRetired(旧文档打不开)。这样行吗？",
+      "expected_output": "Reason=OwnerHandover 合法，但 CaseDisposition=BulkRetired 必须指向一份进了提测材料（因而进 PackageFingerprint）的旧用例清单：头部 OldCaseCount=<N> + RetireReason，其后逐条列出被废弃的旧用例 ID，条数必须等于 OldCaseCount。「旧文档打不开所以列不出来」不是免除理由 —— 换库前本方本来就持有这份资产，列不出来就判 SelfTestReportStatus: Incomplete，这里不存在「矩阵去查外部系统失败」的降级取值。另外 From 仍必须逐字等于上一轮那一行；上一轮记录本身取不到时（PreviousAcceptedTestSetTrace 为 Unavailable），本字段改填 N/A(NoPreviousTrace)，此时不因它判 Incomplete，改记 QA 的 Advisories。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出要求 BulkRetired 附一份含 OldCaseCount 与逐条旧用例 ID 的清单，并说明它随材料进 PackageFingerprint。",
+        "输出要求清单头部两行含非空的 RetireReason，且数据行条数等于 OldCaseCount、旧 ID 不重复。",
+        "输出明确「旧文档打不开」不是免除列清单的理由。",
+        "输出说明这里没有 Unavailable 之类的降级取值，因为不涉及矩阵去查外部系统。",
+        "输出给出 N/A(NoPreviousTrace) 的正确适用条件（上一轮记录本身取不到时）。",
+        "输出要求这份清单用 Local(<相对路径>) 放进材料目录，不接受云端 Manifest(...)（远端只能核 revision/digest，读不到内容）。"
+      ]
+    },
+    {
+      "id": "intake-21-integration-package-happy-path",
+      "route": "integration-submission-package",
+      "kind": "rule",
+      "prompt": "A、B 两块都各自过了块 QA，人已经把它们合到一棵树上了，现在要跑一次集成 QA。orchestrator 那份 Coordination 工件里 IntegrationPlan.MemberChangeSets 是 [CS-20260812-A02, CS-20260812-B01]，ChangeSetStatus 里 A02 的 SubmissionId 是 SUB-20260813-04、B01 的是 SUB-20260813-05，两份包都是 Complete。集成提测包该怎么出？",
+      "expected_output": "出一份集成提测包：ChangeSetId: N/A(Integration)、ChangeSetScopeFingerprint: N/A(Integration)、IntegrationOf 逐块列出两条（ChangeSetId + SubmissionId），顶层 SubmissionId 新开一个 SUB-<YYYYMMDD>-<NN> 而不复用 A02/B01 任何一块的。ObjectFormat 与 ThemeTreeOid 从 IntegrationPlan.IntegrationResultTreeOid 原样透传：集成树没有任何 Implement 工件可抄，IntegrationBaseTreeOid 是基准树不是结果树，集成 QA 的 VerifiedThemeTreeOid 又在本 skill 之后才产生，所以这一对的 producer 是 Integrator 那个人（集成落盘后跑 plaud_theme_tree 取前两段、由 orchestrator 补进协调工件），本 skill 只搬运、不自算；协调工件没补这一项就停机不出契约块。QA 的 Step 1 仍会重算并逐字比对。材料要是各块材料的真并集（真拷贝，不许 symlink）加集成本身的 ReworkDelta。",
+      "files": [],
+      "assertions": [
+        "输出 ChangeSetId: N/A(Integration)。",
+        "输出 ChangeSetScopeFingerprint: N/A(Integration)。",
+        "输出 IntegrationOf 非空且逐块列出 ChangeSetId 与 SubmissionId 两段。",
+        "输出说明顶层 SubmissionId 要新开一个，不复用任何成员的 SubmissionId。",
+        "输出说明集成树的 ObjectFormat / ThemeTreeOid 由在集成工作树里跑 plaud_theme_tree 捕获，且明确这是捕获而非校验、QA 仍会重算比对。",
+        "输出说明不得抄 IntegrationPlan.IntegrationBaseTreeOid 顶替（那是基准树不是结果树）。",
+        "输出说明集成材料是各块材料的并集，要真拷贝而不是用 symlink 链进来（symlink 会让 plaud_package_fingerprint 直接 UNSUPPORTED_MATERIAL_OBJECT 返回 1、一个指纹都算不出来）。",
+        "输出的 yaml 契约块里不出现 ReadyForDelivery 字段。"
+      ]
+    },
+    {
+      "id": "intake-22-integration-member-package-missing",
+      "route": "integration-member-package-missing",
+      "kind": "rule",
+      "prompt": "集成提测，MemberChangeSets 是 [CS-20260812-A02, CS-20260812-B01, CS-20260812-C03]。A02、B01 的 SubmissionId 我都有，C03 那块当时没走提测、Coordination 的 ChangeSetStatus 里也没有它的 SubmissionId，我在 memory/changeset-log.md 里也没翻到。要不 IntegrationOf 就先列 A02 和 B01 两块吧，C03 等它补了再说？",
+      "expected_output": "不行。C03 从未提测、两条合法取数路径（Coordination 的 ChangeSetStatus / 用户给出该块的 QAIntake 工件）都拿不到它的 SubmissionId，这属于「该块根本没有提测包」——**停机，不出契约块**，BlockingGaps 正文指名 C03 从未提测，要它先补一次单块提测拿到真 SubmissionId 与 Complete 的包。🔴 不得为此自造占位取值（Unavailable(...) / N/A / TBD 都不行）：canonical §9.1.2 与 §9.2 都没有为 IntegrationOf 嵌套项定义\"取不到\"的取值。也不得把 C03 从 IntegrationOf 里删掉——集合等式会变成与一份被裁剪过的成员清单比，那一块的材料整份缺席而 intake 照样通过。另外要指出 memory/changeset-log.md 本来就没有 SubmissionId 这一列，翻不到不是偶然，它不是这条数据的取数路径。（对照：如果 C03 的 SubmissionId 是拿得到的、只是那份包不是 Complete，那就是另一种情形：照写真实 ID、顶层 SubmissionPackageStatus: Incomplete、下游集成 QA 填 QAAdmissionStatus: Blocked + PackageIncomplete。）",
+      "files": [],
+      "assertions": [
+        "输出停机、不产出 26 key 契约块，而不是出一份带占位值的工件。",
+        "输出明确拒绝自造占位取值，点名 Unavailable(...) / N/A / TBD 都不行，理由是契约没有为该嵌套项定义取不到的取值。",
+        "输出要求 C03 先补一次单块提测，拿到真 SubmissionId 与 Complete 的包。",
+        "输出拒绝把 C03 从 IntegrationOf 里删掉，并说明集合必须与 MemberChangeSets 相等。",
+        "输出 BlockingGaps 指名是哪一块缺什么，不写笼统的'材料不全'。",
+        "输出指出 memory/changeset-log.md 没有 SubmissionId 列，不是这条数据的取数路径。",
+        "输出区分开另一种情形：ID 拿得到但那份包不是 Complete 时，照写真实 ID 并判顶层 Incomplete。"
+      ]
+    },
+    {
+      "id": "intake-23-integration-without-plan",
+      "route": "integration-no-plan-back-to-orchestrator",
+      "kind": "rule",
+      "prompt": "这几块改动我合完了，直接给我出个集成提测包吧，成员就是这三块，我口头告诉你就行。反正最后一块的提测材料是最全的，包就沿用它那份。",
+      "expected_output": "两条都不行。没有 IntegrationPlan（§9.1 Coordination 工件）就没有 MemberChangeSets 这个唯一事实源，本 skill 不自行拟定成员清单、口述不算来源——停机，回 plaud-theme-orchestrator 要集成计划。复用最后一块的提测包同样不行：那份包绑的是那一块的树与那一块的材料，拿它当集成包等于把一块的材料判定冒充成集成的判定，顶层 SubmissionId 必须新开。集成材料应是各块材料的并集加集成本身的 ReworkDelta。",
+      "files": [],
+      "assertions": [
+        "输出停机并要求先回 plaud-theme-orchestrator 取得 IntegrationPlan。",
+        "输出说明 MemberChangeSets 是成员清单的唯一事实源，口述/自行拟定不算。",
+        "输出拒绝复用最后一块的提测包，并说明顶层 SubmissionId 必须新开。",
+        "输出说明集成材料是各块材料的并集加集成本身的 ReworkDelta。",
+        "输出没有在缺 IntegrationPlan 的情况下产出一份 IntegrationOf 已填好的集成提测包。"
+      ]
+    },
+    {
+      "id": "intake-24-integration-empty-integration-of",
+      "route": "integration-empty-field-is-contract-violation",
+      "kind": "rule",
+      "prompt": "集成提测包我出好了，ChangeSetId 填的 N/A(Integration)，IntegrationOf 我先留空了——稳妥起见嘛，等确认了再补。这样应该没问题吧？",
+      "expected_output": "契约违规，停机。ChangeSetId: N/A(Integration) 而 IntegrationOf 为空不是保守而是死锁：集成 QA 结构上取不到任何一块的 intake 工件，会恒 Blocked / MissingArtifact，从而恒拿不到交付许可。要么按 IntegrationPlan.MemberChangeSets 逐块列全（某块的包不是 Complete 就照写真实 SubmissionId 并判顶层 SubmissionPackageStatus: Incomplete；某块根本没有提测包则停机不出块），要么这根本不是集成提测、ChangeSetId 应该填具体的那一块。",
+      "files": [],
+      "assertions": [
+        "输出判为契约违规并停机。",
+        "输出说明空 IntegrationOf 会让集成 QA 恒 Blocked、恒拿不到交付许可，是死锁不是保守。",
+        "输出给出正确做法：按 MemberChangeSets 逐块列全，包不齐的照写真实 SubmissionId 判 Incomplete、从未提测的停机不出块。",
+        "输出指出若不是集成提测，ChangeSetId 就该填具体那一块而不是 N/A(Integration)。"
+      ]
+    },
+    {
+      "id": "intake-20-artifact-block-exact-fields",
+      "route": "qaintake-artifact-shape",
+      "kind": "rule",
+      "prompt": "把这次提测的准入工件按契约输出给我看格式。",
+      "expected_output": "回复最后是一个 yaml 代码块，26 个字段与 handoff-schema §9.1.2 完全一致且顺序一致：ArtifactKind: QAIntake、SubmissionId、ChangeSetId、IntegrationOf、ObjectFormat、ThemeTreeOid、ChangeSetScopeFingerprint、PackageRootRef、PackageFingerprint、TargetSites、ExcludedSites、ThemeIds、ScopeSourceRef、PreviewManifest、PreviewManifestStatus、ConfigurationGuideStatus、SelfTestReportStatus、TestSetTrace、PreviousAcceptedTestSetTrace、TestSetMigrationRef、ScreenshotManifestStatus、ImpactScopeStatus、ReworkDeltaStatus、SubmissionPackageStatus、BlockingGaps、NextRequiredSkill: plaud-theme-qa。无自造字段、无漏字段，块里一个 ReadyForDelivery 都不许出现，材料状态一律用 Complete/Incomplete 而不是 Yes/No。",
+      "assertions": [
+        "ArtifactKind: QAIntake",
+        "SubmissionId",
+        "ThemeTreeOid",
+        "IntegrationOf",
+        "ObjectFormat",
+        "ChangeSetScopeFingerprint",
+        "PackageFingerprint",
+        "PreviewManifestStatus",
+        "SelfTestReportStatus",
+        "TestSetTrace",
+        "PreviousAcceptedTestSetTrace",
+        "TestSetMigrationRef",
+        "ReworkDeltaStatus",
+        "SubmissionPackageStatus",
+        "NextRequiredSkill: plaud-theme-qa",
+        "yaml 块的 key 集合与 handoff-schema §9.1.2（26 字段）**完全一致**：26 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。",
+        "yaml 块里不出现 ReadyForDelivery 字段。"
+      ],
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。（v0.2.2 补：qa-intake 此前没有任何结构 validator，`TestSetMigrationRef` 这类新增字段整字段漏写也发现不了。v0.3.0：23 → 26 key，📎 单字段 `ChangeSetFingerprint` 拆成 `ObjectFormat` / `ThemeTreeOid` / `ChangeSetScopeFingerprint` 并新增 `IntegrationOf`；该废止字段**不列进 `forbiddenKeys`** —— `expectedKeys` 的严格集合相等已经把任何多余 key（含它）判违规，而在包里再留一份该字符串会与「下游任何地方再出现即违规」的清理判据冲突。）🔴 本 validator 只验**顶层 26 key 的形状**：`IntegrationOf` 空不空、与 `MemberChangeSets` 是否集合相等、成员是否重复、`SubmissionId` 是否真实且 `Complete`，它一概验不了——那几条由 intake-21 / intake-22 / intake-23 / intake-24 四条行为 eval 覆盖（其中 intake-22 覆盖「成员包缺失时不得自造占位取值」）。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
+        "expectedKeys": [
+          "ArtifactKind",
+          "SubmissionId",
+          "ChangeSetId",
+          "IntegrationOf",
+          "ObjectFormat",
+          "ThemeTreeOid",
+          "ChangeSetScopeFingerprint",
+          "PackageRootRef",
+          "PackageFingerprint",
+          "TargetSites",
+          "ExcludedSites",
+          "ThemeIds",
+          "ScopeSourceRef",
+          "PreviewManifest",
+          "PreviewManifestStatus",
+          "ConfigurationGuideStatus",
+          "SelfTestReportStatus",
+          "TestSetTrace",
+          "PreviousAcceptedTestSetTrace",
+          "TestSetMigrationRef",
+          "ScreenshotManifestStatus",
+          "ImpactScopeStatus",
+          "ReworkDeltaStatus",
+          "SubmissionPackageStatus",
+          "BlockingGaps",
+          "NextRequiredSkill"
+        ],
+        "forbiddenKeys": [
+          "ReadyForDelivery",
+          "QAStatus",
+          "ModifiedFiles",
+          "RootCause",
+          "OptionsConsidered",
+          "RequiredQAProfile",
+          "QAAdmissionStatus",
+          "QAAdmissionReason",
+          "ChangeSetIdMatched",
+          "ThemeCheck",
+          "ApprovedExceptions",
+          "ApprovedExceptionsChecked",
+          "ReadOnlyProof",
+          "AssessmentRef",
+          "IntegrationQARef"
+        ]
+      }
+    }
+  ],
+  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
+}

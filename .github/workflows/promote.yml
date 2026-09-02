@@ -105,6 +105,13 @@ jobs:
           #    这一步同时完成 §3 第 2 项（变更路径白名单）—— assertPathsAllowed
           #    就在 pr-classify 的 CLI 里，判定与路径检查本来就是一件事。
           paths=$(git diff --no-renames --name-only "$basesha...$headsha")
+          # 🔴 `--present-paths` 与 `--changed-paths` 必须**同一次 diff 算出来**，
+          #    差别只在 `--diff-filter=d`（排除本次删掉的）。pr-classify 用两者之差
+          #    判断 promotion 的 `submissions/**` 是不是「只删不增」。
+          #    ⚠️ 它是**必填**：缺了会直接报错而不是默默放行 —— 2026-09-02 我把它
+          #    设成必填却只接了 validate-pr.yml、漏了这里，promote 当场红在
+          #    「缺少 --present-paths」。pr-classify 有**两个**调用点，改一处就要改两处。
+          present=$(git diff --no-renames --name-only --diff-filter=d "$basesha...$headsha")
           # 🔴 维护者名单从**已合并到 main 的**那一份读（本 workflow 跑在 main 上，
           #    从不 checkout fork）。取 `.id` 不取 `.login` —— 同 validate-pr.yml。
           #    ⚠️ 这里**必须**传：pr-classify 把 `--maintainer-ids` 列为必填，
@@ -114,7 +121,7 @@ jobs:
             --head-ref "$ref" --head-repo "$headrepo" --this-repo "$GITHUB_REPOSITORY" \
             --author-id "$author" --author "$authorlogin" \
             --release-bot-id "$RELEASE_BOT_ID" --maintainer-ids "$ids" \
-            --changed-paths "$paths")
+            --changed-paths "$paths" --present-paths "$present")
           if [ "$kind" = "promotion" ]; then
             echo "::notice::这是 promotion PR（$ref）自己合并触发的，跳过。"
             echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0

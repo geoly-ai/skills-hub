@@ -649,6 +649,37 @@ test('🔴 promote 的 --owners-out 不许写回 registry/owners.json（会污�
     '合并后的 owners 从来没被落盘 —— 首次注册不会进仓库，下一次投稿又要重新 claim');
 });
 
+// 🔴 **pr-classify 有两个调用点，两个都必须把必填参数传全。**
+//
+// 2026-09-02：把 `--present-paths` 设成必填之后，我只接了 validate-pr.yml、
+// **漏了 promote.yml**，promote 当场红在「缺少 --present-paths」。
+// ⚠️ 这已经是同一个形状第二次咬人了（第一次是审批判定其实有三处）。
+// 判据是**全仓搜调用点**，不是维护一份「我知道的调用者」清单 ——
+// 后者只能守住你已经知道的东西。
+test('🔴 每个 pr-classify.mjs 调用点都必须传全必填参数', () => {
+  const REQUIRED = ['--head-ref', '--head-repo', '--this-repo', '--author-id',
+    '--release-bot-id', '--maintainer-ids', '--changed-paths', '--present-paths'];
+  const files = readdirSync(WF_DIR).filter((f) => f.endsWith('.yml'));
+  const callers = [];
+  for (const f of files) {
+    const body = read(f);
+    if (!body.includes('pr-classify.mjs')) continue;
+    callers.push(f);
+    // 取从 `pr-classify.mjs` 到该 shell 命令结束（以 `)` 或空行收尾）之间的文本
+    const i = body.indexOf('pr-classify.mjs');
+    const chunk = body.slice(i, i + 900);
+    for (const flag of REQUIRED) {
+      assert.ok(chunk.includes(flag),
+        `${f} 里的 pr-classify 调用缺少 ${flag} —— 它是必填的，缺了会直接报错。`);
+    }
+  }
+  // 🔴 一个调用点都没找到，说明这条断言在空跑（比如文件被改名了）。
+  assert.ok(callers.length >= 2,
+    `只找到 ${callers.length} 个 pr-classify 调用点（${callers.join('、')}）——`
+    + '预期至少两个（validate-pr 与 promote）。少了就说明这条断言正在一个'
+    + '不完整的集合上判定。');
+});
+
 test('🔴 promote 串行且不许取消，且没有 job 级 concurrency 覆盖它', () => {
   const body = PROMOTE();
   assert.match(body, /^concurrency:\s*\n\s+group:\s*promote\s*\n\s+cancel-in-progress:\s*false/m);
@@ -683,7 +714,16 @@ test('🔴 promote 的分流用的是 router 那一份代码，不是 shell 复�
   assert.match(body, /node[^\n]*pr-classify\.mjs/,
     '自己写 case promotion/hub-* 会漏掉「作者必须是 release bot」这一条');
   assert.ok(!/case\s+"?\$\{?ref/.test(body), '不要在 shell 里复述 router 的判据');
-  assert.match(body, /--diff-filter=d/, '算「本次 PR 带来哪些投稿」时要排掉删除');
+  // 🔴 **按用途定位，不是「整个文件里存在就算」。**
+  //    这条原本是 `assert.match(body, /--diff-filter=d/)` —— 2026-09-02 我在
+  //    同一个文件里加了**第二处** `--diff-filter=d`（算 present 清单用的），
+  //    于是「去掉 --diff-filter=d」那条变异改坏一处、另一处还在，断言照样绿。
+  //    ⚠️ 一个只问「存不存在」的断言，会随着同名东西变多而**自己失效**，
+  //    而且不会有任何迹象。判据要钉在它真正关心的那一行上。
+  assert.match(body, /only=\$\(git diff[^\n]*--diff-filter=d/,
+    '算「本次 PR 带来哪些投稿」（only=…）时要排掉删除');
+  assert.match(body, /present=\$\(git diff[^\n]*--diff-filter=d/,
+    'present 清单就是「排掉删除的 changed」——两者必须来自同一次 diff');
   // 🔴 `--maintainer-ids` 在 pr-classify 里是**必填**（「名单没取到」不能与
   //    「显式空名单」长得一样）。promote 是第二个调用方 —— 不传的话，
   //    **每一次 promote 都会因为缺参直接失败**，而这个文件是本机唯一能提前
@@ -891,6 +931,9 @@ test('🔴 ci-gate 的 needs 清单与它自查的 want 清单必须逐项一致
  *    这正是这份文件反复踩的那个坑的另一个形状 —— 「看起来被守住了」。
  */
 const MUTATIONS = [
+  ['promote.yml', '--changed-paths "$paths" --present-paths "$present")',
+    '--changed-paths "$paths")',
+    'promote 调 pr-classify 时漏传 --present-paths', '必须传全必填参数'],
   ['promote.yml', '--owners-out /tmp/owners-merged.json',
     '--owners-out registry/owners.json',
     'owners 合并结果就地写回（污染下一步输入）', '不许写回 registry/owners.json'],
@@ -911,7 +954,12 @@ const MUTATIONS = [
   ['promote.yml', "    paths: ['submissions/**']", "    paths: ['submissions/**']\n  workflow_dispatch:", 'promote 多一个触发', '只由 push'],
   ['promote.yml', 'cancel-in-progress: false', 'cancel-in-progress: true', 'promote 允许取消', '串行且不许取消'],
   ['promote.yml', 'git push origin "$branch"', 'git push origin main', 'promote 直推 main', '不直推 main'],
-  ['promote.yml', '--diff-filter=d ', '', '去掉 --diff-filter=d', '分流用的是 router'],
+  ['promote.yml', 'only=$(git diff --no-renames --diff-filter=d --name-only',
+    'only=$(git diff --no-renames --name-only',
+    'only= 那一处去掉 --diff-filter=d', '分流用的是 router'],
+  ['promote.yml', 'present=$(git diff --no-renames --name-only --diff-filter=d',
+    'present=$(git diff --no-renames --name-only',
+    'present 那一处去掉 --diff-filter=d', '分流用的是 router'],
   ['promote.yml', 'node --no-warnings scripts/submission/pr-classify.mjs', 'true #', 'promote 不再调 router', '分流用的是 router'],
 
   // ── Codex 2026-08-31 第二轮点名的形状 ────────────────────────────────
