@@ -1,0 +1,408 @@
+{
+  "schema": "geoly.skills.snapshot/2",
+  "artifacts": [
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-coverage-audit_0.7.0.tar.gz",
+        "sha256": "sha256:b32e16a9610282bb1b1ba7c994968dd84755d82472ff88be567ee5af60a6d3b2",
+        "size": 8559
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-coverage-audit@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-coverage-audit",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-coverage-audit/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:5a7574789b5f49d0deef41151ce9f2854af6aad9834794a00f60e6ed01349d22",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-delivery_0.7.0.tar.gz",
+        "sha256": "sha256:8ff9a0e274f080c3cbb738b4d77bda9b2ce05c53719830ab9b9017e696e10e38",
+        "size": 4747
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-delivery@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-delivery",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-delivery/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:d9a348acc55cd584fd53357bb890ea1df18ac88569853fa588c7453dd138ac52",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-demand-extractor_0.7.0.tar.gz",
+        "sha256": "sha256:9d63da52a3ad0cd1c8b2c770433b5788da6676e02a7b01012d0daabe11820aaf",
+        "size": 3873
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-demand-extractor@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-demand-extractor",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-demand-extractor/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:c5947e96f09f12f85a15455260e4363d7ef71f547de9680ed2518b5e11751412",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-demand-grid_0.7.0.tar.gz",
+        "sha256": "sha256:ec8da7d56eda120e37575dac83de3b52456f07ca3726c18a32ae0726b2343fa5",
+        "size": 3859
+      },
+      "capabilities": [
+        "external-tool"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-demand-grid@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-demand-grid",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-demand-grid/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 1,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:dee33065a71d62dec8817b04ba6c16c59bfb4ca36b48b7ed1e4f05002c8f9791",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-generator_0.7.0.tar.gz",
+        "sha256": "sha256:8a23c93869b31b7b70b42d55b35001025a456d9ce0c586c2d040d0931f0b2a29",
+        "size": 13985
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-generator@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-generator",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-generator/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:96f77ee30220000818530f3e10a04b19abf2a81cded2cd693a36ea64e1cdadb1",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-input-normalizer_0.7.0.tar.gz",
+        "sha256": "sha256:6bcddc12aadc48b1a5ca3225a8ecbe98c81c947a22f71c10f845c6ce32769a33",
+        "size": 3022
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-input-normalizer@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-input-normalizer",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-input-normalizer/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:620d9bf26317ae8cddd9e03f9c520953a01ab2327e38597e177355cfe16b7233",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-orchestrator_0.7.0.tar.gz",
+        "sha256": "sha256:31afb968c7ae7ea2894ca3a01cfb7b2872d3abdeaaee940fa6c365ddc4315b55",
+        "size": 12168
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-orchestrator@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-orchestrator",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-orchestrator/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:021a69a129530041e9d445d31b1362de633bd23f8c8cf77523921da9bf66a8f3",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-semantic-dedupe_0.7.0.tar.gz",
+        "sha256": "sha256:21b10c8a5541a2b023c821d233f44a84820c8ac0b2ff0827bfd2d60303653644",
+        "size": 3659
+      },
+      "capabilities": [
+        "external-tool"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-semantic-dedupe@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-semantic-dedupe",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-semantic-dedupe/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 1,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:dd850f2b1a10d98e6bfd996d6a53b439b85cda12b93a2de27cd5f17b75e5b994",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-shared_0.7.0.tar.gz",
+        "sha256": "sha256:0a8c90ebb19577d9d52d05a10f10177fc35eb9b2f75c43260473492a98d40b3f",
+        "size": 116623
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-shared@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-shared",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-shared/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:4014aaf6672c385cbd1ede388428cbb7fcbcd783d82049b97fb60b62849a9ae0",
+      "version": "0.7.0"
+    }
+  ],
+  "created_at": "2026-09-02T03:13:57Z",
+  "latest": {
+    "skill:prompts-map/prompt-map-coverage-audit": "0.7.0",
+    "skill:prompts-map/prompt-map-delivery": "0.7.0",
+    "skill:prompts-map/prompt-map-demand-extractor": "0.7.0",
+    "skill:prompts-map/prompt-map-demand-grid": "0.7.0",
+    "skill:prompts-map/prompt-map-generator": "0.7.0",
+    "skill:prompts-map/prompt-map-input-normalizer": "0.7.0",
+    "skill:prompts-map/prompt-map-orchestrator": "0.7.0",
+    "skill:prompts-map/prompt-map-semantic-dedupe": "0.7.0",
+    "skill:prompts-map/prompt-map-shared": "0.7.0"
+  },
+  "previous": 0,
+  "repo": "geoly-ai/skills-hub",
+  "snapshot": 0,
+  "yanked": []
+}
