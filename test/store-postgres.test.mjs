@@ -75,9 +75,19 @@ test('🔴 all() 超过上界时报错，不返回截断的结果', async () => 
   await assert.rejects(() => store.all(), /E_STORE_TOO_MANY_ROWS|超过/);
 });
 
-test('all() 在上界内正常返回', async () => {
-  const store = openPostgresStore(fakeSql([[{ ev: { eid: 'x' } }]]));
-  assert.deepEqual(await store.all(), [{ eid: 'x' }]);
+// 🔴 **契约是 `Array<{ received_at, event }>`，不是裸事件**（store.mjs 顶部的
+//    interface 注释）。第一版返回了裸事件，于是 app.mjs 的
+//    `records.filter(r => r.received_at >= cutoff)` 里 `undefined >= 0` 恒假 ——
+//    **每一行都被滤掉，/v1/summary 永远回 total: 0**，而 put() 明明在 accepted。
+//    ⚠️ 而当时这条测试断言的是**错的契约**，所以它一路绿着。
+//    **测试写错契约时，它守的就是那个错的契约。**
+test('🔴 all() 返回 { received_at, event } 包装，不是裸事件', async () => {
+  const store = openPostgresStore(fakeSql([[{ ev: { eid: 'x' }, received_ms: '1700000000000' }]]));
+  const got = await store.all();
+  assert.deepEqual(got, [{ received_at: 1_700_000_000_000, event: { eid: 'x' } }]);
+  // received_at 必须是 number —— pg 的 bigint 默认回字符串，而 `'…' >= 0` 是 true，
+  // 那会让过滤"碰巧能用"却在别处出错。
+  assert.equal(typeof got[0].received_at, 'number');
 });
 
 // 🔴 数据库不可用**不能**掉进「当成空库」——那会绕过全部准入控制。

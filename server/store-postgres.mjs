@@ -82,7 +82,8 @@ export function openPostgresStore(sql) {
       let rows;
       try {
         rows = await sql`
-          select ev from telemetry_events
+          select ev, (extract(epoch from received_at) * 1000)::bigint as received_ms
+          from telemetry_events
           order by received_at asc
           limit ${MAX_SCAN_ROWS + 1}
         `;
@@ -96,7 +97,13 @@ export function openPostgresStore(sql) {
         err.code = 'E_STORE_TOO_MANY_ROWS';
         throw err;
       }
-      return rows.map((r) => r.ev);
+      // 🔴 **契约是 `Array<{ received_at, event }>`，不是裸事件。**
+      //    见 store.mjs 顶部的 interface 注释。第一版这里 `return rows.map(r => r.ev)`,
+      //    于是 app.mjs 的 `records.filter(r => r.received_at >= cutoff)` 里
+      //    `undefined >= 0` 恒假 —— **每一行都被滤掉，/v1/summary 永远回 total: 0**。
+      //    ⚠️ 而我的单测断言的是**错的契约**（`deepEqual(all(), [{eid:'x'}])`），
+      //    所以它一路绿着。测试写错契约时，它守的就是那个错的契约。
+      return rows.map((r) => ({ received_at: Number(r.received_ms), event: r.ev }));
     },
 
     /** 保留期外的事件已被折进 rollup（见 migrate.mjs 里 telemetry_rollup 表）。 */
