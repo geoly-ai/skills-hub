@@ -218,8 +218,17 @@ test('promotion 只许改 artifacts/ registry/ advisories/', () => {
     kind: 'promotion',
     changedPaths: ['artifacts/skills/geoly/a/1.0.0/skill.json', 'registry/snapshots/hub-42.json', 'advisories/GSA-2026-0001.md'],
   }), true);
-  expectCode('E_PATH_OUTSIDE', () => assertPathsAllowed({
+  // 2026-09-01 起 submissions/ 对 promotion 是**条件允许**（只许删），
+  // 所以不给 presentPaths 时拒绝的理由从「不在白名单」变成「拿不到证据」——
+  // 都是拒绝，但后者说得出**缺的是什么**。
+  expectCode('E_CLASSIFY_INPUT', () => assertPathsAllowed({
     kind: 'promotion', changedPaths: ['submissions/geoly/x@1.0.0/skill.json'],
+  }));
+  // 🔴 给了证据、而且证明它还在 → 仍然拒（那是新增/修改，不是搬运的残迹）
+  expectCode('E_PROMOTION_SUBMISSION_WRITE', () => assertPathsAllowed({
+    kind: 'promotion',
+    changedPaths: ['submissions/geoly/x@1.0.0/skill.json'],
+    presentPaths: ['submissions/geoly/x@1.0.0/skill.json'],
   }));
 });
 
@@ -266,14 +275,16 @@ test('🔴 CLI 真调用：判定与拒绝都要真的发生（入口守卫）',
   const ok = run(['--head-ref', 'submit/geoly/alpha@1.0.0', '--author-id', 'MDQ6User_投稿者',
     '--release-bot-id', BOT_ID, '--head-repo', 'fork/skills-hub', '--this-repo', REPO,
     '--maintainer-ids', MAINTAINERS.join(','),
-    '--changed-paths', 'submissions/geoly/alpha@1.0.0/skill.json']);
+    '--changed-paths', 'submissions/geoly/alpha@1.0.0/skill.json',
+    '--present-paths', 'submissions/geoly/alpha@1.0.0/skill.json']);
   assert.equal(ok.status, 0, ok.stderr);
   assert.equal(ok.stdout.trim(), 'submission', '🔴 退出码 0 但没输出 —— 入口守卫判假的症状');
 
   const attack = run(['--head-ref', 'promotion/hub-9', '--author-id', 'MDQ6User_攻击者',
     '--release-bot-id', BOT_ID, '--head-repo', REPO, '--this-repo', REPO,
     '--maintainer-ids', MAINTAINERS.join(','),
-    '--changed-paths', 'artifacts/skills/geoly/x/1.0.0/skill.json']);
+    '--changed-paths', 'artifacts/skills/geoly/x/1.0.0/skill.json',
+    '--present-paths', 'artifacts/skills/geoly/x/1.0.0/skill.json']);
   assert.notEqual(attack.status, 0);
   assert.match(attack.stderr, /不是 release bot/);
 
@@ -281,7 +292,8 @@ test('🔴 CLI 真调用：判定与拒绝都要真的发生（入口守卫）',
   const maint = run(['--head-ref', 'fix/mutation-reporter', '--author-id', OTHER_MAINTAINER,
     '--release-bot-id', BOT_ID, '--head-repo', REPO, '--this-repo', REPO,
     '--maintainer-ids', MAINTAINERS.join(','),
-    '--changed-paths', 'docs/m3/03-golive-check.md\ntest/workflow-invariants.test.mjs']);
+    '--changed-paths', 'docs/m3/03-golive-check.md\ntest/workflow-invariants.test.mjs',
+    '--present-paths', 'docs/m3/03-golive-check.md\ntest/workflow-invariants.test.mjs']);
   assert.equal(maint.status, 0, maint.stderr);
   assert.equal(maint.stdout.trim(), 'maintainer');
 
@@ -289,7 +301,8 @@ test('🔴 CLI 真调用：判定与拒绝都要真的发生（入口守卫）',
   const snap = run(['--head-ref', 'fix/x', '--author-id', OTHER_MAINTAINER,
     '--release-bot-id', BOT_ID, '--head-repo', REPO, '--this-repo', REPO,
     '--maintainer-ids', MAINTAINERS.join(','),
-    '--changed-paths', 'registry/snapshots/hub-42.json']);
+    '--changed-paths', 'registry/snapshots/hub-42.json',
+    '--present-paths', 'registry/snapshots/hub-42.json']);
   assert.notEqual(snap.status, 0);
   assert.match(snap.stderr, /只能由 promotion PR 动/);
 
@@ -333,4 +346,46 @@ test('🔴 rename 的**两端**都要受检', () => {
   expectCode('E_PATH_DENIED', () => assertPathsAllowed({
     kind: 'submission', changedPaths: ['.github/workflows/ci.yml', 'submissions/x.yml'],
   }));
+});
+
+// ── promotion 对 submissions/ 只许删 ────────────────────────────────────────
+//
+// 🔴 2026-09-01 第一次真跑时 promote **自己产出的 PR 过不了它自己的白名单**：
+//    搬运是「复制进 artifacts/ + 从 submissions/ 移走」，所以 PR 必然带着
+//    submissions/** 的删除，而 PROMOTION_PATHS 里没有 submissions/。
+//    ⚠️ 单元测试喂的一直是**手造的**路径列表，从没喂过 promote 实际产出的那一组。
+test('🔴 promotion：submissions/ 的删除放行（那正是搬运的产物）', () => {
+  assertPathsAllowed({
+    kind: 'promotion',
+    changedPaths: ['artifacts/skills/g/a/1.0.0/SKILL.md', 'registry/snapshots/hub-0.json',
+      'submissions/g/a@1.0.0/SKILL.md', 'submissions/g/a@1.0.0/PROMOTION.json'],
+    presentPaths: ['artifacts/skills/g/a/1.0.0/SKILL.md', 'registry/snapshots/hub-0.json'],
+  });
+});
+
+// 🔴 不能简单把 submissions/ 加进白名单：那等于允许 promotion **新增**投稿，
+//    而确定性复算门只验 artifacts/ ↔ 快照，看不见 submissions/ ——
+//    夹带进来的投稿会绕过结构门、字符扫描、Tier 审批，
+//    躺在 main 上等下一次 promote 把它搬进 artifacts/。
+test('🔴 promotion：submissions/ 在 PR 之后仍存在 → 拒（那是新增或修改）', () => {
+  const e = expectCode('E_PROMOTION_SUBMISSION_WRITE', () => assertPathsAllowed({
+    kind: 'promotion',
+    changedPaths: ['artifacts/x', 'submissions/g/evil@1.0.0/SKILL.md'],
+    presentPaths: ['artifacts/x', 'submissions/g/evil@1.0.0/SKILL.md'],
+  }));
+  assert.match(e.message, /只许删/);
+});
+
+// 🔴 拿不到 present 就不能放行 —— 那时「它是被删掉的」只是猜测。
+//    少一个输入不该变成多一份信任。
+test('🔴 promotion：没给 presentPaths 时碰 submissions/ 一律拒（fail-closed）', () => {
+  expectCode('E_CLASSIFY_INPUT', () => assertPathsAllowed({
+    kind: 'promotion',
+    changedPaths: ['artifacts/x', 'submissions/g/a@1.0.0/SKILL.md'],
+  }));
+});
+
+// 对照：不碰 submissions/ 时，没有 presentPaths 也不该受影响。
+test('promotion：不碰 submissions/ 时 presentPaths 可缺省', () => {
+  assertPathsAllowed({ kind: 'promotion', changedPaths: ['artifacts/x', 'registry/y'] });
 });

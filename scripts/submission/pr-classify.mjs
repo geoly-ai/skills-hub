@@ -42,6 +42,26 @@ const bad = (code, msg) => { throw new ClassifyError(code, msg); };
 const RE_PROMOTION_BRANCH = /^promotion\/hub-(0|[1-9]\d*)$/;
 
 export const PROMOTION_PATHS = Object.freeze(['artifacts/', 'registry/', 'advisories/']);
+
+/**
+ * 🔴 **promotion PR 对 `submissions/` 只许删，不许增或改。**
+ *
+ * 为什么必须有这一条：promote 的搬运是「复制进 artifacts/ + 从 submissions/ 移走」，
+ * 所以它产出的 PR **必然**包含 `submissions/**` 的删除。而 PROMOTION_PATHS 里
+ * 没有 `submissions/` —— 2026-09-01 第一次真跑时，promote **自己产出的 PR 过不了
+ * 它自己的白名单**，router 直接拒掉。
+ * ⚠️ 单元测试喂的是手造的路径列表，从没喂过 promote **实际产出**的那一组，
+ *    所以这条不自洽一直没被发现。
+ *
+ * 🔴 **不能简单地把 `submissions/` 加进 PROMOTION_PATHS。** 那等于允许 promotion PR
+ *    **新增**任意投稿 —— 而确定性复算门只验 `artifacts/ ↔ 快照`，管不到 `submissions/`：
+ *    一份夹带进来的投稿会绕过投稿侧的全部门禁（结构、字符扫描、Tier 审批），
+ *    静静躺在 main 上等下一次 promote 把它搬进 artifacts/。
+ *
+ * 判据用 route 已经算好的 `present`（`git diff --diff-filter=d`）：
+ * 在 changed 里、不在 present 里 ＝ 这次删掉了。
+ */
+export const PROMOTION_DELETE_ONLY = Object.freeze(['submissions/']);
 export const SUBMISSION_PATHS = Object.freeze(['submissions/']);
 
 /**
@@ -227,7 +247,15 @@ const underOrIs = (p, prefixes) => prefixes.some((pre) => p === pre.slice(0, -1)
  * @param {'promotion'|'maintainer'|'submission'} a.kind
  * @param {string[]} a.changedPaths  本次 PR 改动的全部路径（仓库根相对）
  */
-export function assertPathsAllowed({ kind, changedPaths }) {
+/**
+ * @param {object} a
+ * @param {string} a.kind
+ * @param {string[]} a.changedPaths        本 PR 碰过的所有路径（含删掉的）
+ * @param {string[]|null} [a.presentPaths] PR 之后**仍然存在**的那些
+ *   （route 用 `git diff --diff-filter=d` 算的）。promotion 判「只许删」要用它；
+ *   给 `null` 表示拿不到 —— 那时 promotion 碰 submissions/ 一律拒（fail-closed）。
+ */
+export function assertPathsAllowed({ kind, changedPaths, presentPaths = null }) {
   // 🔴 kind 必须是这三个之一。拼错一个字母就落进 `else`，而 `else` 曾经等价于
   //    「按 submission 判」—— 一个错字换来一次静默的降级或提权，不能这样。
   if (!['promotion', 'maintainer', 'submission'].includes(kind)) {
@@ -246,6 +274,9 @@ export function assertPathsAllowed({ kind, changedPaths }) {
   const deny = { promotion: [], submission: SUBMISSION_DENY, maintainer: MAINTAINER_DENY }[kind];
   const outside = [];
   const denied = [];
+  const stillPresent = [];
+  const present = presentPaths === null ? null
+    : new Set(presentPaths.map((x) => (typeof x === 'string' ? x.trim() : x)).filter((x) => x !== ''));
   for (const p of changedPaths) {
     if (typeof p !== 'string' || p === '') bad('E_CLASSIFY_INPUT', 'changedPaths 里有空项');
     // 🔴 路径里出现 `..` 一律拒 —— 白名单靠前缀判定，而 `submissions/../cli/x`
@@ -255,7 +286,28 @@ export function assertPathsAllowed({ kind, changedPaths }) {
     //    的前缀不是 `registry/snapshots/`，硬拒清单一样会被绕过。
     if (p.split('/').includes('..')) bad('E_PATH_TRAVERSAL', `改动路径含 ..：${p}`);
     if (underOrIs(p, deny)) denied.push(p);
-    else if (allowed !== null && !underAny(p, allowed)) outside.push(p);
+    else if (allowed !== null && !underAny(p, allowed)) {
+      // promotion 对 submissions/ 只许删 —— 见 PROMOTION_DELETE_ONLY 的长注释
+      if (kind === 'promotion' && underAny(p, PROMOTION_DELETE_ONLY)) {
+        // 🔴 拿不到 present 就**不能**放行：那时「它是被删掉的」只是猜测。
+        //    fail-closed —— 少一个输入不该变成多一份信任。
+        if (present === null) {
+          bad('E_CLASSIFY_INPUT',
+            `promotion PR 动了 ${p}，但没有给 --present，无法证明它是**被删掉**的。\n`
+            + '  🔴 promotion 对 submissions/ 只许删；拿不到证据就不放行。');
+        } else if (present.has(p)) stillPresent.push(p);
+        // 不在 present 里 ＝ 这次删掉了 ＝ 放行
+      } else outside.push(p);
+    }
+  }
+
+  if (stillPresent.length) {
+    bad('E_PROMOTION_SUBMISSION_WRITE',
+      'promotion PR 对 `submissions/` **只许删**，这些路径在 PR 之后仍然存在：\n'
+      + stillPresent.map((x) => `  · ${x}`).join('\n')
+      + '\n  🔴 允许 promotion 新增/修改投稿，等于让它绕开投稿侧的全部门禁'
+      + '（结构门、字符扫描、Tier 审批）——\n'
+      + '     确定性复算门只验 `artifacts/ ↔ 快照`，看不见 `submissions/`。');
   }
 
   if (denied.length && kind === 'maintainer') {
@@ -318,7 +370,13 @@ export function main(argv) {
   });
   // 换行分隔：路径里可以有逗号，不能有换行（§01-4 的 grammar 更严，但输入来自 git）
   const changedPaths = o['changed-paths'].split('\n').map((s) => s.trim()).filter(Boolean);
-  assertPathsAllowed({ kind, changedPaths });
+  // 🔴 `--present-paths` **必填**（可以是空串）。缺省成 null 的话，
+  //    「workflow 忘了传」与「这次真的一个文件都没剩」长得一模一样，
+  //    而前者会让 promotion 在 submissions/ 上一律被拒 —— 又是一次没有报错的死锁。
+  //    必填之后，拿不到证据是一个**看得见**的失败。
+  if (o['present-paths'] === undefined) bad('E_CLASSIFY_INPUT', '缺少 --present-paths');
+  const presentPaths = o['present-paths'].split('\n').map((x) => x.trim()).filter(Boolean);
+  assertPathsAllowed({ kind, changedPaths, presentPaths });
   process.stdout.write(`${kind}\n`);
   process.stderr.write(`✔ 判定为 ${kind}，${changedPaths.length} 个改动路径全部合规\n`);
   return 0;

@@ -182,6 +182,10 @@ jobs:
           AUTHOR_ID: ${{ github.event.pull_request.user.node_id }}
           AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
           PATHS: ${{ steps.paths.outputs.list }}
+          # 🔴 promotion 判「submissions/ 只许删」要用它 —— promote 的搬运必然产出
+          #    submissions/** 的删除，而 PROMOTION_PATHS 里没有 submissions/。
+          #    见 pr-classify.mjs 的 PROMOTION_DELETE_ONLY 长注释。
+          PRESENT: ${{ steps.paths.outputs.present }}
         run: |
           set -euo pipefail
           # 🔴 **维护者名单来自 base**（既有事实），不是被检的 PR ——
@@ -200,7 +204,8 @@ jobs:
             --author "$AUTHOR_LOGIN" \
             --release-bot-id "$RELEASE_BOT_ID" \
             --maintainer-ids "$ids" \
-            --changed-paths "$PATHS")
+            --changed-paths "$PATHS" \
+            --present-paths "$PRESENT")
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
           echo "::notice::本 PR 判定为 $kind"
 
