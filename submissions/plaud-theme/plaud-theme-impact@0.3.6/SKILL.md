@@ -1,19 +1,6 @@
 ---
 name: plaud-theme-impact
-description: >
-  PLAUD Shopify 主题矩阵的 Assess 阶段（order 2）：改动影响面侦察。
-  用户问"改这个会影响什么""影响范围多大""blast radius""波及哪些模板/页面""依赖树""上下游调用方"
-  "这个 snippet 谁在用""改共享 snippet / 全局 CSS / token 会不会炸全站""旧 section 有没有连带影响"
-  "有多少实例""实例数""disabled 实例算不算""改动风险高不高""该动模板存值还是 schema 还是模块代码"
-  时使用；Path A 改已有 section/snippet/CSS、Path B 新建 sa-* section 查复用面与冲突面、
-  Path C UX 迁移前的 Blast Radius 与实例审计，都先过本 skill。
-  产出 LegacyImpact / IntegrationSurface / InlineLite 三种 ReconMode 下的事实：
-  理论引用数 vs 实际受影响实例清单、启用/disabled 实例分列、依赖树、共享传播链、
-  token→class 全实例覆盖核查、dangling 引用核查、build 产物 vs 源文件区分、
-  可选修改入口与各自风险、RiskTier、应跑的 QA profile。
-  本 skill 只产出事实与证据命令：不改任何代码、不写 section、不做 UX 迁移、
-  不下 RootCause 根因结论、不选实现方案、不做验收、不判定可交付、不批准模板存值编辑。
-  不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
+description: PLAUD Shopify 主题矩阵的 Assess 阶段（order 2）：改动影响面侦察。 用户问"改这个会影响什么""影响范围多大""blast radius""波及哪些模板/页面""依赖树""上下游调用方" "这个 snippet 谁在用""改共享 snippet / 全局 CSS / token 会不会炸全站""旧 section 有没有连带影响" "有多少实例""实例数""disabled 实例算不算""改动风险高不高""该动模板存值还是 schema 还是模块代码" 时使用；Path A 改已有 section/snippet/CSS、Path B 新建 sa-* section 查复用面与冲突面、 Path C UX 迁移前的 Blast Radius 与实例审计，都先过本 skill。 产出 LegacyImpact / IntegrationSurface / InlineLite 三种 ReconMode 下的事实： 理论引用数 vs 实际受影响实例清单、启用/disabled 实例分列、依赖树、共享传播链、 token→class 全实例覆盖核查、dangling 引用核查、build 产物 vs 源文件区分、 可选修改入口与各自风险、RiskTier、应跑的 QA profile。 本 skill 只产出事实与证据命令：不改任何代码、不写 section、不做 UX 迁移、 不下 RootCause 根因结论、不选实现方案、不做验收、不判定可交付、不批准模板存值编辑。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
 ---
 
 # PLAUD Theme Impact（Assess 阶段）

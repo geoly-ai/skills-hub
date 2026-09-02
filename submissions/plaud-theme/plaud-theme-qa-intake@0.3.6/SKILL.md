@@ -1,28 +1,6 @@
 ---
 name: plaud-theme-qa-intake
-description: >
-  PLAUD Shopify 主题矩阵的提测准入关口（order 6），夹在 Implement 与 Verify 之间：
-  按《DTC 开发交付标准 v1.0》§四 组装并校验提测包，材料不齐 QA 不启动。
-  用户说提测、送测、交付物、提测材料、要提交验收、agency 交付、能不能进验收、
-  预览链接、后台链接、配置文档、配置说明、字段说明文档、测试文档、测试用例、测试报告、
-  断点截图、375/768/1024/1280/1440、边界截图 767/1279/1599、影响范围说明、
-  推送站点清单、目标站点、要推哪几个站、theme ID、返工提测、本轮修改点、
-  「材料齐了吗」「还缺什么才能提测」「这个用例算不算写清楚了」时使用。
-  也在实现 skill 交出 ChangeSetId 之后、调用 plaud-theme-qa 之前**必须**经过本 skill。
-  **v0.3.0 起还覆盖集成提测包**：用户说这几块合起来提测、多块合并后一起送测、集成提测、
-  合并后的验收材料、集成 QA 要哪些材料时，出 ChangeSetId: N/A(Integration) + 非空 IntegrationOf
-  的集成提测包（材料 = 各块材料的并集 + 集成本身的 ReworkDelta）。
-  🔴 没有 IntegrationPlan（§9.1 Coordination 工件）的「集成提测」请求先回 plaud-theme-orchestrator
-  要集成计划，本 skill 不自行拟定成员清单。
-  产出 ArtifactKind: QAIntake 工件：SubmissionId、PackageFingerprint、TargetSites、
-  ExcludedSites、ThemeIds、PreviewManifest 与六项材料的 Complete/Incomplete 判定。
-  本 skill 只判「材料齐不齐」，不判「代码行不行」：不跑 Theme Check、不做断点回归、
-  不看代码质量、不做 A11y 审计（全归 plaud-theme-qa），也不改任何代码。
-  **本 skill 永不输出 ReadyForDelivery，一个字都不出现** —— 交付权唯一归 plaud-theme-qa。
-  不要路由到本 skill：要跑验收 / 要交付判定 → plaud-theme-qa；写代码修 bug → plaud-theme-dev；
-  影响面评估 → plaud-theme-impact；运营反馈归因、缺陷还是变更 → plaud-theme-feedback-triage；
-  发版推站、上线后跟踪 → plaud-theme-release-ops。
-  不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
+description: PLAUD Shopify 主题矩阵的提测准入关口（order 6），夹在 Implement 与 Verify 之间： 按《DTC 开发交付标准 v1.0》§四 组装并校验提测包，材料不齐 QA 不启动。 用户说提测、送测、交付物、提测材料、要提交验收、agency 交付、能不能进验收、 预览链接、后台链接、配置文档、配置说明、字段说明文档、测试文档、测试用例、测试报告、 断点截图、375/768/1024/1280/1440、边界截图 767/1279/1599、影响范围说明、 推送站点清单、目标站点、要推哪几个站、theme ID、返工提测、本轮修改点、 「材料齐了吗」「还缺什么才能提测」「这个用例算不算写清楚了」时使用。 也在实现 skill 交出 ChangeSetId 之后、调用 plaud-theme-qa 之前**必须**经过本 skill。 **v0.3.0 起还覆盖集成提测包**：用户说这几块合起来提测、多块合并后一起送测、集成提测、 合并后的验收材料、集成 QA 要哪些材料时，出 ChangeSetId: N/A(Integration) + 非空 IntegrationOf 的集成提测包（材料 = 各块材料的并集 + 集成本身的 ReworkDelta）。 🔴 没有 IntegrationPlan（§9.1 Coordination 工件）的「集成提测」请求先回 plaud-theme-orchestrator 要集成计划，本 skill 不自行拟定成员清单。 产出 ArtifactKind: QAIntake 工件：SubmissionId、PackageFingerprint、TargetSites、 ExcludedSites、ThemeIds、PreviewManifest 与六项材料的 Complete/Incomplete 判定。 本 skill 只判「材料齐不齐」，不判「代码行不行」：不跑 Theme Check、不做断点回归、 不看代码质量、不做 A11y 审计（全归 plaud-theme-qa），也不改任何代码。 **本 skill 永不输出 ReadyForDelivery，一个字都不出现** —— 交付权唯一归 plaud-theme-qa。 不要路由到本 skill：要跑验收 / 要交付判定 → plaud-theme-qa；写代码修 bug → plaud-theme-dev； 影响面评估 → plaud-theme-impact；运营反馈归因、缺陷还是变更 → plaud-theme-feedback-triage； 发版推站、上线后跟踪 → plaud-theme-release-ops。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
 ---
 
 # PLAUD Theme QA Intake（提测准入关口）

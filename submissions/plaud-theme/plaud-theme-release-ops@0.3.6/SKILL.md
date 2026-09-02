@@ -1,35 +1,6 @@
 ---
 name: plaud-theme-release-ops
-description: >
-  PLAUD Shopify 主题矩阵的发版与上线后治理（order 9），在 Verify 之后：
-  按《DTC 开发交付标准 v1.0》§五 做发版前的推送站点二次确认、PR 汇总、上线后跟踪与回归用例入库。
-  用户说要发版了、能发了吗、准备上线、推到线上、推哪几个站、推送站点清单、二次确认站点、
-  别推错站、这个站不要推、合并 PR、agency 提的 PR、同步 PR、发布前检查清单、
-  上线后出 bug 了、线上 bug、当天要修吗、样式问题排下个迭代、回归用例入库、
-  这个问题上次也出过、上线后跟踪、发版记录 时使用。
-  前置条件按 IncludedInThisPush 分别算，不是全有或全无：**IncludedInThisPush: Yes 的每个块**都已由
-  plaud-theme-qa 给出 ReadyForIntegration: Yes（含 QARef）且运营/PM 验收状态为 Accepted；
-  且存在一份覆盖本次发布源树的 QA 工件其 ReadyForDelivery: Yes（多块同批时必须是 QAScope: Integration 的集成 QA）。
-  AcceptanceStatus: Pending 的块填 IncludedInThisPush: No 是合法的，但它的改动**必须不在发布源树里**
-  ——没有"自动剔除"，只能由人撤掉 + 重新取证 + 重跑集成 QA，否则 ReleaseDeclaredDiffCheck 会判 DECLARED_DIFF_ORPHAN。
-  任一不满足即停机，不出发版清单。
-  产出 ArtifactKind: ReleaseOps 工件（28 字段）：ReleaseId、ReleaseScope（逐 ChangeSet 的 QAConclusion / QARef / 验收状态）、
-  ReleaseQARef、ObjectFormat、ReleaseSourceTreeOid、ReleaseStageDir、StagedAt、ShopifyCliVersion、
-  PushCommand、PushCommandCompliance、EffectivePayloadManifest、RemoteVerifyResult、
-  ReleaseDiffBaseCommit、ReleaseDeclaredDiffCheck、TargetSites、ExcludedSites、ThemeIds、SiteListConfirmedBy、
-  PRRef、AuthorizationRef、PushResult、PerSitePushResult、PushedAt、PostReleaseWatch、
-  RegressionCasesAdded、TestSetTraceAfterArchive、BlockingGaps。
-  **v0.3.0 支持多 ChangeSet 同批发版**：IncludedInThisPush: Yes 多于一个时必须有 ReleaseQARef 指向
-  QAScope: Integration 的集成 QA，且其 VerifiedThemeTreeOid 逐字等于 ReleaseSourceTreeOid；
-  缺集成 QA 的多块发版请求一律停机并指出缺什么，不得自行吸收成 QA 或规划任务。
-  推站源必须是 plaud_stage_verified 物化出的目录，不得从活工作树推。
-  三条硬规则：**运营验收未通过前禁止发版对应 section/page**；**推送站点必须两次确认且有出处**；
-  **每个线上 bug 必须反推一条回归用例入库**。
-  本 skill 不判可交付（唯 plaud-theme-qa 有权）、不写代码、不修 bug、不做验收、不判反馈归属；
-  发版动作本身（push / 合并 PR / theme push）是外部动作，需用户显式授权后才执行。
-  不要路由到本 skill：技术验收 → plaud-theme-qa；提测材料 → plaud-theme-qa-intake；
-  反馈是缺陷还是变更 → plaud-theme-feedback-triage；修 bug → plaud-theme-dev。
-  不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
+description: PLAUD Shopify 主题矩阵的发版与上线后治理（order 9），在 Verify 之后： 按《DTC 开发交付标准 v1.0》§五 做发版前的推送站点二次确认、PR 汇总、上线后跟踪与回归用例入库。 用户说要发版了、能发了吗、准备上线、推到线上、推哪几个站、推送站点清单、二次确认站点、 别推错站、这个站不要推、合并 PR、agency 提的 PR、同步 PR、发布前检查清单、 上线后出 bug 了、线上 bug、当天要修吗、样式问题排下个迭代、回归用例入库、 这个问题上次也出过、上线后跟踪、发版记录 时使用。 前置条件按 IncludedInThisPush 分别算，不是全有或全无：**IncludedInThisPush: Yes 的每个块**都已由 plaud-theme-qa 给出 ReadyForIntegration: Yes（含 QARef）且运营/PM 验收状态为 Accepted； 且存在一份覆盖本次发布源树的 QA 工件其 ReadyForDelivery: Yes（多块同批时必须是 QAScope: Integration 的集成 QA）。 AcceptanceStatus: Pending 的块填 IncludedInThisPush: No 是合法的，但它的改动**必须不在发布源树里** ——没有"自动剔除"，只能由人撤掉 + 重新取证 + 重跑集成 QA，否则 ReleaseDeclaredDiffCheck 会判 DECLARED_DIFF_ORPHAN。 任一不满足即停机，不出发版清单。 产出 ArtifactKind: ReleaseOps 工件（28 字段）：ReleaseId、ReleaseScope（逐 ChangeSet 的 QAConclusion / QARef / 验收状态）、 ReleaseQARef、ObjectFormat、ReleaseSourceTreeOid、ReleaseStageDir、StagedAt、ShopifyCliVersion、 PushCommand、PushCommandCompliance、EffectivePayloadManifest、RemoteVerifyResult、 ReleaseDiffBaseCommit、ReleaseDeclaredDiffCheck、TargetSites、ExcludedSites、ThemeIds、SiteListConfirmedBy、 PRRef、AuthorizationRef、PushResult、PerSitePushResult、PushedAt、PostReleaseWatch、 RegressionCasesAdded、TestSetTraceAfterArchive、BlockingGaps。 **v0.3.0 支持多 ChangeSet 同批发版**：IncludedInThisPush: Yes 多于一个时必须有 ReleaseQARef 指向 QAScope: Integration 的集成 QA，且其 VerifiedThemeTreeOid 逐字等于 ReleaseSourceTreeOid； 缺集成 QA 的多块发版请求一律停机并指出缺什么，不得自行吸收成 QA 或规划任务。 推站源必须是 plaud_stage_verified 物化出的目录，不得从活工作树推。 三条硬规则：**运营验收未通过前禁止发版对应 section/page**；**推送站点必须两次确认且有出处**； **每个线上 bug 必须反推一条回归用例入库**。 本 skill 不判可交付（唯 plaud-theme-qa 有权）、不写代码、不修 bug、不做验收、不判反馈归属； 发版动作本身（push / 合并 PR / theme push）是外部动作，需用户显式授权后才执行。 不要路由到本 skill：技术验收 → plaud-theme-qa；提测材料 → plaud-theme-qa-intake； 反馈是缺陷还是变更 → plaud-theme-feedback-triage；修 bug → plaud-theme-dev。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
 ---
 
 # PLAUD Theme Release Ops（发版与上线后）

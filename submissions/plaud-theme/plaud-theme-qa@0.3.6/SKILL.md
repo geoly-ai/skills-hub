@@ -1,33 +1,6 @@
 ---
 name: plaud-theme-qa
-description: >
-  PLAUD Shopify 主题矩阵的 Verify 阶段（order 7）——矩阵唯一有权宣布可交付的 skill。
-  触发前提二选一，缺一不得路由到本 skill：已存在 ChangeSetId / HandoffContract，
-  或用户明确要求最终交付判定**且该任务确有改动**（零改动只读任务恒归 plaud-theme-dev，用户点名也不接）。进入前还须先过 plaud-theme-qa-intake 的提测准入
-  （SubmissionPackageStatus: Complete），材料不齐则 QAAdmissionStatus: Blocked、零验证项执行。该前提之外的 review / 审计请求都不属于本 skill。
-  在此前提下覆盖：验收、验证、回归、上线前检查、发布前 review、能不能发了、可以上线吗、
-  QA、质检、theme check、lint、静态检查、断点回归、5 断点、PC/1599/1279/767/375、视觉回归、
-  德语长文案测试、英译德溢出、多语言验收，以及同样以该前提为限的 A11y 审计、无障碍、对比度、
-  focus-visible、code review、写死宽高、图片清晰度、文案可配置性、空配置与满配置双测、
-  schema 完整性、disabled 实例核对、同族 bug 扫描、依赖树回归、Swiper effect 约束；
-  实现 skill 交出 ChangeSetId + ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint
-  时必须调用本 skill。
-  也覆盖**集成 QA**（QAScope: Integration）：多块同批发版前对合并后的那棵树取证、
-  集成验收、合并后回归、多个 ChangeSet 一起发、cohort 发布前的最终验证——
-  但没有 plaud-theme-orchestrator 的 IntegrationPlan（集成者 / 集成基准 / 成员清单 /
-  **集成结果树 IntegrationResultTreeOid**）时不接，先回 plaud-theme-orchestrator 要集成计划
-  或要集成者补取证；本 skill 不做 merge、也不代算集成结果树的 oid，只对集成完成后的树取证。
-  只有本 skill 能输出 ReadyForDelivery: Yes；别的 skill 说「改完了」都不算交付许可。
-  不要路由到本 skill：提测材料齐不齐、预览链接、配置/测试文档、断点截图、推送站点清单 →
-  plaud-theme-qa-intake；反馈算缺陷还是变更、要不要计返工、Linear 状态 → plaud-theme-feedback-triage；
-  发版推站、上线后 bug 时效、回归用例入库 → plaud-theme-release-ops。
-  没有 ChangeSetId、用户也没要交付判定的只读 code review / A11y 审计 /
-  无障碍 / 对比度检查归 plaud-theme-dev（走零改动通道出 ReadOnlyProof，不进 Verify）；
-  没有 ChangeSet 的找 bug / 性能优化 / 写代码 → plaud-theme-dev；
-  改前影响面评估、blast radius、依赖树测绘 → plaud-theme-impact；
-  新建 sa-* section → plaud-theme-section-build；UX Spec 迁移 → plaud-theme-ux-migration。
-  本 skill 不写代码、不修 bug、不新建 section——只做取证与判定。
-  不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
+description: PLAUD Shopify 主题矩阵的 Verify 阶段（order 7）——矩阵唯一有权宣布可交付的 skill。 触发前提二选一，缺一不得路由到本 skill：已存在 ChangeSetId / HandoffContract， 或用户明确要求最终交付判定**且该任务确有改动**（零改动只读任务恒归 plaud-theme-dev，用户点名也不接）。进入前还须先过 plaud-theme-qa-intake 的提测准入 （SubmissionPackageStatus: Complete），材料不齐则 QAAdmissionStatus: Blocked、零验证项执行。该前提之外的 review / 审计请求都不属于本 skill。 在此前提下覆盖：验收、验证、回归、上线前检查、发布前 review、能不能发了、可以上线吗、 QA、质检、theme check、lint、静态检查、断点回归、5 断点、PC/1599/1279/767/375、视觉回归、 德语长文案测试、英译德溢出、多语言验收，以及同样以该前提为限的 A11y 审计、无障碍、对比度、 focus-visible、code review、写死宽高、图片清晰度、文案可配置性、空配置与满配置双测、 schema 完整性、disabled 实例核对、同族 bug 扫描、依赖树回归、Swiper effect 约束； 实现 skill 交出 ChangeSetId + ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint 时必须调用本 skill。 也覆盖**集成 QA**（QAScope: Integration）：多块同批发版前对合并后的那棵树取证、 集成验收、合并后回归、多个 ChangeSet 一起发、cohort 发布前的最终验证—— 但没有 plaud-theme-orchestrator 的 IntegrationPlan（集成者 / 集成基准 / 成员清单 / **集成结果树 IntegrationResultTreeOid**）时不接，先回 plaud-theme-orchestrator 要集成计划 或要集成者补取证；本 skill 不做 merge、也不代算集成结果树的 oid，只对集成完成后的树取证。 只有本 skill 能输出 ReadyForDelivery: Yes；别的 skill 说「改完了」都不算交付许可。 不要路由到本 skill：提测材料齐不齐、预览链接、配置/测试文档、断点截图、推送站点清单 → plaud-theme-qa-intake；反馈算缺陷还是变更、要不要计返工、Linear 状态 → plaud-theme-feedback-triage； 发版推站、上线后 bug 时效、回归用例入库 → plaud-theme-release-ops。 没有 ChangeSetId、用户也没要交付判定的只读 code review / A11y 审计 / 无障碍 / 对比度检查归 plaud-theme-dev（走零改动通道出 ReadOnlyProof，不进 Verify）； 没有 ChangeSet 的找 bug / 性能优化 / 写代码 → plaud-theme-dev； 改前影响面评估、blast radius、依赖树测绘 → plaud-theme-impact； 新建 sa-* section → plaud-theme-section-build；UX Spec 迁移 → plaud-theme-ux-migration。 本 skill 不写代码、不修 bug、不新建 section——只做取证与判定。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
 ---
 
 # PLAUD Theme QA（Verify 阶段，唯一交付权）
