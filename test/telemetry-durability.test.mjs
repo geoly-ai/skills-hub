@@ -264,9 +264,14 @@ test('🔴 压力：一边狂 record 一边反复 flush，落盘成功的一条�
   // 🔴 **子进程录到什么时候由这里说了算。** minN=3500 保证下面
   //    `recorded.length > 3000` 那条一定够；maxN 只是父进程挂掉时的兜底。
   const stopFile = join(d, 'STOP');
+  // 🔴 **事件总量必须框住。** 下面那条丢失容忍度（≤1）是按 ~4000 条标定的
+  //    **绝对数**；事件一多窗口就多，丢 2 条并不说明代码更坏了。
+  //    minN=3500 保证 `recorded.length > 3000` 那条够，maxN=4500 是硬上限。
+  //    节流（每 80 条歇 3ms ≈ 总共 ~170ms）让父进程有真实时间去 drain，
+  //    而不是靠赌它跑得比子进程快。详见 fixtures/recorder.mjs 的长注释。
   const child = spawn(
     process.execPath,
-    [join(here, 'fixtures/recorder.mjs'), '3500', '2000000', stopFile],
+    [join(here, 'fixtures/recorder.mjs'), '3500', '4500', stopFile, '80', '3'],
     { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, GEOLY_STATE_DIR: d } },
   );
   let out = '';
