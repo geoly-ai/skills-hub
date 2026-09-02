@@ -239,6 +239,26 @@ HTML、运行时不查后端），这里每次访问都要问一次上游、还�
 
 ---
 
+### 🔴 preview 拿的是**另一把** summary token —— 这是有意的
+
+`GEOLY_TELEMETRY_SUMMARY_TOKEN` 在 preview 与 production 两个 target 上是
+**不同的值**，而生产端只认 production 那把。所以 **preview 读不到生产聚合**，
+它拿到的是 401。
+
+**为什么要这么设**（2026-09-02，Codex 在部署评审里指出）：
+Vercel 的 `sensitive` 只是**在 UI 上隐藏取值**，它**挡不住 preview 的代码读取
+这个变量**。也就是说，任何能影响一次 preview 构建的人（比如提一张 PR）
+都能把生产聚合读出来。而 preview 的用途是看 UI 改动，**它不需要生产数据**。
+
+⚠️ **preview 上看到 401 不是配错了。** dashboard 会显示
+「**汇总端点拒绝了我们。** 端点在，但它不认这把 token（401/403），
+或者它压根没打开 `/v1/summary`（404）」——那是九种「没有」里的一种，
+**它不会被显示成「没人用」**。这正是把「没有」分成九种的意义：
+一个读不到数的 preview 必须说自己读不到，而不是给出一个看起来正常的 0。
+
+📌 要让 preview 有数据看，正确做法是**另起一套 telemetry 实例**给 preview 用，
+   而不是把生产的 token 发给它。
+
 ## 本地跑
 
 ```sh
