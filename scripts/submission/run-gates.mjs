@@ -20,6 +20,7 @@ import {
   assertVersionUnused, assertCapabilityConsistency,
 } from './structural-gates.mjs';
 import { readPromotionFile } from './promotion-file.mjs';
+import { assertSkillFrontmatter } from '../../src/artifact.mjs';
 
 const RE_SUBMISSION_DIR = /^([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)@(.+)$/;
 
@@ -122,6 +123,22 @@ export function runGates({
         problems.push(`${where}：namespace ${s.namespace} 尚未注册，`
           + 'PROMOTION.json 必须声明 claim_owner');
       }
+    }
+
+    // ⑤ˢ SKILL.md frontmatter —— 调**建快照将来要调的同一个函数**
+    //    🔴 2026-09-02 补上：这道门以前根本不解析 frontmatter，于是 11 个投稿
+    //    全绿合并进 main，promote 建快照时才红在 E_FRONTMATTER（10 个用了 YAML
+    //    折叠标量 `>`，而解析器是刻意最小化的、只认单行 key: value）。
+    //    那正是本文件④处注释里写的那件事：等到 promote 才报，投稿已经在 main 上了。
+    //    ⚠️ 共用 `assertSkillFrontmatter`，不在这里另写一份 —— 另写就是又一处会分叉的实现。
+    if (kind === 'skill') {
+      try {
+        assertSkillFrontmatter({
+          payloadDir: s.dir,
+          name: s.name,
+          viol: (code, msg) => { throw new Error(`[${code}] ${msg}`); },
+        });
+      } catch (e) { push(e); }
     }
 
     // ⑤ capability 一致性（只对 skill —— pack.json 里没有 capabilities）

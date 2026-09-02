@@ -190,6 +190,44 @@ const PACK_MANIFEST_KEYS = {
 };
 
 /** 最小 YAML frontmatter 子集：`---` 包围、单行 `key: value`。其余一律拒绝。 */
+/**
+ * SKILL.md frontmatter 的全部检查 —— **投稿门与建快照必须调同一个**。
+ *
+ * 🔴 2026-09-02：投稿侧的结构门**根本没解析过 frontmatter**，于是 11 个投稿
+ *    全绿合并进 main，promote 建快照时才红在 `E_FRONTMATTER`（10 个用了 YAML
+ *    折叠标量 `>`，而这里的解析器是刻意最小化的、只认单行 `key: value`）。
+ *    那正是本仓库反复警告的「**PR 时绿、promote 时红**」——
+ *    投稿已经在 main 上了，改起来要走一整轮。
+ *
+ * ⚠️ 所以这段逻辑抽成一个函数、两处调用，而**不是**在投稿门里另写一份：
+ *    另写一份就是又一处会分叉的实现。
+ *
+ * @param {object} a
+ * @param {string} a.payloadDir
+ * @param {string} a.name              期望的 name（来自 record / 目录名）
+ * @param {(code:string,msg:string)=>void} a.viol  报错回调
+ * @returns {object|null} 解析出来的 frontmatter
+ */
+export function assertSkillFrontmatter({ payloadDir, name, viol }) {
+  const sp = join(payloadDir, 'SKILL.md');
+  if (!existsSync(sp) || !statSync(sp).isFile()) {
+    viol('E_MANIFEST_MISSING', '载荷根缺少 SKILL.md（§5.1）');
+    return null;
+  }
+  const frontmatter = parseFrontmatter(readFileSync(sp, 'utf8'));
+  if (frontmatter.name !== name) {
+    viol('E_MANIFEST_BINDING', `⑦ SKILL.md frontmatter 的 name 是 ${JSON.stringify(frontmatter.name)}，应为 ${name}`);
+  }
+  if (typeof frontmatter.description !== 'string' || frontmatter.description === '') {
+    viol('E_MANIFEST_BINDING', 'SKILL.md frontmatter 缺少 description（§5.1）');
+  }
+  // 🔴 版本只放 skill.json；SKILL.md frontmatter 只承担运行时语义（§5.1 末段）
+  if (Object.hasOwn(frontmatter, 'version')) {
+    viol('E_MANIFEST_BINDING', 'SKILL.md frontmatter 不得带 version —— 版本只放 skill.json（§5.1）');
+  }
+  return frontmatter;
+}
+
 export function parseFrontmatter(text) {
   if (!text.startsWith('---\n')) throw new WireError('E_FRONTMATTER', 'SKILL.md 必须以 --- 开头的 YAML frontmatter 起始');
   const end = text.indexOf('\n---\n', 3);
@@ -301,21 +339,7 @@ export function assertManifestBinding(record, payloadDir) {
 
   // ⑦ skill 的第七项：SKILL.md frontmatter 的 name
   let frontmatter = null;
-  if (isSkill) {
-    const sp = join(payloadDir, 'SKILL.md');
-    if (!existsSync(sp) || !statSync(sp).isFile()) viol('E_MANIFEST_MISSING', '载荷根缺少 SKILL.md（§5.1）');
-    frontmatter = parseFrontmatter(readFileSync(sp, 'utf8'));
-    if (frontmatter.name !== record.name) {
-      viol('E_MANIFEST_BINDING', `⑦ SKILL.md frontmatter 的 name 是 ${JSON.stringify(frontmatter.name)}，应为 ${record.name}`);
-    }
-    if (typeof frontmatter.description !== 'string' || frontmatter.description === '') {
-      viol('E_MANIFEST_BINDING', 'SKILL.md frontmatter 缺少 description（§5.1）');
-    }
-    // 🔴 版本只放 skill.json；SKILL.md frontmatter 只承担运行时语义（§5.1 末段）
-    if (Object.hasOwn(frontmatter, 'version')) {
-      viol('E_MANIFEST_BINDING', 'SKILL.md frontmatter 不得带 version —— 版本只放 skill.json（§5.1）');
-    }
-  }
+  if (isSkill) frontmatter = assertSkillFrontmatter({ payloadDir, name: record.name, viol });
 
   return { manifest: doc, frontmatter };
 }

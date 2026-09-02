@@ -1,7 +1,7 @@
 // §6 结构门跑在 submissions/** 上 —— run-gates.mjs。
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -25,31 +25,31 @@ function sub(root, ns, name, ver, files){
 const SKILL=(caps)=>JSON.stringify({schema:'geoly.skills.skill/1',kind:'skill',namespace:'x',name:'y',version:'1.0.0',description:'d',license:'MIT',clients:['claude'],capabilities:caps,replaces:[],conflicts:[],provenance:{kind:'original',author_github_id:'1',submitted_by_pr:1}});
 
 test('干净的投稿通过', () => {
-  const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'---\nname: a\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
+  const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'---\nname: alpha\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
   const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.deepEqual(g.problems,[]); assert.equal(g.checked,1);
 });
 test('🔴 保留 namespace 被拒（非维护者）', () => {
-  const r=mk(); sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'---\nname: a\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
+  const r=mk(); sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'---\nname: alpha\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
   const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.equal(g.problems.length,1); assert.match(g.problems[0],/保留清单/);
   const ok=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,byMaintainer:true,registeredNamespaces:REG});
   assert.deepEqual(ok.problems,[]);
 });
 test('🔴 skill.json 与 pack.json 都在 → 拒（这是什么制品有两个答案）', () => {
-  const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'x\n','skill.json':'{}','pack.json':'{}'});
+  const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'---\nname: alpha\ndescription: d\n---\n\n正文\n','skill.json':'{}','pack.json':'{}'});
   const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.match(g.problems[0],/恰好.*一个/);
 });
 test('🔴 一次报出全部问题，不是遇到第一个就退', () => {
   const r=mk();
-  sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'x\n','skill.json':SKILL(['none'])});
-  sub(r,'admin','beta','1.0.0',{'SKILL.md':'x\n','skill.json':SKILL(['none'])});
+  sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'---\nname: alpha\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
+  sub(r,'admin','beta','1.0.0',{'SKILL.md':'---\nname: beta\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
   const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,registeredNamespaces:REG});
   assert.equal(g.problems.length,2,'两个投稿各一条，让人一次看全');
 });
 test('🔴 版本已占用（含已 yank）→ 拒', () => {
-  const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'x\n','skill.json':SKILL(['none'])});
+  const r=mk(); sub(r,'mine','alpha','1.0.0',{'SKILL.md':'---\nname: alpha\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
   const g=runGates({submissionsRoot:join(r,'submissions'),reserved:RES,existingIds:['skill:mine/alpha@1.0.0']});
   assert.match(g.problems[0],/不可重用/);
 });
@@ -58,7 +58,7 @@ test('目录名不合布局 → 抛错，不猜', () => {
   assert.throws(()=>scanSubmissions(join(r,'submissions')),/不合布局/);
 });
 test('🔴 CLI 真调用：有问题时非零退出', () => {
-  const r=mk(); sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'x\n','skill.json':SKILL(['none'])});
+  const r=mk(); sub(r,'geoly','alpha','1.0.0',{'SKILL.md':'---\nname: alpha\ndescription: d\n---\n\n正文\n','skill.json':SKILL(['none'])});
   const p=spawnSync(process.execPath,[`${R}/scripts/submission/run-gates.mjs`,'--submissions',join(r,'submissions'),'--reserved',join(R,'registry/reserved.json'),'--artifacts',join(r,'nope')],{encoding:'utf8'});
   assert.equal(p.status,1,p.stderr); assert.match(p.stderr,/不合规/);
 });
@@ -89,7 +89,7 @@ test('🔴 PROMOTION.json 的形状在**投稿 PR** 上就检', () => {
   const root = mk();
   const dir = join(root, 'geoly', 'alpha@1.0.0');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'SKILL.md'), '# alpha\n');
+  writeFileSync(join(dir, 'SKILL.md'), '---\nname: alpha\ndescription: d\n---\n\n正文\n');
   writeFileSync(join(dir, 'skill.json'), JSON.stringify({ name: 'alpha', capabilities: ['none'] }));
   writeFileSync(join(dir, 'PROMOTION.json'), JSON.stringify({
     schema: 'geoly.skills.promotion-file/1',
@@ -116,7 +116,7 @@ test('🔴🔴 pack 没有 PROMOTION.json → **投稿 PR 上就拒**', () => {
 
 test('🔴🔴 未注册 namespace 的首投没有 claim_owner → 投稿 PR 上就拒', () => {
   const r = mk();
-  sub(r, 'brandnew', 'alpha', '1.0.0', { 'SKILL.md': 'x\n', 'skill.json': SKILL(['none']) });
+  sub(r, 'brandnew', 'alpha', '1.0.0', { 'SKILL.md': '---\nname: alpha\ndescription: d\n---\n\n正文\n', 'skill.json': SKILL(['none']) });
   const g = runGates({ submissionsRoot: join(r, 'submissions'), reserved: RES, registeredNamespaces: REG });
   assert.equal(g.problems.length, 1, g.problems.join('\n'));
   assert.match(g.problems[0], /尚未注册/);
@@ -125,7 +125,7 @@ test('🔴🔴 未注册 namespace 的首投没有 claim_owner → 投稿 PR 上
 test('声明齐全就放行', () => {
   const r = mk();
   sub(r, 'brandnew', 'alpha', '1.0.0', {
-    'SKILL.md': 'x\n',
+    'SKILL.md': '---\nname: alpha\ndescription: d\n---\n\n正文\n',
     'skill.json': SKILL(['none']),
     'PROMOTION.json': JSON.stringify({
       schema: 'geoly.skills.promotion-file/1',
@@ -134,4 +134,45 @@ test('声明齐全就放行', () => {
   });
   const g = runGates({ submissionsRoot: join(r, 'submissions'), reserved: RES, registeredNamespaces: REG });
   assert.deepEqual(g.problems, []);
+});
+
+// ── SKILL.md frontmatter 在**投稿 PR** 上就检 ──────────────────────────────
+//
+// 🔴 2026-09-02：这道门以前**根本不解析 frontmatter**。于是 11 个 plaud 投稿
+//    全绿合并进 main，promote 建快照时才红在 E_FRONTMATTER —— 其中 10 个用了
+//    YAML 折叠标量 `>`，而解析器是刻意最小化的、只认单行 `key: value`
+//    （拒绝锚点/别名等能让同一份文本解出不同结构的写法）。
+//    那正是本文件里反复写的那件事：**等到 promote 才报，投稿已经在 main 上了**。
+test('🔴 折叠标量 `>` 在投稿 PR 上就被拒（不是等到 promote 建快照）', () => {
+  const r = mk();
+  sub(r, 'mine', 'alpha', '1.0.0', {
+    'SKILL.md': '---\nname: alpha\ndescription: >\n  跨了\n  两行\n---\n\n正文\n',
+    'skill.json': SKILL(['none']),
+  });
+  const g = runGates({ submissionsRoot: join(r, 'submissions'), reserved: RES, registeredNamespaces: REG });
+  assert.equal(g.problems.length, 1);
+  assert.match(g.problems[0], /E_FRONTMATTER/);
+});
+
+// 🔴 §5.3 第 ⑦ 项：SKILL.md frontmatter 的 name 必须等于制品名。
+//    这条以前在投稿侧也没查 —— 本文件的夹具因此长期是**不自洽**的
+//    （目录叫 alpha@1.0.0，frontmatter 里写 `name: a`），而没有任何东西会发现。
+test('🔴 frontmatter 的 name 与目录名对不上 → 投稿 PR 上就拒', () => {
+  const r = mk();
+  sub(r, 'mine', 'alpha', '1.0.0', {
+    'SKILL.md': '---\nname: 别的名字\ndescription: d\n---\n\n正文\n',
+    'skill.json': SKILL(['none']),
+  });
+  const g = runGates({ submissionsRoot: join(r, 'submissions'), reserved: RES, registeredNamespaces: REG });
+  assert.equal(g.problems.length, 1);
+  assert.match(g.problems[0], /E_MANIFEST_BINDING/);
+});
+
+// 🔴 投稿门与建快照必须调**同一个**函数，不许各写一份。
+test('🔴 投稿门用的就是 artifact.mjs 的 assertSkillFrontmatter', () => {
+  const src = readFileSync(join(R, 'scripts/submission/run-gates.mjs'), 'utf8')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+  assert.match(src, /assertSkillFrontmatter/,
+    '投稿门没用共享的那个函数 —— 另写一份就是又一处会分叉的实现');
+  assert.match(src, /from '\.\.\/\.\.\/src\/artifact\.mjs'/);
 });
