@@ -1,0 +1,30 @@
+{
+  "rewrites": [
+    {
+      "source": "/v1/events",
+      "destination": "/api/events"
+    },
+    {
+      "source": "/v1/summary",
+      "destination": "/api/summary"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/prune",
+      "schedule": "0 4 * * *"
+    }
+  ],
+  "functions": {
+    "api/events.js": {
+      "maxDuration": 15
+    },
+    "api/summary.js": {
+      "maxDuration": 30
+    },
+    "api/prune.js": {
+      "maxDuration": 60
+    }
+  },
+  "outputDirectory": "public"
+}

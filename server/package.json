@@ -1,0 +1,10 @@
+{
+  "name": "@geoly-ai/skills-hub-telemetry-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "skills-hub 埋点摄入端（Vercel + Postgres）",
+  "dependencies": {
+    "postgres": "3.4.5"
+  }
+}

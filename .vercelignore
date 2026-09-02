@@ -13,6 +13,9 @@ site/.generated
 
 # dashboard 是独立的 Vercel 项目（Root Directory=dashboard、「包含根目录之外的
 # 文件」关掉），但 `site` 那个项目会打包整个仓库，所以它的依赖目录也要排掉。
+server/node_modules
+server/.env.local
+server/telemetry-data
 dashboard/node_modules
 dashboard/.next
 .git
