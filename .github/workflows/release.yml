@@ -25,6 +25,17 @@ on:
         description: "只走到自验为止，不 publish（第一次用这个）"
         type: boolean
         default: true
+      registry_only:
+        # 🔴 registry 的分发**不该被 npm 发布绑架**。
+        #    快照是独立演进的（promote.yml 推一张新快照，与 CLI 版本无关），
+        #    而 `release-assets` 原本 `needs: publish` —— 于是「推一张新快照」
+        #    变成了「必须升一次 CLI 版本号」，纯属人为耦合。
+        #    2026-09-03 实测踩到：0.3.0 发布时 npm 回查差 1 分钟超时，
+        #    publish job 红 → `hub-v2` 整个被跳过，而**包其实已经发出去了**，
+        #    于是既补不了资产、又不能重跑（版本号已被占）。
+        description: "只发 registry（hub-v<N> 快照+资产），跳过 npm publish 与 CLI Release"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -127,6 +138,8 @@ jobs:
       #    ⚠️ 放在 guard 里（这个 job 没有 OIDC、没有写权限），比 publish job 里的
       #    canary 还早一步。
       - name: 🔴 版本在 npm 上必须还空着（真发布是硬门）
+        # registry_only 不发 npm，版本占没占用与它无关 —— 这一门对它没有意义。
+        if: ${{ inputs.registry_only == false }}
         env:
           NAME: ${{ steps.meta.outputs.name }}
           VERSION: ${{ steps.meta.outputs.version }}
@@ -454,7 +467,7 @@ jobs:
             --expect-source-commit "$GITHUB_SHA"
 
       - name: 🔴 发布（dry_run 时跳过）
-        if: ${{ inputs.dry_run == false }}
+        if: ${{ inputs.dry_run == false && inputs.registry_only == false }}
         env:
           # npm trusted publishing：OIDC 换 token，仓库里**没有长期密钥**。
           # 前提是在 npmjs.com 上给这个包配好 trusted publisher（仓库 + workflow 文件名
@@ -478,7 +491,7 @@ jobs:
           npm publish "$TGZ" --provenance --access public
 
       - name: 回查 registry 真的在供这个版本
-        if: ${{ inputs.dry_run == false }}
+        if: ${{ inputs.dry_run == false && inputs.registry_only == false }}
         env:
           PKG_NAME: ${{ needs.guard.outputs.name }}
           PKG_VERSION: ${{ needs.guard.outputs.version }}
@@ -589,6 +602,8 @@ jobs:
 
       # ── ① CLI 自己的 Release：`v<x.y.z>` ────────────────────────────────
       - name: 建 CLI Release（npm 包 + bundle）
+        # registry_only 不发 npm，也就没有「这个版本的 CLI Release」可建。
+        if: ${{ inputs.registry_only == false }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ needs.guard.outputs.version }}
@@ -619,6 +634,8 @@ jobs:
       #    映射**不在任何签名对象里**，客户端推不出去哪儿下载。
       #    📌 2026-09-03 之前的实现正是合并的，结果是「已发布但没人能装」。
       - name: 建 registry Release hub-v<N>（快照 + 资产）
+        # 🔴 **不带 registry_only 条件** —— 这一步在两种模式下都要跑，
+        #    它就是 registry_only 存在的理由。
         if: ${{ needs.publish.outputs.snapshot_n != '' }}
         env:
           GH_TOKEN: ${{ github.token }}

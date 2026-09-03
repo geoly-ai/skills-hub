@@ -826,7 +826,13 @@ test('🔴 阶段 C 必须排在签名与 npm publish **之前**', () => {
   for (const [what, re] of [
     ['签快照', /name: 签快照/],
     ['attestation', /name: attestation/],
-    ['npm publish', /npm publish /],
+    // 🔴 钉**真正那条命令**，不是「npm publish」这个词。
+    //    2026-09-03 实测：我在文件顶部的 `registry_only` 输入描述里写了
+    //    「跳过 npm publish 与 CLI Release」，`/npm publish /` 当场匹配到**注释**，
+    //    位置在阶段 C 之前，于是这条不变式**假红**了。
+    //    反过来更危险：某天有人在文件末尾的注释里提一句 npm publish，
+    //    这条断言就会**假绿**——因为它匹配到的位置排在 C 之后。
+    ['npm publish', /npm publish "\$TGZ"/],
   ]) {
     const p = at(re);
     assert.ok(p > stageC, `阶段 C 排在了「${what}」之后 —— 那一步的产物撤不回来`);

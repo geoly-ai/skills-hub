@@ -27,8 +27,18 @@ const version = arg('version');
 // 的检查，反过来制造了一个假警报，把一次成功的发布报成了失败。
 //
 // 方向是对的（判据必须是「registry 真的在供这个版本」），错的是窗口。
-const attempts = Number(arg('attempts', '20'));
-const delayMs = Number(arg('delay-ms', '6000'));
+//
+// 🔴 2026-09-03 第二次踩到，**放宽到 20 × 6s = 2 分钟仍然不够**：
+//    0.3.0 于 10:38:06 publish，最后一次回查 10:40:07 仍看不到，
+//    而 10:41:19 手动查已经有了 —— **就差一分多钟**。
+//    npm 自己在 publish 的输出里说得很清楚：
+//      「Your package is being processed and **may take a few minutes**
+//       to become available.」
+//    ⚠️ 上一次我把它归因成「传播延迟」并放宽到 2 分钟，但**没照 npm 自己说的
+//    "a few minutes" 去定窗口**，而是随手翻了一倍。窗口要按被观测系统
+//    **自己声明**的时延定，不是按上次差了多少去补。
+const attempts = Number(arg('attempts', '60'));
+const delayMs = Number(arg('delay-ms', '10000'));
 
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
