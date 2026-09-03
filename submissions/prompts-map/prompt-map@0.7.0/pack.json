@@ -1,8 +1,10 @@
 {
   "bundled": [],
   "compatibility": {
-    "breaking_reasons": [],
-    "kind": "initial",
+    "breaking_reasons": [
+      "首个版本，没有可比对的前一版"
+    ],
+    "kind": "breaking",
     "previous": null
   },
   "conflicts": [],
@@ -21,7 +23,7 @@
     {
       "id": "skill:prompts-map/prompt-map-shared@0.7.0",
       "order": 0,
-      "role": "shared",
+      "role": "matrix",
       "tree_digest": "geoly-tree-v1:sha256:4014aaf6672c385cbd1ede388428cbb7fcbcd783d82049b97fb60b62849a9ae0"
     },
     {
