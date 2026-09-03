@@ -225,12 +225,23 @@ promote 这条路上一直没有，因为它假定「能进 main 的都可信」
 **但没处理数字替字母**：`anthrop1c`、`ge0ly`、`geo1y` **全部放行**。
 而防仿冒正是保留清单（`anthropic` / `claude` / `openai`）的目的。
 
-### 🔴 P1 `geoly` 这个 namespace 谁都用不了
-`assertReservedNamespaceAllowed` 里写着「维护者可以用保留 namespace」
-（`if (byMaintainer) return true`），但 **`--by-maintainer true` 在所有 workflow 里
-从来没被传过** —— 那条分支是死代码。所以第一批用了 `geoly-ai`。
-⚠️ 修它要小心：`maintainer-gates` 里**故意**不传这个参数
-（传了会造成「PR 时绿、promote 时红」），修复必须同时考虑 promote 侧。
+### ~~P1 `geoly` 这个 namespace 谁都用不了~~ → **不是 bug，是有意的取舍**
+
+⚠️ **这一条是我读漏了注释报错的**（2026-09-03 更正）。
+
+`assertReservedNamespaceAllowed()` 里的 `if (byMaintainer) return true` 看起来像
+死代码（`--by-maintainer true` 确实从没被传过），但 `validate-pr.yml` 的
+`maintainer-gates` 上写着**为什么故意不传**：
+
+> `promote.yml` 合并后会把结构门原样重跑一遍，而它那一侧**没有这个开关**
+> （promote 时「谁是维护者」已经不是一个 PR 事实了）。两边不一致的话，
+> 一份占用保留 namespace 的投稿会顺利合进 main，**然后卡死整条发布流水线**
+> —— 比「维护者也用不了保留 namespace」难查得多。
+
+所以真实状态是：**保留 namespace 要用，得先把它从 `reserved.json` 里拿掉**
+（一个显式的、要走 PR 的动作），而不是靠一个只在半条链上生效的开关。
+
+📌 要放开的话**必须两侧一起改**，别只改 `validate-pr.yml` 那一处。
 
 ### P2 `skill.json` 要求投稿者自己写 PR 事实
 `provenance.submitted_by_pr` 必须等于触发 promote 的 PR，而 PR 号只有开了 PR

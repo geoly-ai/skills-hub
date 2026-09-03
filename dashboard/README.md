@@ -276,12 +276,19 @@ npm run dev
 
 测试：`npm test`（不需要 `next build`，全部是纯函数与静态扫描）。
 
-🔴 **CI 目前没有接这个项目 —— 这是一个待接线项，不是已经做完的事。**
-根仓库的 `.github/workflows/ci.yml` 只装/测根包，所以下面这条「build 后再跑一次」
-现在只是一句人工约定。要真正把关，CI 需要加一个 job：
-`cd dashboard && npm ci && npm test && npm run build && npm test`
-（第二次 `npm test` 才会真的扫到构建产物；把两个密钥变量喂给它，值扫描才生效）。
-⚠️ 写这份代码的人无权改 `.github/`，所以这一条留给合并者。
+✅ **CI 已经接了。** `.github/workflows/ci.yml` 里有 `dashboard` job，并且已并入
+`ci-gate` 的 needs 与自查清单 —— 它红了，`ci-gate` 就红。
+
+⚠️ **这一段曾经写着「CI 目前没有接」，而那句话在被接上之后没有跟着改。**
+   2026-09-03 它误导了一个子代理，让他把一件**已经做完的事报成待办**。
+   📌 教训：README 里写「当前状态」的句子会过期，而**没有任何东西会提醒你**。
+   要写状态就写清判据（下面这条），让读者能自己核实，而不是相信这段文字。
+
+**怎么核实它还在跑**：
+```sh
+gh run list --branch main --workflow=ci.yml --limit 1 --json databaseId --jq '.[0].databaseId' \
+  | xargs -I{} gh run view {} --json jobs --jq '.jobs[]|select(.name=="dashboard")|.conclusion'
+```
 
 ⚠️ **CI 里应该跑两次 `npm test`：`next build` 之前一次、之后一次。**
 `test/build-output.test.mjs` 直接扫 `.next/static` 里真的被打进浏览器包的字节
