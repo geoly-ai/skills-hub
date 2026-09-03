@@ -520,7 +520,7 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
     </ul>
   </nav>
   <div class="sidefoot">
-    <p class="cap">样式演示页 · 全部为假数据</p>
+    <p class="cap">这是样式演示页，上面的数字全是编的</p>
   </div>
 </aside>
 
@@ -530,7 +530,7 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
   <h1>总览</h1>
   <span class="statechip"><svg aria-hidden="true" class="i"><use href="#i-s-zero"/></svg>端点已连通</span>
   <span class="spacer"></span>
-  <span class="when" title="我们这一次请求的时刻，不是任何一条事件的时间">本次读取 2026-09-03 15:04:11Z</span>
+  <span class="when" title="这是我们去问的时间，不是事件发生的时间">本次读取 2026-09-03 15:04:11Z</span>
   <button class="btn" id="themeBtn" type="button">
     <svg class="i i-12" style="vertical-align:-2px" aria-hidden="true"><use href="#i-u-theme"/></svg>
     主题：跟随系统
@@ -540,13 +540,13 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 <!-- ════ 采集面契约条（状态层 ①）—— 硬约束：常驻、不可折叠 ════ -->
 <div class="collectionbar">
   <svg class="i" aria-hidden="true"><use href="#i-u-info"/></svg>
-  <span>只能有这 13 个字段</span>
+  <span>我们只收这 13 个字段</span>
   <span class="f">at</span><span class="f">cli</span><span class="f">os</span><span class="f">arch</span>
   <span class="f">node</span><span class="f">kind</span><span class="f">result</span><span class="f">artifact</span>
   <span class="f">version</span><span class="f">client</span><span class="f">scope</span><span class="f">ms</span>
   <span class="f">reason</span>
-  <span class="sep">·</span><span>install_id 只用于去重计数，不上屏</span>
-  <span class="sep">·</span><span>去重装机数 &lt;5 的细分不展示</span>
+  <span class="sep">·</span><span>install_id 只拿来去重计数，不显示</span>
+  <span class="sep">·</span><span>装了它的机器不到 5 台的细分不展示</span>
   <span class="sep">·</span><a href="#sbnd">口径与边界 ›</a>
 </div>
 
@@ -556,48 +556,47 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 <section class="section" id="s00" aria-labelledby="h00">
   <div class="sechead"><span class="num">00</span><h2 id="h00">总数</h2>
     <span class="label">counted, not measured</span></div>
-  <p class="deck">这一行是全局标量。硬约束：任何一张细分表有行被抑制时，这里就必须分桶发布 ——
-    一个精确的总数配上某张表的可见行，一减就是被抑制那一组的合计。</p>
+  <p class="deck">全站合计，不分维度。只要下面有哪张表的行没发布出来，这里就只给区间 ——
+    一个精确的总数减掉那张表看得见的行，剩下的就是没发布的那一组。</p>
 
   <div class="kpirow">
     <div class="kpi withheld-kpi">
       <div class="top"><span class="label">events</span><span class="spacer"></span>
         <svg class="i i-12" style="color:var(--c-withheld)" aria-hidden="true"><use href="#i-m-bucket"/></svg></div>
       <span class="v">100–499</span>
-      <span class="cap">区间发布 · 因为有表被抑制</span>
+      <span class="cap">只给区间：下面有表没发出来，给精确数就能倒推</span>
     </div>
     <div class="kpi unknown-kpi">
       <div class="top"><span class="label">distinct installs</span><span class="spacer"></span>
         <svg class="i i-12" style="color:var(--c-unknown)" aria-hidden="true"><use href="#i-m-unknown"/></svg></div>
       <span class="v">未提供</span>
-      <span class="cap">服务端这一版没返回它 · 不是 0</span>
+      <span class="cap">服务端这一版没给这个数 · 不是 0，是我们不知道</span>
     </div>
     <div class="kpi sourcenote">
-      <div class="top"><span class="label-cn">来源注记 · 不是指标</span></div>
-      <span class="v">有一段只剩计数</span>
-      <span class="cap">早于保留期水位的原始事件已丢弃。硬约束：只给布尔，不给那个时间戳</span>
+      <div class="top"><span class="label-cn">关于数据本身 · 不是指标</span></div>
+      <span class="v">早的那段只剩计数</span>
+      <span class="cap">太旧的原始事件已经删了，只留下计数 · 具体从哪天起，我们不写出来</span>
     </div>
   </div>
 
   <p class="cap" style="margin-top:var(--sp-3)">
-    上面第一张卡是<strong>分桶</strong>形态、第二张是<strong>未提供</strong>形态，
-    两者<strong>不是同一件事</strong>：分桶是「我们知道，但只能给区间」，未提供是「我们不知道」。
-    下面并排给出四种量度形态的样张。
+    第一张卡我们<strong>有</strong>这个数，只是只能给到区间；第二张是我们<strong>不知道</strong>这个数
+    —— 不是它等于零。这两件事不一样。下面并排是数字的四种样子。
   </p>
 
   <div class="kpirow" style="margin-top:var(--sp-3)">
     <div class="kpi">
       <div class="top"><span class="label">exact</span></div>
-      <span class="v">1204</span><span class="cap">精确发布 · 没有任何一张表被抑制</span>
+      <span class="v">1204</span><span class="cap">每张表都发出来了，所以这个数是精确的</span>
     </div>
     <div class="kpi withheld-kpi">
       <div class="top"><span class="label">floored</span><span class="spacer"></span>
         <svg class="i i-12" style="color:var(--c-withheld)" aria-hidden="true"><use href="#i-m-floored"/></svg></div>
-      <span class="v">&lt;5</span><span class="cap">压到门槛以下 · 精确值本身就是信息</span>
+      <span class="v">&lt;5</span><span class="cap">不到 5，具体几个不写 · 写出来就能对上人</span>
     </div>
     <div class="kpi">
       <div class="top"><span class="label">true zero</span></div>
-      <span class="v">0</span><span class="cap">真实的 0 · 我们问到了，答案就是一条都没有</span>
+      <span class="v">0</span><span class="cap">真的是 0 · 我们问到了，答案就是一条都没有</span>
     </div>
   </div>
 </section>
@@ -606,8 +605,8 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 <section class="section" id="s01" aria-labelledby="h01">
   <div class="sechead"><span class="num">01</span><h2 id="h01">哪些 skill 真的在被用</h2>
     <span class="label">what is actually used</span></div>
-  <p class="deck">这一段的用途是<strong>下架决策</strong>：一个半年没人装的 skill 应该从矩阵包里拿掉。
-    反过来不成立 —— 装的人多不代表它更可信。</p>
+  <p class="deck">这一段是用来决定下架的：一个半年没人装的 skill 该从矩阵包里拿掉。
+    反过来不成立 —— 装的人多，不等于它更可信。</p>
 
   <div class="panel">
     <div class="head">
@@ -634,30 +633,30 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
             <!-- 硬约束：抑制行：整行横条，格子里没有数字、没有破折号、没有空白 -->
             <tr class="withheld-row"><td colspan="4">
               <span class="withheld"><svg class="i" aria-hidden="true"><use href="#i-s-withheld"/></svg>未发布</span>
-              <span class="wr-note">这些行存在，但发布不出来</span>
+              <span class="wr-note">这些行有数，只是显示不出来</span>
             </td></tr>
           </tbody>
         </table>
       </div>
     </div>
     <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
-      <p class="cap">3 行未发布 · 2 行的去重装机数不足 5 · 1 行被互补抑制连带拿掉。
-        硬约束：不报它们的事件合计，也不说哪一行卡在哪一道门槛。</p>
-      <p class="cap" style="margin-top:6px">条长表示事件数，按<strong>本表可见行的最大值</strong>归一；
-        它<strong>不表示占比</strong>，也不表示总量。</p>
+      <p class="cap">3 行没发出来 · 其中 2 行装的机器不到 5 台，1 行是为了不让人倒推而一起收掉的。
+        它们一共有多少条事件不报，也不逐行说是卡在哪一条。</p>
+      <p class="cap" style="margin-top:6px">条长表示事件数，只在本表内相互比较（最长的那根就是本表最大值），
+        <strong>不是占比</strong>，也不是总量。</p>
     </div>
     <details class="foot">
       <summary><svg class="i" aria-hidden="true"><use href="#i-u-chevron"/></svg>为什么这样算</summary>
       <div class="inner">
-        <p>抑制的判据是<strong>去重装机数</strong>（distinct install_id），不是事件数 ——
-          一台机器一天能制造几十条事件，用事件数当样本量是把 1 台读成 40 台。门槛 K = 5。</p>
-        <p><strong>「样本太少」与「无法核实门槛」是两句话，不许合并。</strong>
-          前者是服务端给了数但不够，后者是服务端根本没给去重装机数（按不达标处理）。
-          把未知说成「太少」是在断言一件我们并不知道的事。</p>
-        <p><strong>互补抑制</strong>：恰好只抑制一行时，用「总数 − 可见行之和」一减就还原了，
-          抑制等于没做。所以那时会把事件数最小的可见行也一并抑制 —— 两行以后就只剩它们的和，拆不开。</p>
-        <p><strong>为什么没有总计行</strong>：任何精确的合计都是一个减法锚点。
-          首页并列发布的是同一批事件的不同切法，有了精确合计就能跨表相减。</p>
+        <p>看的是<strong>装了它的机器有几台</strong>，不是事件有几条 ——
+          一台机器一天就能产生几十条事件，按事件数算等于把 1 台当成 40 台。不到 5 台就不发布。</p>
+        <p><strong>「机器太少」和「不知道有几台」是两回事，不能写成一句。</strong>
+          前者是服务端给了台数、确实不够；后者是服务端压根没给台数，我们按不够处理。
+          把后者说成「太少」，等于替它下了一个我们并没有的结论。</p>
+        <p><strong>只藏一行是白藏的</strong>：总数减掉其他行，就把它算回来了。
+          所以这时会把最小的那一行也一起收掉 —— 剩下的只是两行的和，拆不开。</p>
+        <p><strong>为什么没有总计行</strong>：有了精确的合计，就有了做减法的起点。
+          首页这几张表切的是同一批事件，能互相减。</p>
       </div>
     </details>
   </div>
@@ -685,15 +684,15 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
         <div class="nothing n-withheld" role="group" aria-labelledby="nt-supp">
           <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-withheld"/></svg>
             <span class="withheld">未发布</span>
-            <h4 id="nt-supp">有行，但一行都发布不出来。</h4></div>
-          <p>这不是「没有数据」：候选行是存在的。它们没能发布出来有三种可能，而且常常混在一起 ——
-            去重装机数没到门槛、服务端根本没给去重装机数（无法核实门槛，按不达标处理）、
-            或者为了不让「只抑制一行」被减出来而被互补抑制连带拿掉。
-            <strong>不要把它读成「没人用」</strong>：那是「端点通了、一条都没有」那一格才说的话。
-            （这里连那个数字本身都不写 —— 一个琥珀格子里的阿拉伯数字，
+            <h4 id="nt-supp">有数，但一行都发不出来。</h4></div>
+          <p>不是没有数据：行是存在的，只是发不出来。三种原因常常混在一起 ——
+            装了它的机器太少、服务端根本没告诉我们有几台（不知道就按不够处理）、
+            或者只藏一行会被人倒推出来，所以把另一行也一起收掉了。
+            <strong>别读成「没人用」</strong>：那句话只有「端点通了、一条都没有」那一格才配说。
+            （这里连数字本身都不写 —— 琥珀格子里出现任何数字，
             无论它在说什么，都会被当成这一格的值。）</p>
-          <p class="next">装机数长上去、或服务端补上 distinct installs 之后这张表自己会出现；
-            不提供「临时关掉抑制」的开关。</p>
+          <p class="next">装的机器多起来，或者服务端补上台数，这张表自己就出来了。
+            没有开关能临时把它放出来。</p>
         </div>
       </div>
     </div>
@@ -704,8 +703,8 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 <section class="section" id="s02" aria-labelledby="h02">
   <div class="sechead"><span class="num">02</span><h2 id="h02">装失败集中在哪</h2>
     <span class="label">where installs fail</span></div>
-  <p class="deck">要能一眼看出「是某个客户端的问题、某个版本的问题，还是某一类原因」。
-    <code class="mono">reason</code> 是有限代码表（不是自由文本），所以它能被安全地聚合。</p>
+  <p class="deck">一眼看出是某个客户端的问题、某个版本的问题，还是某一类原因。
+    <code class="mono">reason</code> 是一小组固定代码，不是自由填写的文本，所以聚合它不会带出别的东西。</p>
 
   <div class="panel">
     <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-failures"/></svg>
@@ -727,9 +726,9 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
             <td class="barcell"><span class="bar" style="--w:29%"><i></i></span></td></tr>
       </tbody></table></div></div>
     <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
-      <p class="cap">条长按本表可见行的最大值归一，不表示占比。
-        硬约束：<code class="mono">result: failed</code> 是一个<strong>正常的业务计数</strong>，
-        不涂故障色 —— 砖红只留给「我们这一侧读不到数」。</p>
+      <p class="cap">条长只在本表内相互比较，不是占比。
+        <code class="mono">result: failed</code> 是一个<strong>正常的计数</strong>，所以不涂红 ——
+        红色只留给「我们这边没读到数」。</p>
     </div>
   </div>
 
@@ -744,10 +743,10 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
           <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-not-computed"/></svg>
             <h4 id="nt-nc">这个维度服务端还没算。</h4></div>
           <p>不是没数据，是 <code class="mono">/v1/summary</code> 这一版不返回这一项。
-            dashboard <strong>不自己补算</strong> —— 自己写一份聚合就会和
-            <code class="mono">server/aggregate.mjs</code> 分叉，
-            两边对同一个问题给出两个答案，那比没有这张表糟得多。</p>
-          <p class="next">需要的聚合列在第 99 段「服务端待补的聚合」，加在服务端，这里自动就有了。</p>
+            我们<strong>不在这里自己补算</strong> —— 那等于写第二份聚合，
+            它会和 <code class="mono">server/aggregate.mjs</code> 慢慢对不上，
+            同一个问题出两个答案，比这张表空着更糟。</p>
+          <p class="next">缺哪些聚合列在第 99 段。服务端补上，这里自己就有了。</p>
         </div>
       </div>
     </div>
@@ -761,11 +760,11 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
         <div class="nothing n-fault" role="group" aria-labelledby="nt-unrec">
           <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unrecognized"/></svg>
             <h4 id="nt-unrec">服务端回了行，但我们一行都不认得。</h4></div>
-          <p>这不是「空」，是<strong>校验没过</strong>：这个维度的每一行取值都没通过白名单校验，
+          <p>不是空，是<strong>校验没过</strong>：这个维度里每一行的取值我们都没认出来，
             于是全被丢掉了。两种可能 —— ① 服务端换了形状；
-            ② 有人往那个<strong>无鉴权</strong>的摄入端点里灌了脏数据。
-            <strong>千万不要读成「没人用」。</strong></p>
-          <p class="next">对一遍这个维度的取值口径；脏数据的话，看服务端那一侧的校验为什么放它进来了。</p>
+            ② 有人往那个<strong>不需要鉴权</strong>的上报端点灌了脏数据。
+            <strong>千万别读成「没人用」。</strong></p>
+          <p class="next">对一遍这个维度该有哪些取值；如果是脏数据，去看服务端那边的校验为什么放它进来了。</p>
         </div>
       </div>
     </div>
@@ -776,8 +775,8 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 <section class="section" id="s03" aria-labelledby="h03">
   <div class="sechead"><span class="num">03</span><h2 id="h03">一次安装要多久</h2>
     <span class="label">how long an install takes</span></div>
-  <p class="deck">性能回归看的是「同一个动作在新版本上是不是变慢了」，所以按版本分组比看一个全局平均值有用。
-    只有 P50 / P95，没有原始耗时列表 —— 一串按时间排开的原始 ms 同样是一条机器轨迹。</p>
+  <p class="deck">你要看的是同一个动作在新版本上有没有变慢，所以按版本分开比一个总平均有用。
+    只给 P50 / P95，不给原始耗时 —— 一串按时间排开的毫秒数，本身就是一台机器的轨迹。</p>
 
   <div class="panel">
     <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-latency"/></svg>
@@ -806,21 +805,21 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
             <td><span class="unk"><svg class="i i-12" aria-hidden="true"><use href="#i-m-unknown"/></svg><span class="t">未提供</span></span></td></tr>
         <tr class="withheld-row"><td colspan="7">
           <span class="withheld"><svg class="i" aria-hidden="true"><use href="#i-s-withheld"/></svg>未发布</span>
-          <span class="wr-note">这些行存在，但发布不出来</span>
+          <span class="wr-note">这些行有数，只是显示不出来</span>
         </td></tr>
       </tbody></table></div></div>
     <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
-      <p class="cap">2 行未发布 · 硬约束：哪一行卡在哪一道门槛<strong>不公开</strong>：逐行成因本身也是信息。
-        区间条按本表可见行的最大 p95 归一。</p>
+      <p class="cap">2 行没发出来 · 是哪一行卡在哪一条<strong>不写出来</strong>：逐行的原因本身也是信息。
+        区间条按本表最大的 p95 相互比较。</p>
     </div>
     <details class="foot">
       <summary><svg class="i" aria-hidden="true"><use href="#i-u-chevron"/></svg>为什么这张表比别的表多一道门槛</summary>
       <div class="inner">
-        <p>分位数是<strong>顺序统计量</strong>：样本少的时候 p95 <strong>就等于某一条原始耗时</strong>，
-          发布它等于把一条原始记录印出来。K=5 保护的是「这一组有几台机器」，
-          它<strong>不保护分位数本身</strong>。所以这里另加一道「样本事件数 ≥ 20」的门槛。</p>
-        <p>20 不是一个被证明过的隐私边界，只是「p95 不再等于最大那一条」的保守起点。
-          硬保证要服务端在算的时候就取整 / 分桶（例如按 50ms 向上取整）。</p>
+        <p>分位数是从样本里挑出来的一个数：样本一少，p95 <strong>正好就等于某一条真实耗时</strong>，
+          发布它等于把那一条原始记录印出来。「至少 5 台机器」管的是人数，
+          <strong>管不住这件事</strong>。所以这里另加一道：样本至少 20 条。</p>
+        <p>20 不是什么证明过的安全线，只是「p95 不再等于最大那一条」的一个保守起点。
+          要真正稳妥，得让服务端在算的时候就取整或分桶（比如按 50ms 向上取整）。</p>
       </div>
     </details>
   </div>
@@ -828,30 +827,30 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 
 <!-- ════ 十一种「没有」的全谱 ════ -->
 <section class="section" id="snothing" aria-labelledby="hnothing">
-  <div class="sechead"><span class="num">图谱</span><h2 id="hnothing">十一种「没有」，两两不许长得一样</h2>
+  <div class="sechead"><span class="num">图谱</span><h2 id="hnothing">十一种「没有」，长得都不一样</h2>
     <span class="label">eleven kinds of nothing</span></div>
-  <p class="deck">硬约束：把不同的「没有」混成一句话，会让<strong>「服务挂了」看起来像「没人用」</strong> ——
-    那是这个平台能犯的最贵的错：它会让人据此下架一个其实很好用的 skill。
-    <strong>五个故障态刻意同族同色</strong>（余光里要先分出「故障 / 不是故障」），
-    族内靠图标、标题、下一步动作分开。</p>
+  <p class="deck">空着不等于没人用。把不同的「没有」写成同一句话，
+    <strong>「服务挂了」就会看起来像「没人用」</strong> —— 这是这里最贵的一种错，
+    它会让人拿一个其实很好用的 skill 去下架。所以<strong>五种「我们读不到数」用同一种红</strong>，
+    你余光扫过先分清是不是故障；具体是哪一种，再看图标、标题和下一步。</p>
 
   <!-- ① unconfigured -->
   <div class="nothing n-fault wide" role="group" aria-labelledby="n1" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unconfigured"/></svg>
       <h4 id="n1">汇总端点还没接上。</h4></div>
-    <p>这里是空的，因为 dashboard 没有数据源可读 —— 不是因为没人用。
-      本实例还没有配 <code class="mono">GEOLY_SUMMARY_URL</code> /
-      <code class="mono">GEOLY_TELEMETRY_SUMMARY_TOKEN</code>，一次请求都还没发出去过。</p>
-    <p class="next">配好这两个环境变量再来看；在那之前这一页说的每一句「零」都只是「我们还没问过」。</p>
+    <p>这里空着是因为没地方读数，不是因为没人用。
+      这个实例还没配 <code class="mono">GEOLY_SUMMARY_URL</code> 和
+      <code class="mono">GEOLY_TELEMETRY_SUMMARY_TOKEN</code>，一次都还没问过。</p>
+    <p class="next">把这两个环境变量配上再来看。在那之前，这页上任何一个「零」都只是「还没问」。</p>
   </div>
 
   <!-- ② unreachable -->
   <div class="nothing n-fault wide" role="group" aria-labelledby="n2" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unreachable"/></svg>
       <h4 id="n2">汇总端点不可用。</h4></div>
-    <p>端点配了，但这一次没拿到回答（连不上 / 超时 / 服务端 5xx）。
-      这<strong>不是</strong>「没人用」—— 我们根本没有读到数。</p>
-    <p class="next">先看端点自身是不是活着；它恢复之前，这一页不代表任何真实用量。</p>
+    <p>配是配了，这一次没拿到回答：连不上、超时，或者服务端自己报错。
+      这<strong>不是</strong>「没人用」—— 我们根本没读到数。</p>
+    <p class="next">先看端点自己还活着没有。它恢复之前，这一页不代表任何真实用量。</p>
     <p class="where">问的是 https://***.vercel.app/v1/summary · 原因码 timeout</p>
   </div>
 
@@ -859,22 +858,22 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
   <div class="nothing n-fault wide" role="group" aria-labelledby="n3" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-denied"/></svg>
       <h4 id="n3">汇总端点拒绝了我们。</h4></div>
-    <p>端点在，但它不认这把 token（401/403），或者它压根没打开
-      <code class="mono">/v1/summary</code>（404）。读出面默认关闭：服务端没配 summary token
-      时这个路由不存在，所以 404 的常见含义是「服务端那边忘了配」，不是「路径写错了」。</p>
-    <p class="next">对一遍两边的 token；服务端要设 GEOLY_TELEMETRY_SUMMARY_TOKEN 才会开这个路由。</p>
+    <p>端点在，但它不认我们这把 token（401/403），或者它根本没开
+      <code class="mono">/v1/summary</code>（404）。读接口默认是关的：服务端没配 summary token，
+      这条路由就不存在 —— 所以 404 多半是那边忘了配，不是我们地址写错了。</p>
+    <p class="next">两边的 token 对一遍。服务端要设了 GEOLY_TELEMETRY_SUMMARY_TOKEN，这条路由才会开。</p>
     <p class="where">问的是 https://***.vercel.app/v1/summary · 原因码 401</p>
   </div>
 
   <!-- ④ invalid -->
   <div class="nothing n-fault wide" role="group" aria-labelledby="n4" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-invalid"/></svg>
-      <h4 id="n4">端点回了 200，但内容不是我们认得的汇总。</h4></div>
-    <p>这一格<strong>绝不当成零</strong>：能回 200 的东西太多了 —— 登录墙、代理错误页、
-      换了形状的新版接口。把它读成「零事件」就是把一次故障说成一个结论。
-      （文案里连阿拉伯数字的零都不写，写「零」—— 故障格里的任何一个阿拉伯数字，
-      都可能被扫一眼的人当成这一格的值。）</p>
-    <p class="next">看一眼端点这一版的响应形状；dashboard 只按白名单取字段，形状变了它会如实说不认得。</p>
+      <h4 id="n4">回了 200，但回来的东西不是汇总。</h4></div>
+    <p>这一格<strong>绝不能当成零</strong>：会回 200 的东西太多了 —— 登录墙、代理的错误页、
+      换了形状的新版接口。把它读成「零事件」，就是把一次故障当成了结论。
+      （所以这里连阿拉伯数字的零都不写 —— 故障格里出现任何一个数字，
+      扫一眼的人都会以为那就是这一格的值。）</p>
+    <p class="next">看一眼端点这一版返回的形状。我们只按白名单取字段，形状一变就照实说不认得，不去猜。</p>
     <p class="where">问的是 https://***.vercel.app/v1/summary · 原因码 schema-mismatch</p>
   </div>
 
@@ -882,54 +881,54 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
   <div class="nothing n-fault wide" role="group" aria-labelledby="n5" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unrecognized"/></svg>
       <h4 id="n5">服务端回了行，但我们一行都不认得。</h4></div>
-    <p>校验没过：这个维度的每一行取值都没通过白名单校验，于是全被丢掉了。
-      硬约束：它<strong>不会</strong>升级成顶栏那个全局徽章 —— 端点本身是通的，
-      这是<strong>一张表</strong>的数据质量问题，说成「端点不可用」是一句假话。</p>
-    <p class="next">对一遍这个维度的取值口径。</p>
+    <p>校验没过：这个维度里每一行的取值我们都没认出来，于是全被丢掉了。
+      顶栏<strong>不会</strong>因此变红 —— 端点本身是通的，
+      坏的是<strong>这一张表</strong>的数据，说成「端点不可用」是一句假话。</p>
+    <p class="next">对一遍这个维度该有哪些取值。</p>
   </div>
 
   <!-- ⑥ no-events：硬约束：唯一一个不换纸、不给左轨的 -->
   <div class="nothing n-zero wide" role="group" aria-labelledby="n6" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-zero"/></svg>
       <h4 id="n6">端点通了，回来的是 0 条事件。</h4></div>
-    <p>这是<strong>真实的 0</strong>，不是故障，也不是筛没了 —— 我们问到了，答案就是「一条都没有」。
-      当前这个 0 是有解释的：CLI 还没发版、registry 里 0 个制品，
-      所以没有人能装出一条 install 事件来。</p>
-    <p class="next">第一条事件会在第一个用户跑成功一次 install 之后出现（自动上报每台机器每天最多一次）。</p>
-    <p class="cap" style="margin-top:var(--sp-2)">硬约束：<strong>它与下面的「维度是空的」是全谱里仅有的两个不换纸、不给色带的格子</strong>—— 它们都是<strong>结论</strong>。给一个结论加色带，就是把结论说成异常。</p>
+    <p><strong>真的是 0</strong>，不是故障，也不是被筛掉了 —— 我们问到了，答案就是「一条都没有」。
+      眼下这个 0 说得通：CLI 还没发版，registry 里也还没有制品，
+      没人装得出一条 install 事件来。</p>
+    <p class="next">等第一个用户装成功一次，第一条事件就来了（自动上报每台机器每天最多一条）。</p>
+    <p class="cap" style="margin-top:var(--sp-2)"><strong>它和下面的「维度是空的」，是这里仅有的两个不换底色、不带色条的格子</strong>—— 它们都是<strong>结论</strong>，不是异常。给结论加色条，就是把结论说成了故障。</p>
   </div>
 
   <!-- ⑦ no-rows -->
   <div class="nothing n-zero wide" role="group" aria-labelledby="n7" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-empty-dim"/></svg>
-      <h4 id="n7">这个维度服务端算了，但一行都没有。</h4></div>
-    <p>有事件，服务端也返回了这个维度 —— 它就是空的。最常见的原因是这批事件根本不带这个字段：
+      <h4 id="n7">服务端算了这个维度，但一行都没有。</h4></div>
+    <p>有事件，服务端也算了这个维度 —— 它就是空的。最常见的原因是这批事件本来就不带这个字段：
       <code class="mono">artifact</code> / <code class="mono">version</code> /
       <code class="mono">client</code> / <code class="mono">scope</code> /
       <code class="mono">ms</code> / <code class="mono">reason</code> 都是<strong>选填</strong>，
-      例如 <code class="mono">rollback</code> / <code class="mono">sync-lock</code>
-      这类事件本来就没有 artifact。这既不是故障，也不是「没人用」。</p>
-    <p class="next">想知道那批事件去哪了，看「按动作」那张表 —— 它是必填字段，一条都不会漏。</p>
+      比如 <code class="mono">rollback</code> / <code class="mono">sync-lock</code>
+      这类事件本来就没有 artifact。这不是故障，也不是「没人用」。</p>
+    <p class="next">想知道那批事件去哪了，看「按动作」那张表 —— 那个字段是必填的，一条都不会漏。</p>
   </div>
 
   <!-- ⑧ dimension-missing 已在 §02 出现，这里给纸样对照 -->
   <div class="nothing n-pending wide" role="group" aria-labelledby="n8" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-not-computed"/></svg>
       <h4 id="n8">这个维度服务端还没算。</h4></div>
-    <p>靛紫 = <strong>一条待办</strong>，不是故障。它和砖红的区别是有意的：
-      「服务端还没写这段聚合」是我们自己的排期问题，而砖红说的是「链路断了」。</p>
-    <p class="next">需要的聚合列在第 99 段，加在服务端，这里自动就有了。</p>
+    <p>这是<strong>一条待办</strong>，不是故障。所以它不是红的：
+      红色说的是「链路断了」，这里说的是「这段聚合我们自己还没写」。</p>
+    <p class="next">缺哪些聚合列在第 99 段。服务端补上，这里自己就有了。</p>
   </div>
 
   <!-- ⑨ filtered-empty：当前不可达 -->
   <div class="nothing n-quiet wide" role="group" aria-labelledby="n9" style="margin-bottom:var(--sp-3)">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-filtered"/></svg>
       <h4 id="n9">当前筛选条件下没有行。</h4></div>
-    <p>有事件，这个维度服务端也算了、也有行 —— 只是<strong>这一组筛选</strong>把它们全筛掉了。</p>
-    <p class="next">放宽或清掉筛选条件就能看到。</p>
-    <p class="cap" style="margin-top:var(--sp-2)">硬约束：<strong>这一格在当前页面里不可能为真</strong> ——
-      页面上没有筛选器。落点先画出来（将来加筛选器要用），但生产页面在那之前
-      <strong>不许渲染它</strong>：那是一句在当前页面里不可能为真的话。</p>
+    <p>有事件，这个维度也算了、也有行 —— 只是<strong>当前这组筛选条件</strong>把它们全筛掉了。</p>
+    <p class="next">放宽或者清掉筛选条件就能看到。</p>
+    <p class="cap" style="margin-top:var(--sp-2)"><strong>这一格现在不可能出现</strong> ——
+      页面上还没有筛选器。样式先画出来备用，但在加上筛选器之前，正式页面
+      <strong>不会渲染它</strong>：那会是一句不可能成立的话。</p>
   </div>
 
   <!-- ⑩⑪ 两种抑制并排，看它们哪里不一样 -->
@@ -937,33 +936,35 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
     <div class="nothing n-withheld" role="group" aria-labelledby="n10">
       <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-withheld"/></svg>
         <span class="withheld">未发布</span>
-        <h4 id="n10">有行，但一行都发布不出来。</h4></div>
-      <p>候选行存在。三种可能常常混在一起：装机数没到门槛、服务端没给去重装机数、被互补抑制连带拿掉。</p>
-      <p class="next">装机数长上去、或服务端补上 distinct installs 之后这张表自己会出现。</p>
+        <h4 id="n10">有数，但一行都发不出来。</h4></div>
+      <p>行是有的，只是一行都发不出来。三种原因常常混在一起：装了它的机器太少、
+        服务端没告诉我们有几台、或者只藏一行会被人倒推出来，于是把另一行也一起收掉了。</p>
+      <p class="next">装的机器多起来，或者服务端补上台数，这张表自己就出来了。</p>
     </div>
     <div class="nothing n-withheld" role="group" aria-labelledby="n11">
       <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-withheld-q"/></svg>
         <span class="withheld">未发布</span>
-        <h4 id="n11">有行，但一行分位数都发布不出来。</h4></div>
-      <p>这张表比别的表多一道门槛：除了去重装机数，还要求<strong>样本事件数</strong>足够。
-        所以<strong>不要读成「装机数不够」</strong>：也可能是机器够多、但每台只装过一两次。</p>
-      <p class="next">样本量长上去之后这张表自己会出现。想更早看到，正确做法是让服务端在算分位数时就取整 / 分桶。</p>
+        <h4 id="n11">有数，但一行分位数都发不出来。</h4></div>
+      <p>这张表比别的表多一道门槛：除了机器台数，还要求<strong>事件条数</strong>够。
+        所以<strong>别读成「机器不够」</strong>：也可能机器够多，只是每台才装过一两次。</p>
+      <p class="next">样本多起来这张表自己就出来了。想更早看到，正确做法是让服务端算分位数时就取整或分桶。</p>
     </div>
   </div>
 
   <p class="cap" style="margin-top:var(--sp-3)">
-    硬约束：<strong>版面顺序必须与判定顺序一致</strong>（数据源 → 响应合法性 → 有没有事件 → 维度 → 筛选 → 抑制）：
-    数据源级的告示条在主区第一块，维度级的在各自面板内，行级的在表格内。
-    倒过来放会让人先看到「这张表被抑制了」，再往上滚才发现端点根本没连上。
+    <strong>版面从上往下的顺序，就是判断的顺序</strong>（有没有数据源 → 回来的东西对不对 →
+    有没有事件 → 维度 → 筛选 → 能不能发布）：数据源那一级的提示在最上面，
+    维度那一级在各自面板里，行那一级在表格里。
+    倒过来放，人会先看到「这张表发不出来」，往上滚才发现端点根本没连上。
   </p>
 </section>
 
 <!-- ════ 顶栏徽章五态 ════ -->
 <section class="section" aria-labelledby="hchip">
-  <div class="sechead"><span class="num">徽章</span><h2 id="hchip">数据源徽章：作用域只有 SOURCE 五态</h2>
+  <div class="sechead"><span class="num">徽章</span><h2 id="hchip">顶栏徽章：只说数据源本身的五种状态</h2>
     <span class="label">source badge</span></div>
-  <p class="deck">硬约束：<code class="mono">unrecognized-rows</code> <strong>不许</strong>进这个徽章 ——
-    端点是通的，那是某一张表的数据质量问题；把它升级成全局徽章等于对整页说「端点不可用」。</p>
+  <p class="deck">「一行都不认得」<strong>不会</strong>出现在这里 ——
+    端点是通的，坏的是某一张表的数据；把它放上来，等于对整页说「端点不可用」。</p>
   <div style="display:flex;flex-wrap:wrap;gap:var(--sp-2)">
     <span class="statechip"><svg class="i" aria-hidden="true"><use href="#i-s-zero"/></svg>端点已连通</span>
     <span class="statechip fault"><svg class="i" aria-hidden="true"><use href="#i-s-unconfigured"/></svg>端点未接上</span>
@@ -972,8 +973,8 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
     <span class="statechip fault"><svg class="i" aria-hidden="true"><use href="#i-s-invalid"/></svg>响应不是汇总</span>
   </div>
   <p class="cap" style="margin-top:var(--sp-3)">
-    硬约束：「端点已连通」<strong>不是绿色</strong>：全站没有绿色。这里没有验证轴，
-    一个连通的端点不是一次担保，一个 <code class="mono">result: ok</code> 的计数更不是。
+    「端点已连通」<strong>不是绿的</strong> —— 整个站都没有绿色。
+    连通只说明我们读到了数，不代表这些数被谁验证过；一条 <code class="mono">result: ok</code> 的计数更不是。
   </p>
 </section>
 
@@ -981,9 +982,9 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 <section class="section" id="s99" aria-labelledby="h99">
   <div class="sechead"><span class="num">99</span><h2 id="h99">服务端待补的聚合</h2>
     <span class="label">server-side work</span></div>
-  <p class="deck">dashboard 不写第二份聚合（会与 <code class="mono">server/aggregate.mjs</code> 分叉，
-    而分叉不会让任何东西变红）。缺维度时正确的动作是把缺口列出来 —— 这张清单是从实际返回里算出来的，
-    服务端补上一项这里就少一行。</p>
+  <p class="deck">这里不写第二份聚合：写了就会和 <code class="mono">server/aggregate.mjs</code> 慢慢对不上，
+    而对不上不会让任何东西报错。缺什么就列什么 —— 这张清单是拿实际返回对出来的，
+    服务端补一项，这里就少一行。</p>
   <div class="panel">
     <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-gaps"/></svg>
       <h3>缺口清单</h3><span class="spacer"></span><span class="rows">3 项</span></div>
@@ -995,29 +996,29 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
         <tr><td class="v">durations</td><td class="v">[{ "version": "…", "n": …, "installs": …, "p50": …, "p95": … }]</td></tr>
       </tbody></table></div></div>
     <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
-      <p class="cap">硬约束：键名必须叫 <code class="mono">installs</code>（一个计数）：
-        任何 <code class="mono">install_id</code> / <code class="mono">installIds</code> /
-        <code class="mono">byInstallId</code> 形态的键都会被递归剥掉，到不了页面。</p>
+      <p class="cap">键名必须是 <code class="mono">installs</code>，也就是一个计数。
+        任何长得像 <code class="mono">install_id</code> / <code class="mono">installIds</code> /
+        <code class="mono">byInstallId</code> 的键都会被剥掉，到不了页面。</p>
     </div>
   </div>
   <div class="nothing n-fault" role="group" aria-labelledby="h99b">
     <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unreachable"/></svg>
-      <h4 id="h99b">算不出这张清单。</h4></div>
-    <p>（上游不可用时这一段的样子。）缺口清单是拿<strong>实际返回</strong>对出来的。
-      这一次没拿到返回，所以这里没有清单可给 ——
-      <strong>不是「没有缺口」，也不是「全都缺」</strong>。</p>
+      <h4 id="h99b">这张清单算不出来。</h4></div>
+    <p>（上游读不到的时候，这一段长这样。）这张清单要拿<strong>实际返回</strong>来对。
+      这次没拿到返回，就给不出清单 ——
+      <strong>既不是「没有缺口」，也不是「全都缺」</strong>。</p>
     <p class="next">先把上面那一环修好，这张清单会自己出现。</p>
   </div>
 </section>
 
 <!-- ════ 图标族图例（仅演示页）════ -->
 <section class="section" aria-labelledby="hicon">
-  <div class="sechead"><span class="num">图标</span><h2 id="hicon">四个族与越界纪律</h2>
+  <div class="sechead"><span class="num">图标</span><h2 id="hicon">四组图标，各自只能出现在自己的地方</h2>
     <span class="label">icon families</span></div>
   <p class="deck">全部内联 SVG，16×16 viewBox，1.5 描边。
-    硬约束：<code class="mono">n-*</code> 只在导航、<code class="mono">s-*</code> 只在告示条与徽章、
-    <code class="mono">m-*</code> 只在量度值旁、<code class="mono">u-*</code> 不表达状态。
-    图标一律 <code class="mono">aria-hidden</code>，且必须与一个可见的词同现。</p>
+    <code class="mono">n-*</code> 只在导航里，<code class="mono">s-*</code> 只在提示条和徽章里，
+    <code class="mono">m-*</code> 只挨着数字，<code class="mono">u-*</code> 不表达任何状态。
+    图标一律 <code class="mono">aria-hidden</code>，而且旁边必须有一个看得见的词。</p>
   <div class="legend">
     <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-overview"/></svg> 总览</div><code>n-overview</code></div>
     <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-usage"/></svg> 使用</div><code>n-usage</code></div>
@@ -1051,10 +1052,10 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 
 <!-- ════ 配色 ════ -->
 <section class="section" aria-labelledby="hcolor">
-  <div class="sechead"><span class="num">配色</span><h2 id="hcolor">四种墨，各管一件事</h2>
+  <div class="sechead"><span class="num">配色</span><h2 id="hcolor">四种颜色，各管一件事</h2>
     <span class="label">four inks</span></div>
-  <p class="deck">硬约束：<strong>全站没有绿色。</strong>
-    强调色（钢蓝）只表达「可点 / 当前项 / 焦点」，<strong>不表达任何状态</strong>。</p>
+  <p class="deck"><strong>整个站没有绿色。</strong>
+    蓝色只表示「能点 / 当前 / 焦点」，<strong>不表示任何状态</strong>。</p>
   <div class="swatches">
     <div class="sw"><div class="chip" style="background:var(--c-fault)"></div><div class="t">--c-fault 我们读不到数</div></div>
     <div class="sw"><div class="chip" style="background:var(--c-withheld)"></div><div class="t">--c-withheld 有数但不发布</div></div>
@@ -1075,22 +1076,22 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 <section class="section" id="sbnd" aria-labelledby="hbnd">
   <div class="sechead"><span class="num">边界</span><h2 id="hbnd">口径与边界</h2>
     <span class="label">scope and boundaries</span></div>
-  <p class="deck">硬约束：这一页承接<strong>长论证</strong>；它<strong>不能取代</strong>顶部那条采集面契约条 ——
-    一个只看首页、从没点进这里的人，仍然必须知道那三件事。</p>
+  <p class="deck">说得长一点的都放在这里。但它<strong>替代不了</strong>顶上那一条 ——
+    一个只看首页、从没点进来过的人，也必须知道那三件事。</p>
 
   <div class="panel">
     <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-boundary"/></svg>
       <h3>为什么这个平台永远不提供「按 install_id 下钻」</h3></div>
     <div class="body">
-      <p><code class="mono">install_id</code> 是本机随机 UUID，与账号、机器名、用户名都没有映射，
-        <strong>单看它确实不指向人</strong>。但一个<strong>能把某个 install_id
-        的事件按时间排开的界面，本身就是再识别工具</strong>：排出来的是
-        「这台机器哪天装了什么、什么时候卸的、跑的是哪个 OS 和 CLI 版本」的完整轨迹。
-        规格 §6 的 T-11 说的正是它：源 IP + 稳定 install_id + 时间线 = 机器级追踪。
-        端点侧已经用「不记 IP、不记 UA」掐掉了 IP 那一半；
-        <strong>时间线那一半在这个平台手里</strong>。</p>
-      <p>所以做法是<strong>结构性</strong>的，不靠自觉：白名单正向取字段、
-        归一化时递归剥掉任何识别符形态的键、小样本抑制。想加下钻，先去改规格。</p>
+      <p><code class="mono">install_id</code> 是本机生成的随机 UUID，跟账号、机器名、用户名都对不上，
+        <strong>单看它确实指不到人</strong>。但只要有一个界面能把某个 install_id 的事件
+        <strong>按时间排开，它本身就成了一件认人的工具</strong>：排出来的是
+        「这台机器哪天装了什么、什么时候卸的、用的哪个系统和哪版 CLI」的完整轨迹。
+        源 IP 加上一个稳定的 install_id 再加上时间线，就等于盯住了一台机器。
+        IP 那一半，端点侧已经用「不记 IP、不记 UA」掐掉了；
+        <strong>时间线这一半，在我们手里</strong>。</p>
+      <p>所以拦它的办法是<strong>结构上的</strong>，不靠自觉：字段按白名单正向取、
+        归一化的时候把任何像标识符的键都剥掉、样本太少就不发布。想加下钻，得先去改规格。</p>
     </div>
   </div>
 
@@ -1098,24 +1099,25 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
     <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-boundary"/></svg>
       <h3>已知的残余风险：跨表相减</h3></div>
     <div class="body">
-      <p>首页并列发布的是<strong>同一批事件的不同切法</strong>。配合一点外部知识，
-        理论上可以拿几张表互相相减，把某一张里被抑制的行推出来。</p>
-      <p><strong>这里做到的</strong>：每张表不发布总计行；被抑制的那一组不报事件合计；
-        只要任何一张表有抑制，顶层标量就分桶发布 —— 减法能得到的只是一个区间。</p>
-      <p><strong>这里做不到的</strong>：一个硬保证。行数、枚举里缺席的取值、跨表的行数差
-        都还是约束条件。真正闭合要对「整套固定发布的表」做联合抑制 / 可解性校验，只能在服务端做。</p>
-      <p class="cap">这一条写在页面上而不是藏起来 —— 一个后台的读者有权知道它的保证到哪为止。</p>
+      <p>首页这几张表切的是<strong>同一批事件</strong>。再配上一点外部知识，
+        理论上可以拿几张表互相相减，把某一张里没发布的行推出来。</p>
+      <p><strong>我们做到的</strong>：每张表都不给总计行；没发布的那一组不报合计；
+        只要有哪张表没发全，顶上那个总数就只给区间 —— 减出来的也只是一个区间。</p>
+      <p><strong>我们做不到的</strong>：一个绝对的保证。行数、枚举里缺了哪个取值、
+        两张表行数的差，都还是线索。要真正堵死，得把这一整套表放在一起算能不能被解出来，
+        那只能在服务端做。</p>
+      <p class="cap">这一条写在页面上而不是藏起来 —— 看这个后台的人有权知道它的保证到哪为止。</p>
     </div>
   </div>
 </section>
 
 <!-- ════ 登录页样张 ════ -->
 <section class="section" aria-labelledby="hlogin">
-  <div class="sechead"><span class="num">登录</span><h2 id="hlogin">登录页：口令形式不变，视觉跟上</h2>
+  <div class="sechead"><span class="num">登录</span><h2 id="hlogin">登录页：口令怎么填没变，只是重新画了一遍</h2>
     <span class="label">shared secret</span></div>
-  <p class="deck">原生 <code class="mono">&lt;form method="post"&gt;</code>，<strong>没有一行客户端 JS</strong> ——
-    于是「口令会不会被前端代码碰到」这个问题在结构上不存在。
-    硬约束：登录页上没有采集面契约条、没有侧栏、没有数据源徽章：那时我们还没问过任何东西。</p>
+  <p class="deck">一个原生 <code class="mono">&lt;form method="post"&gt;</code>，<strong>没有一行前端 JS</strong> ——
+    所以「口令会不会被前端代码碰到」这个问题根本不存在。
+    登录页上没有侧栏、没有徽章、也没有顶上那条采集说明：这时候我们还什么都没问过。</p>
   <div class="loginframe">
     <div class="logincard">
       <div style="display:flex;align-items:center;gap:6px">
@@ -1160,9 +1162,9 @@ pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
 </section>
 
 <p class="cap" style="margin-top:var(--sp-7)">
-  样式演示页 · 全部为假数据 · 页面内不含采集面白名单之外的任何指标
-  （没有活跃用户 / 留存 / 时长分布 / DAU / 占比 / 健康分 / 时间趋势），
-  也不含任何具体的 install_id。
+  这是样式演示页，上面的数字全是编的。页面上也不会出现那 13 个字段以外的任何指标
+  （没有活跃用户、留存、时长分布、DAU、占比、健康分、时间趋势），
+  更不会出现任何一个具体的 install_id。
 </p>
 
 </main>
