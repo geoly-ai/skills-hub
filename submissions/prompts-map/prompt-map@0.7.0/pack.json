@@ -1,0 +1,76 @@
+{
+  "bundled": [],
+  "compatibility": {
+    "breaking_reasons": [],
+    "kind": "initial",
+    "previous": null
+  },
+  "conflicts": [],
+  "contract_paths": [
+    "prompt-map-shared/SKILL.md",
+    "prompt-map-shared/scripts/"
+  ],
+  "description": "product-card Prompt Map 全套 9 个 skill。它们靠 ../prompt-map-shared/ 的兄弟路径互相引用，必须并排安装 —— 单独装其中一个会得到引用不到 shared 的坏 skill。",
+  "kind": "pack",
+  "license": "MIT",
+  "members": [
+    {
+      "id": "skill:prompts-map/prompt-map-shared@0.7.0",
+      "order": 0,
+      "role": "shared",
+      "tree_digest": "geoly-tree-v1:sha256:4014aaf6672c385cbd1ede388428cbb7fcbcd783d82049b97fb60b62849a9ae0"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-orchestrator@0.7.0",
+      "order": 1,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:021a69a129530041e9d445d31b1362de633bd23f8c8cf77523921da9bf66a8f3"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-input-normalizer@0.7.0",
+      "order": 2,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:620d9bf26317ae8cddd9e03f9c520953a01ab2327e38597e177355cfe16b7233"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-demand-extractor@0.7.0",
+      "order": 3,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:c5947e96f09f12f85a15455260e4363d7ef71f547de9680ed2518b5e11751412"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-demand-grid@0.7.0",
+      "order": 4,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:dee33065a71d62dec8817b04ba6c16c59bfb4ca36b48b7ed1e4f05002c8f9791"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-generator@0.7.0",
+      "order": 5,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:96f77ee30220000818530f3e10a04b19abf2a81cded2cd693a36ea64e1cdadb1"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-semantic-dedupe@0.7.0",
+      "order": 6,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:dd850f2b1a10d98e6bfd996d6a53b439b85cda12b93a2de27cd5f17b75e5b994"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-coverage-audit@0.7.0",
+      "order": 7,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:5a7574789b5f49d0deef41151ce9f2854af6aad9834794a00f60e6ed01349d22"
+    },
+    {
+      "id": "skill:prompts-map/prompt-map-delivery@0.7.0",
+      "order": 8,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:d9a348acc55cd584fd53357bb890ea1df18ac88569853fa588c7453dd138ac52"
+    }
+  ],
+  "name": "prompt-map",
+  "namespace": "prompts-map",
+  "schema": "geoly.skills.pack/1",
+  "version": "0.7.0"
+}

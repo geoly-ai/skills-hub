@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "把 skill 投稿进 geoly skills-hub —— 投稿目录长什么样、skill.json 怎么写、capability 怎么定、要过哪几道门、被拒了怎么改。当用户要发布/投稿一个 skill 到 hub、或者投稿 PR 被门拒掉需要排查时使用。",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "skills-hub-publish",
+  "namespace": "geoly-ai",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 16
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.2.0"
+}
