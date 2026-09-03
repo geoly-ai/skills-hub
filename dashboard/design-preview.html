@@ -1,0 +1,1357 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dashboard · 设计样式演示（值班台）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   dashboard design tokens —「冷石墨机箱 + 钢蓝 + 四种墨」
+   规格文档：dashboard/DESIGN.md（本页是它的可视证据，token 名一一对应）
+
+   硬约束：全站没有绿色：这里没有验证轴，result: ok 是一个计数，不是一次担保。
+   硬约束：强调色（钢蓝）只表达「可点 / 当前项 / 焦点」，不表达任何状态。
+   硬约束：四种墨各管一件事：fault 我们读不到数 / withheld 有数但不发布 /
+      pending 服务端还没算 / unknown 我们不知道。
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  color-scheme: light;
+
+  /* ── 中性：冷石墨。三层材质 ── */
+  --c-page:      #E9EBEE;
+  --c-panel:     #F7F8FA;
+  --c-inset:     #E1E4E9;
+  --c-hairline:  #D2D7DE;
+  --c-rule:      #B9C0CA;
+  --c-rule-hi:   #98A1AE;
+
+  --c-text:      #14181D;
+  --c-text-mid:  #3C444E;
+  --c-text-dim:  #5A626D;
+
+  /* ── 强调：钢蓝。拆成两个 token（accent 只画线，accent-ink 才写字）── */
+  --c-accent:     #2F5D8C;
+  --c-accent-ink: #245079;
+
+  /* ── 四种墨 ── */
+  --c-fault:     #9B2C2C;
+  --c-withheld:  #7A5410;
+  --c-pending:   #4B4A8F;
+  --c-unknown:   #566070;
+  --c-measure:   #3C444E;
+
+  /* ── 纸样 ── */
+  --p-fault:     #F6E9E7;
+  --p-withheld:  #F6EEDD;
+  --p-pending:   #EBEAF5;
+  --p-quiet:     #ECEEF1;
+
+  /* ── 斜纹：抑制态唯一的图案。硬约束：它是编码，不是装饰 ── */
+  --hatch-withheld: repeating-linear-gradient(-45deg,
+      transparent 0 5px,
+      color-mix(in srgb, var(--c-withheld) 16%, transparent) 5px 7px);
+
+  /* ── 字体 ── */
+  --f-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+            "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+            "IBM Plex Sans SC", "Noto Sans CJK SC", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+            "PingFang SC", "Microsoft YaHei", monospace;
+
+  --fs-kpi: 30px; --fs-h1: 19px; --fs-h2: 16px; --fs-h3: 13.5px;
+  --fs-base: 13px; --fs-td: 12.5px; --fs-sm: 12px; --fs-label: 11px;
+
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 28px; --sp-7: 40px; --sp-8: 56px;
+
+  --r-xs: 3px; --r-sm: 5px; --r-md: 8px;
+
+  /* 刻意不在间距尺度上的几个值，各自注明出处 */
+  --h-topbar: 56px;         /* 顶栏：一行 19px 标题 + 徽章的舒适高度 */
+  --h-collectionbar: 34px;  /* 契约条：一行 11px chip */
+  --w-sidebar: 232px;       /* 侧栏：容得下「口径与边界」+ 16px 图标不换行 */
+  --h-row: 32px;            /* 表格行：后台密度值，不是尺度值 */
+
+  --shadow-pop: 0 1px 2px rgba(10,14,20,.06), 0 8px 20px rgba(10,14,20,.12),
+                0 0 0 1px var(--c-hairline);
+}
+
+/* 暗色：两处都要写，手动切换要能双向覆盖系统偏好 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark;
+    --c-page: #14171B; --c-panel: #1C2027; --c-inset: #171A20;
+    --c-hairline: #2A2F37; --c-rule: #3A414B; --c-rule-hi: #4C545F;
+    --c-text: #EDEFF2; --c-text-mid: #B6BEC9; --c-text-dim: #97A0AC;
+    --c-accent: #4E86BE; --c-accent-ink: #86B4E6;
+    --c-fault: #EF9A94; --c-withheld: #DFB768; --c-pending: #A9A6EE;
+    --c-unknown: #97A0AC; --c-measure: #8B97A5;
+    --p-fault: #2C1E1F; --p-withheld: #2A2318; --p-pending: #21203A; --p-quiet: #23262B;
+    /* 硬约束：深底上低透明度斜纹会糊成一片平色，比例要提上去 */
+    --hatch-withheld: repeating-linear-gradient(-45deg, transparent 0 5px,
+        color-mix(in srgb, var(--c-withheld) 22%, transparent) 5px 7px);
+    --shadow-pop: 0 1px 2px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.5),
+                  0 0 0 1px var(--c-hairline);
+  }
+}
+:root[data-theme="dark"] { color-scheme: dark;
+  --c-page: #14171B; --c-panel: #1C2027; --c-inset: #171A20;
+  --c-hairline: #2A2F37; --c-rule: #3A414B; --c-rule-hi: #4C545F;
+  --c-text: #EDEFF2; --c-text-mid: #B6BEC9; --c-text-dim: #97A0AC;
+  --c-accent: #4E86BE; --c-accent-ink: #86B4E6;
+  --c-fault: #EF9A94; --c-withheld: #DFB768; --c-pending: #A9A6EE;
+  --c-unknown: #97A0AC; --c-measure: #8B97A5;
+  --p-fault: #2C1E1F; --p-withheld: #2A2318; --p-pending: #21203A; --p-quiet: #23262B;
+  --hatch-withheld: repeating-linear-gradient(-45deg, transparent 0 5px,
+      color-mix(in srgb, var(--c-withheld) 22%, transparent) 5px 7px);
+  --shadow-pop: 0 1px 2px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.5),
+                0 0 0 1px var(--c-hairline);
+}
+
+/* ── 基础 ─────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--c-page); color: var(--c-text);
+  font: 400 var(--fs-base)/1.55 var(--f-sans);
+  -webkit-font-smoothing: antialiased;
+}
+:lang(zh) p, .cn { line-height: 1.75; }
+h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+p { margin: 0 0 var(--sp-2); }
+p:last-child { margin-bottom: 0; }
+a { color: inherit; text-decoration: underline;
+    text-decoration-color: var(--c-accent); text-underline-offset: 3px; }
+a:hover { color: var(--c-accent-ink); text-decoration-color: currentColor; }
+:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+code, .mono { font-family: var(--f-mono); }
+
+.label { font: 600 var(--fs-label)/1.35 var(--f-sans); letter-spacing: .07em;
+         text-transform: uppercase; color: var(--c-text-dim); }
+/* 硬约束：标签里只要出现一个汉字就用这个：uppercase 对中文无效，字距会把中文拉散 */
+.label-cn { font: 600 var(--fs-label)/1.35 var(--f-sans); letter-spacing: 0;
+            text-transform: none; color: var(--c-text-dim); }
+.dim { color: var(--c-text-dim); }
+.cap { font-size: var(--fs-sm); color: var(--c-text-dim); }
+.spacer { flex: 1 1 auto; }
+
+.i { width: 14px; height: 14px; flex: none; }
+.i-16 { width: 16px; height: 16px; }
+.i-18 { width: 18px; height: 18px; }
+.i-12 { width: 12px; height: 12px; }
+
+/* ── 骨架 ─────────────────────────────────────────────────────────────── */
+.shell { display: grid; grid-template-columns: var(--w-sidebar) minmax(0, 1fr); }
+
+.sidebar {
+  background: var(--c-panel); border-right: 1px solid var(--c-hairline);
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.brand { padding: var(--sp-4); border-bottom: 1px solid var(--c-hairline); }
+.brand .nm { font-family: var(--f-mono); font-size: 13px; font-weight: 600; }
+.nav { padding: var(--sp-2); }
+.nav ul { list-style: none; margin: 0; padding: 0; }
+.nav a {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 7px var(--sp-3); border-radius: var(--r-sm);
+  color: var(--c-text-mid); text-decoration: none; white-space: nowrap;
+  transition: background 100ms linear;
+}
+.nav a:hover { background: var(--c-inset); }
+.nav a[aria-current="page"] {
+  background: var(--c-inset); color: var(--c-text); font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--c-accent);
+}
+.nav .num { font-family: var(--f-mono); font-size: 11px; color: var(--c-text-dim); }
+.sidefoot { margin-top: auto; padding: var(--sp-4); border-top: 1px solid var(--c-hairline); }
+
+.topbar {
+  position: sticky; top: 0; z-index: 20; height: var(--h-topbar);
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 0 var(--sp-5);
+  background: var(--c-panel); border-bottom: 1px solid var(--c-hairline);
+}
+.topbar h1 { font-size: var(--fs-h1); white-space: nowrap; }
+.topbar .when { font-family: var(--f-mono); font-size: var(--fs-sm);
+                color: var(--c-text-dim); white-space: nowrap; }
+
+.statechip {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 3px 8px; border-radius: var(--r-xs);
+  font-size: var(--fs-sm); font-weight: 500;
+  border: 1px solid currentColor; background: var(--p-quiet); color: var(--c-text-mid);
+}
+.statechip.fault { color: var(--c-fault); background: var(--p-fault); }
+
+.btn {
+  font: 500 var(--fs-sm)/1 var(--f-sans); white-space: nowrap;
+  padding: 7px 10px; border-radius: var(--r-sm);
+  border: 1px solid var(--c-rule); background: var(--c-panel); color: var(--c-text);
+  cursor: pointer; transition: background 100ms linear, border-color 100ms linear;
+}
+.btn:hover { background: var(--c-inset); border-color: var(--c-rule-hi); }
+.btn.primary { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
+.btn.primary:hover { background: var(--c-accent-ink); border-color: var(--c-accent-ink); }
+
+/* 硬约束：采集面契约条：常驻、不可折叠、不可关闭 */
+.collectionbar {
+  position: sticky; top: var(--h-topbar); z-index: 19;
+  height: var(--h-collectionbar); display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-5); overflow-x: auto; white-space: nowrap;
+  background: var(--c-inset); border-bottom: 1px solid var(--c-hairline);
+  font-size: var(--fs-sm); color: var(--c-text-mid);
+}
+.collectionbar .f {
+  font-family: var(--f-mono); font-size: 11px; padding: 1px 5px;
+  border: 1px solid var(--c-hairline); border-radius: var(--r-xs);
+  background: var(--c-panel); color: var(--c-text-mid);
+}
+.collectionbar .sep { color: var(--c-rule-hi); }
+
+.main { max-width: 1240px; padding: var(--sp-5) var(--sp-5) var(--sp-8); }
+.section { margin-top: var(--sp-7); scroll-margin-top: calc(var(--h-topbar) + var(--h-collectionbar) + 8px); }
+.section:first-child { margin-top: 0; }
+.sechead { display: flex; align-items: baseline; gap: var(--sp-3);
+           padding-bottom: var(--sp-2); border-bottom: 1px solid var(--c-rule-hi);
+           margin-bottom: var(--sp-4); }
+.sechead h2 { font-size: var(--fs-h2); }
+.sechead .num { font-family: var(--f-mono); font-size: var(--fs-sm); color: var(--c-text-dim); }
+.deck { font-size: var(--fs-base); color: var(--c-text-dim); max-width: 82ch;
+        margin: calc(var(--sp-3) * -1 + 4px) 0 var(--sp-4); }
+
+/* ── KPI ──────────────────────────────────────────────────────────────── */
+.kpirow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
+.kpi { background: var(--c-panel); border: 1px solid var(--c-rule);
+       border-radius: var(--r-md); padding: var(--sp-4); }
+.kpi .top { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.kpi .v {
+  display: block;
+  font: 500 var(--fs-kpi)/1.1 var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  /* 硬约束：固定槽宽：容得下 10000–49999 与「未提供」。不许按内容缩字号 */
+  min-width: 9ch;
+  text-transform: none;                 /* 硬约束：显式，别依赖默认 */
+  white-space: nowrap;
+  margin-bottom: 6px;
+}
+.kpi .cap { display: block; }
+.kpi.withheld-kpi .v { color: var(--c-withheld); }
+.kpi.withheld-kpi .cap { color: var(--c-withheld); }
+.kpi.unknown-kpi .v { color: var(--c-unknown); text-decoration: underline dashed;
+                      text-underline-offset: 5px; text-decoration-color: var(--c-unknown); }
+.kpi.unknown-kpi .cap { color: var(--c-unknown); }
+/* 硬约束：第三张卡不是 KPI，是「来源注记」—— rolled_up_before 不在采集面白名单里 */
+.kpi.sourcenote { border-left: 3px solid var(--c-unknown); }
+.kpi.sourcenote .v { font-size: var(--fs-h2); font-weight: 600; font-family: var(--f-sans);
+                     color: var(--c-text-mid); min-width: 0; }
+
+/* ── 面板 ─────────────────────────────────────────────────────────────── */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+.panel { background: var(--c-panel); border: 1px solid var(--c-rule);
+         border-radius: var(--r-md); overflow: hidden; margin-bottom: var(--sp-4); }
+.panel .head { display: flex; align-items: center; gap: var(--sp-2);
+               min-height: 40px; padding: var(--sp-2) var(--sp-4);
+               border-bottom: 1px solid var(--c-hairline); }
+.panel .head h3 { font-size: var(--fs-h3); white-space: nowrap; }
+.fieldcode { font-family: var(--f-mono); font-size: 11px; padding: 1px 5px;
+             background: var(--c-inset); border-radius: var(--r-xs); color: var(--c-text-dim); }
+.panel .head .rows { font-size: var(--fs-sm); color: var(--c-text-dim); white-space: nowrap; }
+.panel .body { padding: var(--sp-4); }
+.panel .body.table { padding: 0; background: var(--c-inset); }
+.panel .foot { border-top: 1px solid var(--c-hairline); }
+.panel .foot > summary { cursor: pointer; list-style: none; padding: var(--sp-3) var(--sp-4);
+                         font-size: var(--fs-base); color: var(--c-text-dim);
+                         display: flex; align-items: center; gap: 6px; }
+.panel .foot > summary::-webkit-details-marker { display: none; }
+.panel .foot[open] > summary .i { transform: rotate(90deg); }
+.panel .foot .inner { padding: 0 var(--sp-4) var(--sp-4); font-size: var(--fs-base);
+                      color: var(--c-text-mid); max-width: 84ch; }
+
+/* ── 表格 ─────────────────────────────────────────────────────────────── */
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; }
+th { background: var(--c-inset); font: 600 var(--fs-label)/1.35 var(--f-sans);
+     letter-spacing: .07em; text-transform: uppercase; color: var(--c-text-dim);
+     text-align: left; padding: 7px var(--sp-3);
+     border-bottom: 1px solid var(--c-rule); white-space: nowrap; }
+td { height: var(--h-row); padding: 7px var(--sp-3); font-size: var(--fs-td);
+     border-bottom: 1px solid var(--c-hairline); color: var(--c-text-mid);
+     /* 硬约束：值不做大写：版本号与制品坐标区分大小写，改了就是改数据 */
+     text-transform: none; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: color-mix(in srgb, var(--c-accent) 6%, transparent); }
+td.v { font-family: var(--f-mono); color: var(--c-text); overflow-wrap: anywhere; }
+td.n, th.n { text-align: right; font-family: var(--f-mono);
+             font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.barcell { width: 128px; }
+
+/* 硬约束：抑制行：整行 colspan 的横条，不按列对齐 —— 数值格里放什么都会被当成一个量 */
+.withheld-row > td {
+  background: var(--p-withheld);
+  background-image: var(--hatch-withheld);
+  border-top: 1px solid var(--c-withheld);
+  color: var(--c-withheld);
+}
+.withheld-row:hover > td { background-color: var(--p-withheld); }
+.withheld { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.wr-note { margin-left: var(--sp-3); color: var(--c-withheld); font-size: var(--fs-sm); }
+
+/* 单元格级的「未提供」（unknown ≠ withheld，两回事） */
+.unk { display: inline-flex; align-items: center; gap: 5px; color: var(--c-unknown); }
+.unk .t { text-decoration: underline dashed; text-underline-offset: 3px; }
+
+/* ── 条形与区间条 ─────────────────────────────────────────────────────── */
+.bar { display: block; height: 6px; border-radius: 2px; background: var(--c-inset); }
+.bar > i { display: block; height: 100%; width: var(--w); border-radius: 2px;
+           background: var(--c-measure); }
+.dumb { position: relative; height: 12px; }
+.dumb > .track { position: absolute; top: 5.5px; height: 1px; background: var(--c-rule);
+                 left: 0; right: 0; }
+.dumb > .seg { position: absolute; top: 5px; height: 2px; background: var(--c-measure);
+               left: var(--a); right: calc(100% - var(--b)); }
+.dumb > .p50 { position: absolute; top: 2px; left: var(--a); width: 8px; height: 8px;
+               margin-left: -4px; background: var(--c-measure); }
+.dumb > .p95 { position: absolute; top: 2px; left: var(--b); width: 8px; height: 8px;
+               margin-left: -4px; border: 1.5px solid var(--c-measure); background: var(--c-panel); }
+
+/* ── 告示条（十一种「没有」共用形态）───────────────────────────────────── */
+.nothing { border-radius: var(--r-md); padding: var(--sp-4);
+           border-left: 3px solid transparent; background: var(--c-panel); }
+.nothing.wide { padding: var(--sp-5); }
+.nothing .hd { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 6px; }
+.nothing h4 { font-size: 15px; font-weight: 600; }
+.nothing p { font-size: var(--fs-base); color: var(--c-text-mid); max-width: 84ch; }
+.nothing .next { color: var(--c-text-dim); }
+.nothing .where { font-family: var(--f-mono); font-size: 11.5px; color: var(--c-text-dim);
+                  margin-top: var(--sp-2); overflow-wrap: anywhere; }
+
+.n-fault   { border-left-color: var(--c-fault);    background: var(--p-fault); }
+.n-fault h4, .n-fault .hd { color: var(--c-fault); }
+.n-pending { border-left-color: var(--c-pending);  background: var(--p-pending); }
+.n-pending h4, .n-pending .hd { color: var(--c-pending); }
+.n-quiet   { border-left-color: var(--c-unknown);  background: var(--p-quiet); }
+.n-quiet h4, .n-quiet .hd { color: var(--c-unknown); }
+.n-withheld{ border-left-color: var(--c-withheld); background: var(--p-withheld);
+             background-image: var(--hatch-withheld); }
+.n-withheld h4, .n-withheld .hd { color: var(--c-withheld); }
+/* 硬约束：真实的 0：唯一一个不换纸、不给左轨的 —— 它是结论，不是异常 */
+.n-zero { border-left-color: transparent; background: var(--c-panel);
+          border: 1px solid var(--c-hairline); border-left: 3px solid transparent; }
+
+/* ── 图例区（仅本演示页有）────────────────────────────────────────────── */
+.legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+          gap: var(--sp-3); }
+.legend .cell { background: var(--c-panel); border: 1px solid var(--c-hairline);
+                border-radius: var(--r-sm); padding: var(--sp-3); }
+.legend .cell .g { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 4px; }
+.legend .cell code { font-size: 11px; color: var(--c-text-dim); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: var(--sp-2); }
+.sw { border: 1px solid var(--c-hairline); border-radius: var(--r-sm); overflow: hidden; }
+.sw .chip { height: 34px; }
+.sw .t { padding: 6px 8px; font-family: var(--f-mono); font-size: 11px; color: var(--c-text-mid);
+         background: var(--c-panel); }
+
+/* ── 登录页样张 ───────────────────────────────────────────────────────── */
+.loginframe { background: var(--c-page); border: 1px solid var(--c-rule);
+              border-radius: var(--r-md); padding: var(--sp-7) var(--sp-4);
+              display: flex; justify-content: center; }
+.logincard { width: 100%; max-width: 420px; background: var(--c-panel);
+             border: 1px solid var(--c-rule); border-radius: var(--r-md); padding: var(--sp-5); }
+.logincard h2 { font-size: var(--fs-h1); margin: 6px 0 var(--sp-2); }
+.logincard form { margin-top: var(--sp-5); }
+.logincard label { display: block; margin-bottom: 6px; }
+.logincard input {
+  width: 100%; height: 38px; padding: 0 10px; margin-bottom: var(--sp-3);
+  font: 400 var(--fs-base)/38px var(--f-mono);
+  background: var(--c-panel); color: var(--c-text);
+  border: 1px solid var(--c-rule); border-radius: var(--r-sm);
+}
+.logincard input:focus { border-color: var(--c-accent); }
+
+pre#audit { background: var(--c-inset); border: 1px solid var(--c-hairline);
+            border-radius: var(--r-sm); padding: var(--sp-3); overflow-x: auto;
+            font: 400 11.5px/1.5 var(--f-mono); color: var(--c-text-mid); }
+
+/* ── 硬约束：min-width: 0 —— 一个长制品坐标就能让 375px 下横向滚动 ───────────── */
+.main > *, .kpirow > *, .grid2 > *, .panel, .panel .body,
+.tablewrap, .kpi, .nothing > div, .collectionbar > *, .legend > *, .sw { min-width: 0; }
+
+/* ── 响应式 ───────────────────────────────────────────────────────────── */
+@media (max-width: 1119px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: static; height: auto; flex-direction: row; align-items: center;
+             border-right: 0; border-bottom: 1px solid var(--c-hairline); overflow-x: auto; }
+  .brand { border-bottom: 0; border-right: 1px solid var(--c-hairline); white-space: nowrap; }
+  .nav ul { display: flex; }
+  .nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--c-accent); }
+  .sidefoot { display: none; }
+}
+@media (max-width: 899px) {
+  .kpirow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi.sourcenote { grid-column: 1 / -1; }
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 619px) {
+  :root { --fs-kpi: 26px; }
+  .kpirow { grid-template-columns: minmax(0, 1fr); }
+  .main, .topbar, .collectionbar { padding-left: var(--sp-3); padding-right: var(--sp-3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ════ 图标雪碧图：全部内联 SVG，不引任何图标库（CSP 会拦外部 stylesheet）════ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="g-base" fill="none" stroke="currentColor" stroke-width="1.5"
+       stroke-linecap="round" stroke-linejoin="round"></g>
+  </defs>
+
+  <!-- 导航族 n-* ：只允许出现在 .nav 内 -->
+  <symbol id="i-n-overview" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z"/>
+  </symbol>
+  <symbol id="i-n-usage" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M3 13.5V8M8 13.5V3M13 13.5V10M1.5 13.5h13"/>
+  </symbol>
+  <symbol id="i-n-failures" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 11l3.5-3.5L8 10l2.5-4.5"/><path d="M11.5 11.5l3-3M14.5 11.5l-3-3"/>
+  </symbol>
+  <symbol id="i-n-latency" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="8" cy="9.2" r="5.3"/><path d="M8 9.2V6.2M6.2 1.8h3.6M8 1.8v1.9"/>
+  </symbol>
+  <symbol id="i-n-gaps" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <rect x="2.5" y="2.5" width="11" height="11" stroke-dasharray="3 2.4"/><path d="M8 6v4M6 8h4"/>
+  </symbol>
+  <symbol id="i-n-boundary" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <path d="M8 1.8l5.2 2v4.3c0 3.3-2.3 5.2-5.2 6.4C5.1 13.3 2.8 11.4 2.8 8.1V3.8z"/>
+  </symbol>
+
+  <!-- 状态族 s-* ：只允许出现在 .nothing 与 .statechip 内。硬约束：十一形两两不同 -->
+  <symbol id="i-s-unconfigured" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1.5 8h3.6"/><path d="M6.4 5.2h3v5.6h-3z"/><path d="M12 5.2h2.5v5.6H12"/>
+  </symbol>
+  <symbol id="i-s-unreachable" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M1.5 8h4.4M10.1 8h4.4M7.2 5.2l1.6 5.6"/>
+  </symbol>
+  <symbol id="i-s-denied" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.2" y="7.4" width="9.6" height="6.4" rx="1"/>
+    <path d="M5.6 7.4V5.2a2.4 2.4 0 014.8 0v2.2M8 10v1.6"/>
+  </symbol>
+  <symbol id="i-s-invalid" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <rect x="1.6" y="1.6" width="8.4" height="8.4"/><circle cx="10.6" cy="10.6" r="3.4"/>
+  </symbol>
+  <symbol id="i-s-unrecognized" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M2 4h12M2 8h12M2 12h12"/><path d="M13 2.6L3 13.4"/>
+  </symbol>
+  <symbol id="i-s-zero" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.4 2.4v7.2a4.6 4.6 0 009.2 0V2.4"/><path d="M2 2.4h12"/>
+  </symbol>
+  <symbol id="i-s-not-computed" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <rect x="2.4" y="2.4" width="11.2" height="11.2" stroke-dasharray="3 2.4"/>
+    <path d="M8 5.8v4.4M5.8 8h4.4"/>
+  </symbol>
+  <symbol id="i-s-empty-dim" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <rect x="1.6" y="2.6" width="12.8" height="10.8"/><path d="M1.6 6.2h12.8"/>
+  </symbol>
+  <symbol id="i-s-filtered" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <path d="M2 3.2h12l-4.6 5.4v4.6l-2.8 1.4V8.6z"/>
+  </symbol>
+  <symbol id="i-s-withheld" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <rect x="2" y="3.4" width="12" height="9.2"/><path d="M4.2 12.2l3.6-5.6M7.6 12.2l3.6-5.6"/>
+  </symbol>
+  <symbol id="i-s-withheld-q" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <rect x="1.6" y="3.4" width="9.6" height="9.2"/><path d="M3.4 12.2l2.8-5.6M6.4 12.2l2.8-5.6"/>
+    <path d="M14 3.4v9.2M12.6 6.2h1.8M12.6 10.2h1.8"/>
+  </symbol>
+
+  <!-- 量度形态族 m-* ：只允许出现在 .kpi .v 与 td.n / .withheld 内 -->
+  <symbol id="i-m-bucket" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M3 8h10M3 5.6v4.8M13 5.6v4.8"/>
+  </symbol>
+  <symbol id="i-m-floored" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 3.4L4.6 8l6.4 4.6"/>
+  </symbol>
+  <symbol id="i-m-unknown" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M2.4 8h3M6.6 8h3M12.2 8h1.4"/>
+  </symbol>
+  <symbol id="i-m-withheld" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <rect x="2.4" y="4.4" width="11.2" height="7.2"/><path d="M4.6 11l2.6-4.4M8 11l2.6-4.4"/>
+  </symbol>
+
+  <!-- 中性族 u-* ：随处可用，但不得表达任何状态 -->
+  <symbol id="i-u-info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="8" cy="8" r="6.2"/><path d="M8 7.4v3.6M8 5.2v.2"/>
+  </symbol>
+  <symbol id="i-u-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 3.5L10.5 8 6 12.5"/>
+  </symbol>
+  <symbol id="i-u-theme" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <circle cx="8" cy="8" r="5.6"/><path d="M8 2.4a5.6 5.6 0 010 11.2z" fill="currentColor" stroke="none"/>
+  </symbol>
+  <symbol id="i-u-external" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5"/><path d="M12 9.5v3.5a.5.5 0 01-.5.5h-8a.5.5 0 01-.5-.5v-8a.5.5 0 01.5-.5H7"/>
+  </symbol>
+</svg>
+
+<div class="shell">
+
+<!-- ════ 侧栏 ════ -->
+<aside class="sidebar">
+  <div class="brand">
+    <p class="label">geoly-ai / skills-hub</p>
+    <p class="nm">telemetry console</p>
+  </div>
+  <nav class="nav" aria-label="主导航">
+    <ul>
+      <li><a href="#s00" aria-current="page"><svg aria-hidden="true" class="i i-16"><use href="#i-n-overview"/></svg><span class="num">00</span> 总览</a></li>
+      <li><a href="#s01"><svg aria-hidden="true" class="i i-16"><use href="#i-n-usage"/></svg><span class="num">01</span> 使用</a></li>
+      <li><a href="#s02"><svg aria-hidden="true" class="i i-16"><use href="#i-n-failures"/></svg><span class="num">02</span> 失败</a></li>
+      <li><a href="#s03"><svg aria-hidden="true" class="i i-16"><use href="#i-n-latency"/></svg><span class="num">03</span> 耗时</a></li>
+      <li><a href="#s99"><svg aria-hidden="true" class="i i-16"><use href="#i-n-gaps"/></svg><span class="num">99</span> 服务端缺口</a></li>
+      <li><a href="#sbnd"><svg aria-hidden="true" class="i i-16"><use href="#i-n-boundary"/></svg>口径与边界</a></li>
+    </ul>
+  </nav>
+  <div class="sidefoot">
+    <p class="cap">样式演示页 · 全部为假数据</p>
+  </div>
+</aside>
+
+<div>
+<!-- ════ 顶栏（状态层 ①）════ -->
+<header class="topbar">
+  <h1>总览</h1>
+  <span class="statechip"><svg aria-hidden="true" class="i"><use href="#i-s-zero"/></svg>端点已连通</span>
+  <span class="spacer"></span>
+  <span class="when" title="我们这一次请求的时刻，不是任何一条事件的时间">本次读取 2026-09-03 15:04:11Z</span>
+  <button class="btn" id="themeBtn" type="button">
+    <svg class="i i-12" style="vertical-align:-2px" aria-hidden="true"><use href="#i-u-theme"/></svg>
+    主题：跟随系统
+  </button>
+</header>
+
+<!-- ════ 采集面契约条（状态层 ①）—— 硬约束：常驻、不可折叠 ════ -->
+<div class="collectionbar">
+  <svg class="i" aria-hidden="true"><use href="#i-u-info"/></svg>
+  <span>只能有这 13 个字段</span>
+  <span class="f">at</span><span class="f">cli</span><span class="f">os</span><span class="f">arch</span>
+  <span class="f">node</span><span class="f">kind</span><span class="f">result</span><span class="f">artifact</span>
+  <span class="f">version</span><span class="f">client</span><span class="f">scope</span><span class="f">ms</span>
+  <span class="f">reason</span>
+  <span class="sep">·</span><span>install_id 只用于去重计数，不上屏</span>
+  <span class="sep">·</span><span>去重装机数 &lt;5 的细分不展示</span>
+  <span class="sep">·</span><a href="#sbnd">口径与边界 ›</a>
+</div>
+
+<main class="main">
+
+<!-- ════ 00 总览：KPI ════ -->
+<section class="section" id="s00" aria-labelledby="h00">
+  <div class="sechead"><span class="num">00</span><h2 id="h00">总数</h2>
+    <span class="label">counted, not measured</span></div>
+  <p class="deck">这一行是全局标量。硬约束：任何一张细分表有行被抑制时，这里就必须分桶发布 ——
+    一个精确的总数配上某张表的可见行，一减就是被抑制那一组的合计。</p>
+
+  <div class="kpirow">
+    <div class="kpi withheld-kpi">
+      <div class="top"><span class="label">events</span><span class="spacer"></span>
+        <svg class="i i-12" style="color:var(--c-withheld)" aria-hidden="true"><use href="#i-m-bucket"/></svg></div>
+      <span class="v">100–499</span>
+      <span class="cap">区间发布 · 因为有表被抑制</span>
+    </div>
+    <div class="kpi unknown-kpi">
+      <div class="top"><span class="label">distinct installs</span><span class="spacer"></span>
+        <svg class="i i-12" style="color:var(--c-unknown)" aria-hidden="true"><use href="#i-m-unknown"/></svg></div>
+      <span class="v">未提供</span>
+      <span class="cap">服务端这一版没返回它 · 不是 0</span>
+    </div>
+    <div class="kpi sourcenote">
+      <div class="top"><span class="label-cn">来源注记 · 不是指标</span></div>
+      <span class="v">有一段只剩计数</span>
+      <span class="cap">早于保留期水位的原始事件已丢弃。硬约束：只给布尔，不给那个时间戳</span>
+    </div>
+  </div>
+
+  <p class="cap" style="margin-top:var(--sp-3)">
+    上面第一张卡是<strong>分桶</strong>形态、第二张是<strong>未提供</strong>形态，
+    两者<strong>不是同一件事</strong>：分桶是「我们知道，但只能给区间」，未提供是「我们不知道」。
+    下面并排给出四种量度形态的样张。
+  </p>
+
+  <div class="kpirow" style="margin-top:var(--sp-3)">
+    <div class="kpi">
+      <div class="top"><span class="label">exact</span></div>
+      <span class="v">1204</span><span class="cap">精确发布 · 没有任何一张表被抑制</span>
+    </div>
+    <div class="kpi withheld-kpi">
+      <div class="top"><span class="label">floored</span><span class="spacer"></span>
+        <svg class="i i-12" style="color:var(--c-withheld)" aria-hidden="true"><use href="#i-m-floored"/></svg></div>
+      <span class="v">&lt;5</span><span class="cap">压到门槛以下 · 精确值本身就是信息</span>
+    </div>
+    <div class="kpi">
+      <div class="top"><span class="label">true zero</span></div>
+      <span class="v">0</span><span class="cap">真实的 0 · 我们问到了，答案就是一条都没有</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════ 01 使用 ════ -->
+<section class="section" id="s01" aria-labelledby="h01">
+  <div class="sechead"><span class="num">01</span><h2 id="h01">哪些 skill 真的在被用</h2>
+    <span class="label">what is actually used</span></div>
+  <p class="deck">这一段的用途是<strong>下架决策</strong>：一个半年没人装的 skill 应该从矩阵包里拿掉。
+    反过来不成立 —— 装的人多不代表它更可信。</p>
+
+  <div class="panel">
+    <div class="head">
+      <svg class="i" aria-hidden="true"><use href="#i-n-usage"/></svg>
+      <h3>按制品坐标</h3><span class="fieldcode">artifact</span>
+      <span class="spacer"></span><span class="rows">4 行可见</span>
+    </div>
+    <div class="body table">
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th scope="col">artifact</th><th scope="col" class="n">events</th>
+            <th scope="col" class="n">installs</th><th scope="col">events (relative)</th>
+          </tr></thead>
+          <tbody>
+            <tr><td class="v">skill:geoly/pr-draft@1.1.0-rc.1</td><td class="n">90</td><td class="n">17</td>
+                <td class="barcell"><span class="bar" style="--w:100%"><i></i></span></td></tr>
+            <tr><td class="v">skill:geoly/reddit-voc@2.0.3</td><td class="n">61</td><td class="n">12</td>
+                <td class="barcell"><span class="bar" style="--w:68%"><i></i></span></td></tr>
+            <tr><td class="v">pack:geoly/seo-matrix@0.4.0</td><td class="n">33</td><td class="n">9</td>
+                <td class="barcell"><span class="bar" style="--w:37%"><i></i></span></td></tr>
+            <tr><td class="v">skill:geoly/lark-base@1.0.0</td><td class="n">28</td><td class="n">6</td>
+                <td class="barcell"><span class="bar" style="--w:31%"><i></i></span></td></tr>
+            <!-- 硬约束：抑制行：整行横条，格子里没有数字、没有破折号、没有空白 -->
+            <tr class="withheld-row"><td colspan="4">
+              <span class="withheld"><svg class="i" aria-hidden="true"><use href="#i-s-withheld"/></svg>未发布</span>
+              <span class="wr-note">这些行存在，但发布不出来</span>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
+      <p class="cap">3 行未发布 · 2 行的去重装机数不足 5 · 1 行被互补抑制连带拿掉。
+        硬约束：不报它们的事件合计，也不说哪一行卡在哪一道门槛。</p>
+      <p class="cap" style="margin-top:6px">条长表示事件数，按<strong>本表可见行的最大值</strong>归一；
+        它<strong>不表示占比</strong>，也不表示总量。</p>
+    </div>
+    <details class="foot">
+      <summary><svg class="i" aria-hidden="true"><use href="#i-u-chevron"/></svg>为什么这样算</summary>
+      <div class="inner">
+        <p>抑制的判据是<strong>去重装机数</strong>（distinct install_id），不是事件数 ——
+          一台机器一天能制造几十条事件，用事件数当样本量是把 1 台读成 40 台。门槛 K = 5。</p>
+        <p><strong>「样本太少」与「无法核实门槛」是两句话，不许合并。</strong>
+          前者是服务端给了数但不够，后者是服务端根本没给去重装机数（按不达标处理）。
+          把未知说成「太少」是在断言一件我们并不知道的事。</p>
+        <p><strong>互补抑制</strong>：恰好只抑制一行时，用「总数 − 可见行之和」一减就还原了，
+          抑制等于没做。所以那时会把事件数最小的可见行也一并抑制 —— 两行以后就只剩它们的和，拆不开。</p>
+        <p><strong>为什么没有总计行</strong>：任何精确的合计都是一个减法锚点。
+          首页并列发布的是同一批事件的不同切法，有了精确合计就能跨表相减。</p>
+      </div>
+    </details>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-usage"/></svg>
+        <h3>按动作</h3><span class="fieldcode">kind</span>
+        <span class="spacer"></span><span class="rows">3 行可见</span></div>
+      <div class="body table"><div class="tablewrap"><table style="min-width:0">
+        <thead><tr><th scope="col">kind</th><th scope="col" class="n">events</th><th scope="col" class="n">installs</th></tr></thead>
+        <tbody>
+          <tr><td class="v">install</td><td class="n">142</td><td class="n">21</td></tr>
+          <tr><td class="v">update</td><td class="n">51</td><td class="n">11</td></tr>
+          <tr><td class="v">remove</td><td class="n">19</td><td class="n">7</td></tr>
+        </tbody></table></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-usage"/></svg>
+        <h3>按安装范围</h3><span class="fieldcode">scope</span>
+        <span class="spacer"></span><span class="rows">整表未发布</span></div>
+      <div class="body">
+        <!-- 十一种「没有」之 ⑩ 全被抑制 -->
+        <div class="nothing n-withheld" role="group" aria-labelledby="nt-supp">
+          <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-withheld"/></svg>
+            <span class="withheld">未发布</span>
+            <h4 id="nt-supp">有行，但一行都发布不出来。</h4></div>
+          <p>这不是「没有数据」：候选行是存在的。它们没能发布出来有三种可能，而且常常混在一起 ——
+            去重装机数没到门槛、服务端根本没给去重装机数（无法核实门槛，按不达标处理）、
+            或者为了不让「只抑制一行」被减出来而被互补抑制连带拿掉。
+            <strong>不要把它读成「没人用」</strong>：那是「端点通了、一条都没有」那一格才说的话。
+            （这里连那个数字本身都不写 —— 一个琥珀格子里的阿拉伯数字，
+            无论它在说什么，都会被当成这一格的值。）</p>
+          <p class="next">装机数长上去、或服务端补上 distinct installs 之后这张表自己会出现；
+            不提供「临时关掉抑制」的开关。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════ 02 失败 ════ -->
+<section class="section" id="s02" aria-labelledby="h02">
+  <div class="sechead"><span class="num">02</span><h2 id="h02">装失败集中在哪</h2>
+    <span class="label">where installs fail</span></div>
+  <p class="deck">要能一眼看出「是某个客户端的问题、某个版本的问题，还是某一类原因」。
+    <code class="mono">reason</code> 是有限代码表（不是自由文本），所以它能被安全地聚合。</p>
+
+  <div class="panel">
+    <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-failures"/></svg>
+      <h3>按原因码</h3><span class="fieldcode">reason</span>
+      <span class="spacer"></span><span class="rows">5 行可见</span></div>
+    <div class="body table"><div class="tablewrap"><table>
+      <thead><tr><th scope="col">reason</th><th scope="col" class="n">events</th>
+        <th scope="col" class="n">installs</th><th scope="col">events (relative)</th></tr></thead>
+      <tbody>
+        <tr><td class="v">unsupported-client</td><td class="n">24</td><td class="n">8</td>
+            <td class="barcell"><span class="bar" style="--w:100%"><i></i></span></td></tr>
+        <tr><td class="v">target-not-writable</td><td class="n">17</td><td class="n">6</td>
+            <td class="barcell"><span class="bar" style="--w:71%"><i></i></span></td></tr>
+        <tr><td class="v">network-error</td><td class="n">12</td><td class="n">5</td>
+            <td class="barcell"><span class="bar" style="--w:50%"><i></i></span></td></tr>
+        <tr><td class="v">already-installed</td><td class="n">9</td><td class="n">5</td>
+            <td class="barcell"><span class="bar" style="--w:38%"><i></i></span></td></tr>
+        <tr><td class="v">version-conflict</td><td class="n">7</td><td class="n">5</td>
+            <td class="barcell"><span class="bar" style="--w:29%"><i></i></span></td></tr>
+      </tbody></table></div></div>
+    <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
+      <p class="cap">条长按本表可见行的最大值归一，不表示占比。
+        硬约束：<code class="mono">result: failed</code> 是一个<strong>正常的业务计数</strong>，
+        不涂故障色 —— 砖红只留给「我们这一侧读不到数」。</p>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-failures"/></svg>
+        <h3>按客户端</h3><span class="fieldcode">client</span>
+        <span class="spacer"></span><span class="rows">服务端未算</span></div>
+      <div class="body">
+        <!-- 十一种「没有」之 ⑧ 服务端还没算 -->
+        <div class="nothing n-pending" role="group" aria-labelledby="nt-nc">
+          <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-not-computed"/></svg>
+            <h4 id="nt-nc">这个维度服务端还没算。</h4></div>
+          <p>不是没数据，是 <code class="mono">/v1/summary</code> 这一版不返回这一项。
+            dashboard <strong>不自己补算</strong> —— 自己写一份聚合就会和
+            <code class="mono">server/aggregate.mjs</code> 分叉，
+            两边对同一个问题给出两个答案，那比没有这张表糟得多。</p>
+          <p class="next">需要的聚合列在第 99 段「服务端待补的聚合」，加在服务端，这里自动就有了。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-failures"/></svg>
+        <h3>按制品版本</h3><span class="fieldcode">version</span>
+        <span class="spacer"></span><span class="rows">一行都不认得</span></div>
+      <div class="body">
+        <!-- 十一种「没有」之 ⑤ 回了行但全被丢掉（故障族） -->
+        <div class="nothing n-fault" role="group" aria-labelledby="nt-unrec">
+          <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unrecognized"/></svg>
+            <h4 id="nt-unrec">服务端回了行，但我们一行都不认得。</h4></div>
+          <p>这不是「空」，是<strong>校验没过</strong>：这个维度的每一行取值都没通过白名单校验，
+            于是全被丢掉了。两种可能 —— ① 服务端换了形状；
+            ② 有人往那个<strong>无鉴权</strong>的摄入端点里灌了脏数据。
+            <strong>千万不要读成「没人用」。</strong></p>
+          <p class="next">对一遍这个维度的取值口径；脏数据的话，看服务端那一侧的校验为什么放它进来了。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════ 03 耗时 ════ -->
+<section class="section" id="s03" aria-labelledby="h03">
+  <div class="sechead"><span class="num">03</span><h2 id="h03">一次安装要多久</h2>
+    <span class="label">how long an install takes</span></div>
+  <p class="deck">性能回归看的是「同一个动作在新版本上是不是变慢了」，所以按版本分组比看一个全局平均值有用。
+    只有 P50 / P95，没有原始耗时列表 —— 一串按时间排开的原始 ms 同样是一条机器轨迹。</p>
+
+  <div class="panel">
+    <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-latency"/></svg>
+      <h3>安装耗时分位数</h3><span class="fieldcode">ms · p50 / p95</span>
+      <span class="spacer"></span><span class="rows">3 行可见</span></div>
+    <div class="body table"><div class="tablewrap"><table style="min-width:660px">
+      <thead><tr><th scope="col">group</th><th scope="col">value</th>
+        <th scope="col" class="n">events</th><th scope="col" class="n">installs</th>
+        <th scope="col" class="n">p50</th><th scope="col" class="n">p95</th>
+        <th scope="col">p50 → p95</th></tr></thead>
+      <tbody>
+        <tr><td>CLI 版本</td><td class="v">0.1.0</td><td class="n">64</td><td class="n">11</td>
+            <td class="n">820</td><td class="n">2140</td>
+            <td style="width:150px"><span class="dumb"><i class="track"></i>
+              <i class="seg" style="--a:26%;--b:82%"></i>
+              <i class="p50" style="--a:26%"></i><i class="p95" style="--b:82%"></i></span></td></tr>
+        <tr><td>CLI 版本</td><td class="v">0.0.9</td><td class="n">41</td><td class="n">9</td>
+            <td class="n">640</td><td class="n">1480</td>
+            <td><span class="dumb"><i class="track"></i>
+              <i class="seg" style="--a:18%;--b:57%"></i>
+              <i class="p50" style="--a:18%"></i><i class="p95" style="--b:57%"></i></span></td></tr>
+        <tr><td>CLI 版本</td><td class="v">0.0.8</td><td class="n">22</td><td class="n">7</td>
+            <td class="n">590</td>
+            <!-- 硬约束：unknown ≠ withheld：这一格是冷灰虚线，不是琥珀斜纹，更不是 — -->
+            <td class="n"><span class="unk"><svg class="i i-12" aria-hidden="true"><use href="#i-m-unknown"/></svg><span class="t">未提供</span></span></td>
+            <td><span class="unk"><svg class="i i-12" aria-hidden="true"><use href="#i-m-unknown"/></svg><span class="t">未提供</span></span></td></tr>
+        <tr class="withheld-row"><td colspan="7">
+          <span class="withheld"><svg class="i" aria-hidden="true"><use href="#i-s-withheld"/></svg>未发布</span>
+          <span class="wr-note">这些行存在，但发布不出来</span>
+        </td></tr>
+      </tbody></table></div></div>
+    <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
+      <p class="cap">2 行未发布 · 硬约束：哪一行卡在哪一道门槛<strong>不公开</strong>：逐行成因本身也是信息。
+        区间条按本表可见行的最大 p95 归一。</p>
+    </div>
+    <details class="foot">
+      <summary><svg class="i" aria-hidden="true"><use href="#i-u-chevron"/></svg>为什么这张表比别的表多一道门槛</summary>
+      <div class="inner">
+        <p>分位数是<strong>顺序统计量</strong>：样本少的时候 p95 <strong>就等于某一条原始耗时</strong>，
+          发布它等于把一条原始记录印出来。K=5 保护的是「这一组有几台机器」，
+          它<strong>不保护分位数本身</strong>。所以这里另加一道「样本事件数 ≥ 20」的门槛。</p>
+        <p>20 不是一个被证明过的隐私边界，只是「p95 不再等于最大那一条」的保守起点。
+          硬保证要服务端在算的时候就取整 / 分桶（例如按 50ms 向上取整）。</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ════ 十一种「没有」的全谱 ════ -->
+<section class="section" id="snothing" aria-labelledby="hnothing">
+  <div class="sechead"><span class="num">图谱</span><h2 id="hnothing">十一种「没有」，两两不许长得一样</h2>
+    <span class="label">eleven kinds of nothing</span></div>
+  <p class="deck">硬约束：把不同的「没有」混成一句话，会让<strong>「服务挂了」看起来像「没人用」</strong> ——
+    那是这个平台能犯的最贵的错：它会让人据此下架一个其实很好用的 skill。
+    <strong>五个故障态刻意同族同色</strong>（余光里要先分出「故障 / 不是故障」），
+    族内靠图标、标题、下一步动作分开。</p>
+
+  <!-- ① unconfigured -->
+  <div class="nothing n-fault wide" role="group" aria-labelledby="n1" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unconfigured"/></svg>
+      <h4 id="n1">汇总端点还没接上。</h4></div>
+    <p>这里是空的，因为 dashboard 没有数据源可读 —— 不是因为没人用。
+      本实例还没有配 <code class="mono">GEOLY_SUMMARY_URL</code> /
+      <code class="mono">GEOLY_TELEMETRY_SUMMARY_TOKEN</code>，一次请求都还没发出去过。</p>
+    <p class="next">配好这两个环境变量再来看；在那之前这一页说的每一句「零」都只是「我们还没问过」。</p>
+  </div>
+
+  <!-- ② unreachable -->
+  <div class="nothing n-fault wide" role="group" aria-labelledby="n2" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unreachable"/></svg>
+      <h4 id="n2">汇总端点不可用。</h4></div>
+    <p>端点配了，但这一次没拿到回答（连不上 / 超时 / 服务端 5xx）。
+      这<strong>不是</strong>「没人用」—— 我们根本没有读到数。</p>
+    <p class="next">先看端点自身是不是活着；它恢复之前，这一页不代表任何真实用量。</p>
+    <p class="where">问的是 https://***.vercel.app/v1/summary · 原因码 timeout</p>
+  </div>
+
+  <!-- ③ denied -->
+  <div class="nothing n-fault wide" role="group" aria-labelledby="n3" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-denied"/></svg>
+      <h4 id="n3">汇总端点拒绝了我们。</h4></div>
+    <p>端点在，但它不认这把 token（401/403），或者它压根没打开
+      <code class="mono">/v1/summary</code>（404）。读出面默认关闭：服务端没配 summary token
+      时这个路由不存在，所以 404 的常见含义是「服务端那边忘了配」，不是「路径写错了」。</p>
+    <p class="next">对一遍两边的 token；服务端要设 GEOLY_TELEMETRY_SUMMARY_TOKEN 才会开这个路由。</p>
+    <p class="where">问的是 https://***.vercel.app/v1/summary · 原因码 401</p>
+  </div>
+
+  <!-- ④ invalid -->
+  <div class="nothing n-fault wide" role="group" aria-labelledby="n4" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-invalid"/></svg>
+      <h4 id="n4">端点回了 200，但内容不是我们认得的汇总。</h4></div>
+    <p>这一格<strong>绝不当成零</strong>：能回 200 的东西太多了 —— 登录墙、代理错误页、
+      换了形状的新版接口。把它读成「零事件」就是把一次故障说成一个结论。
+      （文案里连阿拉伯数字的零都不写，写「零」—— 故障格里的任何一个阿拉伯数字，
+      都可能被扫一眼的人当成这一格的值。）</p>
+    <p class="next">看一眼端点这一版的响应形状；dashboard 只按白名单取字段，形状变了它会如实说不认得。</p>
+    <p class="where">问的是 https://***.vercel.app/v1/summary · 原因码 schema-mismatch</p>
+  </div>
+
+  <!-- ⑤ unrecognized-rows（故障族的第五种，2px→3px 同轨，靠图标分） -->
+  <div class="nothing n-fault wide" role="group" aria-labelledby="n5" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unrecognized"/></svg>
+      <h4 id="n5">服务端回了行，但我们一行都不认得。</h4></div>
+    <p>校验没过：这个维度的每一行取值都没通过白名单校验，于是全被丢掉了。
+      硬约束：它<strong>不会</strong>升级成顶栏那个全局徽章 —— 端点本身是通的，
+      这是<strong>一张表</strong>的数据质量问题，说成「端点不可用」是一句假话。</p>
+    <p class="next">对一遍这个维度的取值口径。</p>
+  </div>
+
+  <!-- ⑥ no-events：硬约束：唯一一个不换纸、不给左轨的 -->
+  <div class="nothing n-zero wide" role="group" aria-labelledby="n6" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-zero"/></svg>
+      <h4 id="n6">端点通了，回来的是 0 条事件。</h4></div>
+    <p>这是<strong>真实的 0</strong>，不是故障，也不是筛没了 —— 我们问到了，答案就是「一条都没有」。
+      当前这个 0 是有解释的：CLI 还没发版、registry 里 0 个制品，
+      所以没有人能装出一条 install 事件来。</p>
+    <p class="next">第一条事件会在第一个用户跑成功一次 install 之后出现（自动上报每台机器每天最多一次）。</p>
+    <p class="cap" style="margin-top:var(--sp-2)">硬约束：<strong>它与下面的「维度是空的」是全谱里仅有的两个不换纸、不给色带的格子</strong>—— 它们都是<strong>结论</strong>。给一个结论加色带，就是把结论说成异常。</p>
+  </div>
+
+  <!-- ⑦ no-rows -->
+  <div class="nothing n-zero wide" role="group" aria-labelledby="n7" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-empty-dim"/></svg>
+      <h4 id="n7">这个维度服务端算了，但一行都没有。</h4></div>
+    <p>有事件，服务端也返回了这个维度 —— 它就是空的。最常见的原因是这批事件根本不带这个字段：
+      <code class="mono">artifact</code> / <code class="mono">version</code> /
+      <code class="mono">client</code> / <code class="mono">scope</code> /
+      <code class="mono">ms</code> / <code class="mono">reason</code> 都是<strong>选填</strong>，
+      例如 <code class="mono">rollback</code> / <code class="mono">sync-lock</code>
+      这类事件本来就没有 artifact。这既不是故障，也不是「没人用」。</p>
+    <p class="next">想知道那批事件去哪了，看「按动作」那张表 —— 它是必填字段，一条都不会漏。</p>
+  </div>
+
+  <!-- ⑧ dimension-missing 已在 §02 出现，这里给纸样对照 -->
+  <div class="nothing n-pending wide" role="group" aria-labelledby="n8" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-not-computed"/></svg>
+      <h4 id="n8">这个维度服务端还没算。</h4></div>
+    <p>靛紫 = <strong>一条待办</strong>，不是故障。它和砖红的区别是有意的：
+      「服务端还没写这段聚合」是我们自己的排期问题，而砖红说的是「链路断了」。</p>
+    <p class="next">需要的聚合列在第 99 段，加在服务端，这里自动就有了。</p>
+  </div>
+
+  <!-- ⑨ filtered-empty：当前不可达 -->
+  <div class="nothing n-quiet wide" role="group" aria-labelledby="n9" style="margin-bottom:var(--sp-3)">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-filtered"/></svg>
+      <h4 id="n9">当前筛选条件下没有行。</h4></div>
+    <p>有事件，这个维度服务端也算了、也有行 —— 只是<strong>这一组筛选</strong>把它们全筛掉了。</p>
+    <p class="next">放宽或清掉筛选条件就能看到。</p>
+    <p class="cap" style="margin-top:var(--sp-2)">硬约束：<strong>这一格在当前页面里不可能为真</strong> ——
+      页面上没有筛选器。落点先画出来（将来加筛选器要用），但生产页面在那之前
+      <strong>不许渲染它</strong>：那是一句在当前页面里不可能为真的话。</p>
+  </div>
+
+  <!-- ⑩⑪ 两种抑制并排，看它们哪里不一样 -->
+  <div class="grid2">
+    <div class="nothing n-withheld" role="group" aria-labelledby="n10">
+      <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-withheld"/></svg>
+        <span class="withheld">未发布</span>
+        <h4 id="n10">有行，但一行都发布不出来。</h4></div>
+      <p>候选行存在。三种可能常常混在一起：装机数没到门槛、服务端没给去重装机数、被互补抑制连带拿掉。</p>
+      <p class="next">装机数长上去、或服务端补上 distinct installs 之后这张表自己会出现。</p>
+    </div>
+    <div class="nothing n-withheld" role="group" aria-labelledby="n11">
+      <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-withheld-q"/></svg>
+        <span class="withheld">未发布</span>
+        <h4 id="n11">有行，但一行分位数都发布不出来。</h4></div>
+      <p>这张表比别的表多一道门槛：除了去重装机数，还要求<strong>样本事件数</strong>足够。
+        所以<strong>不要读成「装机数不够」</strong>：也可能是机器够多、但每台只装过一两次。</p>
+      <p class="next">样本量长上去之后这张表自己会出现。想更早看到，正确做法是让服务端在算分位数时就取整 / 分桶。</p>
+    </div>
+  </div>
+
+  <p class="cap" style="margin-top:var(--sp-3)">
+    硬约束：<strong>版面顺序必须与判定顺序一致</strong>（数据源 → 响应合法性 → 有没有事件 → 维度 → 筛选 → 抑制）：
+    数据源级的告示条在主区第一块，维度级的在各自面板内，行级的在表格内。
+    倒过来放会让人先看到「这张表被抑制了」，再往上滚才发现端点根本没连上。
+  </p>
+</section>
+
+<!-- ════ 顶栏徽章五态 ════ -->
+<section class="section" aria-labelledby="hchip">
+  <div class="sechead"><span class="num">徽章</span><h2 id="hchip">数据源徽章：作用域只有 SOURCE 五态</h2>
+    <span class="label">source badge</span></div>
+  <p class="deck">硬约束：<code class="mono">unrecognized-rows</code> <strong>不许</strong>进这个徽章 ——
+    端点是通的，那是某一张表的数据质量问题；把它升级成全局徽章等于对整页说「端点不可用」。</p>
+  <div style="display:flex;flex-wrap:wrap;gap:var(--sp-2)">
+    <span class="statechip"><svg class="i" aria-hidden="true"><use href="#i-s-zero"/></svg>端点已连通</span>
+    <span class="statechip fault"><svg class="i" aria-hidden="true"><use href="#i-s-unconfigured"/></svg>端点未接上</span>
+    <span class="statechip fault"><svg class="i" aria-hidden="true"><use href="#i-s-unreachable"/></svg>端点不可用</span>
+    <span class="statechip fault"><svg class="i" aria-hidden="true"><use href="#i-s-denied"/></svg>端点拒绝了我们</span>
+    <span class="statechip fault"><svg class="i" aria-hidden="true"><use href="#i-s-invalid"/></svg>响应不是汇总</span>
+  </div>
+  <p class="cap" style="margin-top:var(--sp-3)">
+    硬约束：「端点已连通」<strong>不是绿色</strong>：全站没有绿色。这里没有验证轴，
+    一个连通的端点不是一次担保，一个 <code class="mono">result: ok</code> 的计数更不是。
+  </p>
+</section>
+
+<!-- ════ 99 服务端缺口 ════ -->
+<section class="section" id="s99" aria-labelledby="h99">
+  <div class="sechead"><span class="num">99</span><h2 id="h99">服务端待补的聚合</h2>
+    <span class="label">server-side work</span></div>
+  <p class="deck">dashboard 不写第二份聚合（会与 <code class="mono">server/aggregate.mjs</code> 分叉，
+    而分叉不会让任何东西变红）。缺维度时正确的动作是把缺口列出来 —— 这张清单是从实际返回里算出来的，
+    服务端补上一项这里就少一行。</p>
+  <div class="panel">
+    <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-gaps"/></svg>
+      <h3>缺口清单</h3><span class="spacer"></span><span class="rows">3 项</span></div>
+    <div class="body table"><div class="tablewrap"><table>
+      <thead><tr><th scope="col">key</th><th scope="col">expected shape</th></tr></thead>
+      <tbody>
+        <tr><td class="v">installs</td><td class="v">{ "installs": &lt;去重 install_id 数&gt; }</td></tr>
+        <tr><td class="v">byClient</td><td class="v">{ "&lt;取值&gt;": { "n": …, "installs": … } }</td></tr>
+        <tr><td class="v">durations</td><td class="v">[{ "version": "…", "n": …, "installs": …, "p50": …, "p95": … }]</td></tr>
+      </tbody></table></div></div>
+    <div class="body" style="padding-top:var(--sp-3);padding-bottom:var(--sp-3)">
+      <p class="cap">硬约束：键名必须叫 <code class="mono">installs</code>（一个计数）：
+        任何 <code class="mono">install_id</code> / <code class="mono">installIds</code> /
+        <code class="mono">byInstallId</code> 形态的键都会被递归剥掉，到不了页面。</p>
+    </div>
+  </div>
+  <div class="nothing n-fault" role="group" aria-labelledby="h99b">
+    <div class="hd"><svg class="i i-18" aria-hidden="true"><use href="#i-s-unreachable"/></svg>
+      <h4 id="h99b">算不出这张清单。</h4></div>
+    <p>（上游不可用时这一段的样子。）缺口清单是拿<strong>实际返回</strong>对出来的。
+      这一次没拿到返回，所以这里没有清单可给 ——
+      <strong>不是「没有缺口」，也不是「全都缺」</strong>。</p>
+    <p class="next">先把上面那一环修好，这张清单会自己出现。</p>
+  </div>
+</section>
+
+<!-- ════ 图标族图例（仅演示页）════ -->
+<section class="section" aria-labelledby="hicon">
+  <div class="sechead"><span class="num">图标</span><h2 id="hicon">四个族与越界纪律</h2>
+    <span class="label">icon families</span></div>
+  <p class="deck">全部内联 SVG，16×16 viewBox，1.5 描边。
+    硬约束：<code class="mono">n-*</code> 只在导航、<code class="mono">s-*</code> 只在告示条与徽章、
+    <code class="mono">m-*</code> 只在量度值旁、<code class="mono">u-*</code> 不表达状态。
+    图标一律 <code class="mono">aria-hidden</code>，且必须与一个可见的词同现。</p>
+  <div class="legend">
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-overview"/></svg> 总览</div><code>n-overview</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-usage"/></svg> 使用</div><code>n-usage</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-failures"/></svg> 失败</div><code>n-failures</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-latency"/></svg> 耗时</div><code>n-latency</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-gaps"/></svg> 缺口</div><code>n-gaps</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-n-boundary"/></svg> 边界</div><code>n-boundary</code></div>
+
+    <div class="cell" style="color:var(--c-fault)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-unconfigured"/></svg> 未接上</div><code>s-unconfigured</code></div>
+    <div class="cell" style="color:var(--c-fault)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-unreachable"/></svg> 不可用</div><code>s-unreachable</code></div>
+    <div class="cell" style="color:var(--c-fault)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-denied"/></svg> 被拒绝</div><code>s-denied</code></div>
+    <div class="cell" style="color:var(--c-fault)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-invalid"/></svg> 形状不对</div><code>s-invalid</code></div>
+    <div class="cell" style="color:var(--c-fault)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-unrecognized"/></svg> 全被丢掉</div><code>s-unrecognized</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-zero"/></svg> 真实的 0</div><code>s-zero</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-empty-dim"/></svg> 维度是空的</div><code>s-empty-dim</code></div>
+    <div class="cell" style="color:var(--c-pending)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-not-computed"/></svg> 还没算</div><code>s-not-computed</code></div>
+    <div class="cell" style="color:var(--c-unknown)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-filtered"/></svg> 筛没了</div><code>s-filtered</code></div>
+    <div class="cell" style="color:var(--c-withheld)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-withheld"/></svg> 未发布</div><code>s-withheld</code></div>
+    <div class="cell" style="color:var(--c-withheld)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-s-withheld-q"/></svg> 分位数未发布</div><code>s-withheld-q</code></div>
+
+    <div class="cell" style="color:var(--c-withheld)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-m-bucket"/></svg> 区间</div><code>m-bucket</code></div>
+    <div class="cell" style="color:var(--c-withheld)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-m-floored"/></svg> 压到门槛下</div><code>m-floored</code></div>
+    <div class="cell" style="color:var(--c-unknown)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-m-unknown"/></svg> 未提供</div><code>m-unknown</code></div>
+    <div class="cell" style="color:var(--c-withheld)"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-m-withheld"/></svg> 未发布</div><code>m-withheld</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-u-info"/></svg> 提示</div><code>u-info</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-u-chevron"/></svg> 展开</div><code>u-chevron</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-u-theme"/></svg> 主题</div><code>u-theme</code></div>
+    <div class="cell"><div class="g"><svg aria-hidden="true" class="i i-16"><use href="#i-u-external"/></svg> 外链</div><code>u-external</code></div>
+  </div>
+</section>
+
+<!-- ════ 配色 ════ -->
+<section class="section" aria-labelledby="hcolor">
+  <div class="sechead"><span class="num">配色</span><h2 id="hcolor">四种墨，各管一件事</h2>
+    <span class="label">four inks</span></div>
+  <p class="deck">硬约束：<strong>全站没有绿色。</strong>
+    强调色（钢蓝）只表达「可点 / 当前项 / 焦点」，<strong>不表达任何状态</strong>。</p>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:var(--c-fault)"></div><div class="t">--c-fault 我们读不到数</div></div>
+    <div class="sw"><div class="chip" style="background:var(--c-withheld)"></div><div class="t">--c-withheld 有数但不发布</div></div>
+    <div class="sw"><div class="chip" style="background:var(--c-pending)"></div><div class="t">--c-pending 服务端还没算</div></div>
+    <div class="sw"><div class="chip" style="background:var(--c-unknown)"></div><div class="t">--c-unknown 我们不知道</div></div>
+    <div class="sw"><div class="chip" style="background:var(--c-accent)"></div><div class="t">--c-accent 只画线</div></div>
+    <div class="sw"><div class="chip" style="background:var(--c-accent-ink)"></div><div class="t">--c-accent-ink 才写字</div></div>
+    <div class="sw"><div class="chip" style="background:var(--c-measure)"></div><div class="t">--c-measure 图表条</div></div>
+    <div class="sw"><div class="chip" style="background:var(--p-fault)"></div><div class="t">--p-fault</div></div>
+    <div class="sw"><div class="chip" style="background:var(--p-withheld);background-image:var(--hatch-withheld)"></div><div class="t">--p-withheld + 斜纹</div></div>
+    <div class="sw"><div class="chip" style="background:var(--p-pending)"></div><div class="t">--p-pending</div></div>
+    <div class="sw"><div class="chip" style="background:var(--p-quiet)"></div><div class="t">--p-quiet</div></div>
+    <div class="sw"><div class="chip" style="background:var(--c-inset)"></div><div class="t">--c-inset</div></div>
+  </div>
+</section>
+
+<!-- ════ 口径与边界（长文落点）════ -->
+<section class="section" id="sbnd" aria-labelledby="hbnd">
+  <div class="sechead"><span class="num">边界</span><h2 id="hbnd">口径与边界</h2>
+    <span class="label">scope and boundaries</span></div>
+  <p class="deck">硬约束：这一页承接<strong>长论证</strong>；它<strong>不能取代</strong>顶部那条采集面契约条 ——
+    一个只看首页、从没点进这里的人，仍然必须知道那三件事。</p>
+
+  <div class="panel">
+    <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-boundary"/></svg>
+      <h3>为什么这个平台永远不提供「按 install_id 下钻」</h3></div>
+    <div class="body">
+      <p><code class="mono">install_id</code> 是本机随机 UUID，与账号、机器名、用户名都没有映射，
+        <strong>单看它确实不指向人</strong>。但一个<strong>能把某个 install_id
+        的事件按时间排开的界面，本身就是再识别工具</strong>：排出来的是
+        「这台机器哪天装了什么、什么时候卸的、跑的是哪个 OS 和 CLI 版本」的完整轨迹。
+        规格 §6 的 T-11 说的正是它：源 IP + 稳定 install_id + 时间线 = 机器级追踪。
+        端点侧已经用「不记 IP、不记 UA」掐掉了 IP 那一半；
+        <strong>时间线那一半在这个平台手里</strong>。</p>
+      <p>所以做法是<strong>结构性</strong>的，不靠自觉：白名单正向取字段、
+        归一化时递归剥掉任何识别符形态的键、小样本抑制。想加下钻，先去改规格。</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="head"><svg class="i" aria-hidden="true"><use href="#i-n-boundary"/></svg>
+      <h3>已知的残余风险：跨表相减</h3></div>
+    <div class="body">
+      <p>首页并列发布的是<strong>同一批事件的不同切法</strong>。配合一点外部知识，
+        理论上可以拿几张表互相相减，把某一张里被抑制的行推出来。</p>
+      <p><strong>这里做到的</strong>：每张表不发布总计行；被抑制的那一组不报事件合计；
+        只要任何一张表有抑制，顶层标量就分桶发布 —— 减法能得到的只是一个区间。</p>
+      <p><strong>这里做不到的</strong>：一个硬保证。行数、枚举里缺席的取值、跨表的行数差
+        都还是约束条件。真正闭合要对「整套固定发布的表」做联合抑制 / 可解性校验，只能在服务端做。</p>
+      <p class="cap">这一条写在页面上而不是藏起来 —— 一个后台的读者有权知道它的保证到哪为止。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ════ 登录页样张 ════ -->
+<section class="section" aria-labelledby="hlogin">
+  <div class="sechead"><span class="num">登录</span><h2 id="hlogin">登录页：口令形式不变，视觉跟上</h2>
+    <span class="label">shared secret</span></div>
+  <p class="deck">原生 <code class="mono">&lt;form method="post"&gt;</code>，<strong>没有一行客户端 JS</strong> ——
+    于是「口令会不会被前端代码碰到」这个问题在结构上不存在。
+    硬约束：登录页上没有采集面契约条、没有侧栏、没有数据源徽章：那时我们还没问过任何东西。</p>
+  <div class="loginframe">
+    <div class="logincard">
+      <div style="display:flex;align-items:center;gap:6px">
+        <svg class="i" aria-hidden="true"><use href="#i-n-boundary"/></svg>
+        <span class="label">geoly-ai / skills-hub</span>
+      </div>
+      <h2>内部运营数据</h2>
+      <p class="dim">这个平台展示的是「哪些 skill 没人用」「装失败集中在哪个版本」——
+        还没对外说的话，和一份现成的攻击面清单。所以它不公开。</p>
+      <form onsubmit="return false">
+        <label class="label-cn" for="secret">共享口令</label>
+        <input id="secret" type="password" value="0123456789abcdef" spellcheck="false">
+        <button class="btn primary" type="submit" style="width:100%;height:38px">进入</button>
+      </form>
+      <div class="nothing n-fault" role="group" aria-labelledby="lerr" style="margin-top:var(--sp-4)">
+        <div class="hd"><svg class="i" aria-hidden="true"><use href="#i-s-denied"/></svg>
+          <h4 id="lerr" style="font-size:13.5px">口令不对。</h4></div>
+        <p style="font-size:var(--fs-sm)">只告诉你这一句 ——「长度不对」「前几位对了」之类的提示是在教人怎么猜。</p>
+      </div>
+      <p class="cap" style="margin-top:var(--sp-4)">
+        这把口令是<strong>共享</strong>的：它挡得住搜索引擎、被转发的链接和没有凭据的爬虫，
+        但它<strong>没有个人身份</strong> —— 没法按人吊销，也没有「谁看了什么」的审计。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════ 自测 ════ -->
+<section class="section" aria-labelledby="haudit">
+  <div class="sechead"><span class="num">自测</span><h2 id="haudit">对比度与不变量</h2>
+    <span class="label">self check</span></div>
+  <p class="deck">两个坑：① 不要把单字符文本排除在外（用 <code class="mono">length &gt;= 1</code>）；
+    ② 颜色解析不要用正则 —— <code class="mono">color-mix()</code> 的计算值不是
+    <code class="mono">rgb(a,b,c)</code> 形状，用 canvas 解析。
+    注意：斜纹是 <code class="mono">background-image</code>，
+    <code class="mono">getComputedStyle</code> 读不到，所以斜纹格是按纯纸样底测的，浓度改了要重测。</p>
+  <div style="display:flex;flex-wrap:wrap;gap:var(--sp-2)">
+    <button class="btn" id="auditBtn" type="button">跑一遍对比度自测（WCAG 相对亮度）</button>
+    <button class="btn" id="invBtn" type="button">跑一遍设计不变量检查</button>
+  </div>
+  <pre id="audit" hidden style="margin-top:var(--sp-3)"></pre>
+</section>
+
+<p class="cap" style="margin-top:var(--sp-7)">
+  样式演示页 · 全部为假数据 · 页面内不含采集面白名单之外的任何指标
+  （没有活跃用户 / 留存 / 时长分布 / DAU / 占比 / 健康分 / 时间趋势），
+  也不含任何具体的 install_id。
+</p>
+
+</main>
+</div>
+</div>
+
+<script>
+/* 主题：三态 系统 → 亮 → 暗 */
+(function () {
+  var btn = document.getElementById('themeBtn');
+  var modes = [{ v: null, t: '主题：跟随系统' }, { v: 'light', t: '主题：亮' }, { v: 'dark', t: '主题：暗' }];
+  var i = 0;
+  var icon = '<svg class="i i-12" style="vertical-align:-2px" aria-hidden="true"><use href="#i-u-theme"/></svg> ';
+  btn.addEventListener('click', function () {
+    i = (i + 1) % modes.length;
+    var m = modes[i];
+    if (m.v) document.documentElement.setAttribute('data-theme', m.v);
+    else document.documentElement.removeAttribute('data-theme');
+    btn.innerHTML = icon + m.t;
+  });
+})();
+
+/* ── 对比度自测 ──────────────────────────────────────────────────────────
+   量渲染后的计算值，不靠人肉估。WCAG 2.x 相对亮度。 */
+function srgbToLin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+function lum(rgb) { return 0.2126 * srgbToLin(rgb[0]) + 0.7152 * srgbToLin(rgb[1]) + 0.0722 * srgbToLin(rgb[2]); }
+/* 硬约束：用 canvas 解析颜色，别用正则：color-mix() 的计算值不是 rgb(a,b,c) 形状 */
+var _cx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+function parseRGB(s) {
+  if (!s || s === 'transparent' || s === 'none') return [0, 0, 0, 0];
+  _cx.clearRect(0, 0, 1, 1); _cx.fillStyle = '#000'; _cx.fillStyle = s;
+  var resolved = _cx.fillStyle;
+  _cx.clearRect(0, 0, 1, 1); _cx.fillStyle = resolved; _cx.fillRect(0, 0, 1, 1);
+  var d = _cx.getImageData(0, 0, 1, 1).data;
+  return [d[0], d[1], d[2], d[3] / 255];
+}
+function over(fg, bg) { var a = fg[3]; return [0,1,2].map(function (i) { return fg[i] * a + bg[i] * (1 - a); }); }
+function ratio(a, b) { var l1 = lum(a), l2 = lum(b); if (l1 < l2) { var t = l1; l1 = l2; l2 = t; }
+  return (l1 + 0.05) / (l2 + 0.05); }
+function effectiveBg(el) {
+  var n = el;
+  while (n && n !== document.documentElement) {
+    var c = parseRGB(getComputedStyle(n).backgroundColor);
+    if (c && c[3] > 0.99) return c.slice(0, 3);
+    n = n.parentElement;
+  }
+  return parseRGB(getComputedStyle(document.body).backgroundColor).slice(0, 3);
+}
+window.auditContrast = function () {
+  var out = [], fails = 0, checked = 0;
+  var sel = 'p, span, div, dt, dd, td, th, li, h1, h2, h3, h4, a, button, code, .label, .v, .cap, .t';
+  var seen = new Set();
+  document.querySelectorAll(sel).forEach(function (el) {
+    if (el.offsetParent === null && el.tagName !== 'BODY') return;
+    /* 硬约束：length >= 1：单字符文本（那个 0、那个 <5）恰恰是最容易配错色的 */
+    var hasText = Array.prototype.some.call(el.childNodes, function (n) {
+      return n.nodeType === 3 && n.textContent.trim().length >= 1; });
+    if (!hasText) return;
+    var cs = getComputedStyle(el);
+    var fg = parseRGB(cs.color); if (!fg) return;
+    var bg = effectiveBg(el);
+    var r = ratio(fg[3] < 0.99 ? over(fg, bg) : fg.slice(0, 3), bg);
+    var px = parseFloat(cs.fontSize);
+    var bold = parseInt(cs.fontWeight, 10) >= 700;
+    var large = px >= 24 || (bold && px >= 18.66);
+    var need = large ? 3 : 4.5;
+    checked++;
+    var key = cs.color + '|' + bg.join(',') + '|' + Math.round(px) + '|' + large;
+    if (seen.has(key)) return; seen.add(key);
+    if (r < need) { fails++;
+      out.push('FAIL ' + r.toFixed(2) + ' (need ' + need + ')  ' + px + 'px  fg=' + cs.color +
+        ' bg=rgb(' + bg.map(Math.round).join(',') + ')  <' + el.tagName.toLowerCase() + ' class="' +
+        (el.className || '').toString().slice(0, 46) + '">  "' +
+        (el.textContent || '').trim().slice(0, 34) + '"');
+    }
+  });
+  return { checked: checked, uniquePairs: seen.size, fails: fails, detail: out };
+};
+
+/* ── 设计不变量检查 ──────────────────────────────────────────────────────
+   这几条是 DESIGN.md 里带红点的硬约束中、能静态查的部分。生产实现应把同样的检查搬进构建期。 */
+window.auditInvariants = function () {
+  var out = [];
+  var CJK = /[一-鿿]/;
+
+  // ① .label 里不许有中文（uppercase 对中文无效，字距会把中文拉散）
+  var badLabel = [].filter.call(document.querySelectorAll('.label'),
+    function (el) { return CJK.test(el.textContent); });
+  out.push((badLabel.length === 0 ? 'PASS' : 'FAIL') + '  含中文的 .label：' + badLabel.length + ' 个（应为 0）');
+
+  // ② td / .v 的 text-transform 必须是 none（版本号区分大小写）
+  var badTT = [].filter.call(document.querySelectorAll('td, .kpi .v'),
+    function (el) { return getComputedStyle(el).textTransform !== 'none'; });
+  out.push((badTT.length === 0 ? 'PASS' : 'FAIL') + '  td / .kpi .v 的 text-transform 非 none：' + badTT.length + ' 个（应为 0）');
+
+  // ③ 抑制位里不许出现任何数字，也不许出现破折号 / N/A / 空白。
+  //    判据是「整段文本里一个数字都没有」，不是「整段恰好等于 0」——
+  //    后者太松：一个「未发布 0」照样能过。
+  //    ⚠️ 破折号只在**值位**（表格里那一格）禁；告示条正文用「——」当标点是正常的，
+  //       所以两类分开查，否则会报一堆假的不达标。
+  var withheldSpots = document.querySelectorAll('.withheld-row > td, .n-withheld');
+  var badCell = [].filter.call(withheldSpots, function (el) {
+    var t = (el.textContent || '').trim();
+    if (t.length === 0) return true;
+    if (/[0-9]/.test(t)) return true;                       // 阿拉伯数字一个都不许有
+    if (!el.matches('.withheld-row > td')) return false;    // 正文到此为止
+    return /[—–]|N\/A|n\/a/.test(t) || /(^|\s)-(\s|$)/.test(t);
+  });
+  out.push((badCell.length === 0 ? 'PASS' : 'FAIL') + '  抑制位里出现数字 / 破折号 / N/A / 空白：' +
+    badCell.length + ' 处（应为 0，共查 ' + withheldSpots.length + ' 处）');
+
+  // ③b 故障告示条里不许出现阿拉伯数字的 0（说「零」，不写 0）—— 见 §9.3
+  var faultZero = [].filter.call(document.querySelectorAll('.n-fault'), function (el) {
+    return /(^|[^0-9A-Za-z._-])0([^0-9A-Za-z._-]|$)/.test(el.textContent || ''); });
+  out.push((faultZero.length === 0 ? 'PASS' : 'FAIL') + '  故障告示条里出现阿拉伯数字 0：' +
+    faultZero.length + ' 处（应为 0）');
+
+  // ④ 每一个抑制位都必须带可读文本「未发布」—— 斜纹是 background-image，读屏读不到。
+  //    表内横条与整表告示条都要，缺一个就等于那一处只剩颜色一个通道。
+  var wrOk = [].filter.call(withheldSpots, function (el) {
+    return (el.textContent || '').indexOf('未发布') < 0; });
+  out.push((wrOk.length === 0 ? 'PASS' : 'FAIL') + '  抑制位缺可读文本「未发布」：' +
+    wrOk.length + ' 处（应为 0，共查 ' + withheldSpots.length + ' 处）');
+
+  // ⑤ 不许有 0 长条形（画一根 0 长的条 = 画了一个 0）
+  var zeroBar = [].filter.call(document.querySelectorAll('.bar > i, .dumb > .seg'),
+    function (el) { return el.getBoundingClientRect().width < 0.5; });
+  out.push((zeroBar.length === 0 ? 'PASS' : 'FAIL') + '  0 长条形：' + zeroBar.length + ' 处（应为 0）');
+
+  // ⑥ 图标越界：n-* 只在导航 / 面板头 / 登录卡品牌行；s-* 只在告示条 / 徽章 / 抑制行；
+  //    m-* 只在量度值旁。（本演示页的 .legend 图例区豁免 —— 生产页面没有对应结构）
+  //    抑制行里只允许 s-withheld / s-withheld-q，别的 s-* 越界。
+  var esc = [];
+  document.querySelectorAll('use').forEach(function (u) {
+    var id = (u.getAttribute('href') || '').replace('#i-', '');
+    var el = u.closest('svg').parentElement;
+    if (el.closest('.legend')) return;
+    if (/^n-/.test(id) && !el.closest('.nav') && !el.closest('.logincard') && !el.closest('.panel .head')) esc.push(id);
+    if (/^s-/.test(id)) {
+      if (el.closest('.withheld-row')) { if (!/^s-withheld/.test(id)) esc.push(id); }
+      else if (!el.closest('.nothing') && !el.closest('.statechip')) esc.push(id);
+    }
+    if (/^m-/.test(id) && !el.closest('.kpi') && !el.closest('td') && !el.closest('.unk')) esc.push(id);
+  });
+  out.push((esc.length === 0 ? 'PASS' : 'FAIL') + '  跨族图标越界：' + esc.length + ' 处（应为 0）' +
+    (esc.length ? ' → ' + esc.join(', ') : ''));
+
+  // ⑦ 每个图标都 aria-hidden 且父元素有可见文字（图标不许单独承载语义）
+  var lonely = 0;
+  document.querySelectorAll('svg.i').forEach(function (s) {
+    if (s.getAttribute('aria-hidden') !== 'true') lonely++;
+    else if ((s.parentElement.textContent || '').trim().length === 0) lonely++;
+  });
+  out.push((lonely === 0 ? 'PASS' : 'FAIL') + '  没有 aria-hidden 或没有配词的图标：' + lonely + ' 个（应为 0）');
+
+  // ⑧ 界面上零 emoji。DESIGN.md 里的红点是给读文档的人的，不许跟着上屏。
+  //    ⚠️ 现有 lib/state.mjs 的文案里带着字面量 emoji 与 Markdown 的星号，实现时要一起清掉。
+  var EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+  var emo = 0;
+  document.querySelectorAll('body *').forEach(function (el) {
+    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
+    [].forEach.call(el.childNodes, function (n) {
+      if (n.nodeType === 3 && EMOJI.test(n.textContent)) emo++;
+    });
+  });
+  out.push((emo === 0 ? 'PASS' : 'FAIL') + '  界面文本里的 emoji：' + emo + ' 处（应为 0）');
+
+  // ⑨ 零横向溢出。判据用 clientWidth 而不是 innerWidth，也不留 +1 的余量：
+  //    innerWidth 含滚动条宽度，留了余量就验收不了「375px 下精确无溢出」这条。
+  var de = document.documentElement;
+  var ok = de.scrollWidth <= de.clientWidth;
+  out.push((ok ? 'PASS' : 'FAIL') + '  横向溢出：scrollWidth=' + de.scrollWidth +
+    ' / clientWidth=' + de.clientWidth + '（把窗口收到 375px 再跑一次）');
+
+  return out;
+};
+
+document.getElementById('auditBtn').addEventListener('click', function () {
+  var r = window.auditContrast();
+  var pre = document.getElementById('audit');
+  pre.hidden = false;
+  pre.textContent = '检查文本节点 ' + r.checked + ' 个 / 去重后配色组合 ' + r.uniquePairs +
+    ' 组 / 不达标 ' + r.fails + ' 组\n\n' + (r.detail.join('\n') || '全部达标');
+});
+document.getElementById('invBtn').addEventListener('click', function () {
+  var pre = document.getElementById('audit');
+  pre.hidden = false;
+  pre.textContent = window.auditInvariants().join('\n');
+});
+</script>
+</body>
+</html>
