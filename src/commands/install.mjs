@@ -30,6 +30,7 @@ import { parseSpec, resolveSpec } from './resolve.mjs';
 import { annotations, annotationSuffix } from './output.mjs';
 import { UsageError, ConflictError, UnsupportedError, EXIT, classify } from '../exit-codes.mjs';
 import { resolveSnapshotForCommand } from './snapshot-access.mjs';
+import { preheatForInstall, preheatAssetsFor } from './preheat-run.mjs';
 import { makeLockfileHook } from './sync-lock.mjs';
 
 /**
@@ -494,6 +495,12 @@ export async function cmdInstall(ctx, argv, out) {
   }
 
   // ── 解析当前快照（metadata 锁在 trust 内核里起落，本层不碰它） ───────────
+  // ── 联网刷新 metadata（🔴 必须在解析快照**之前**）────────────────────────
+  //    出网只发生在这里；`resolveSnapshotForCommand` 之后的一切都是同步的、
+  //    只读本地缓存。`--offline` 时这一步直接跳过 —— 走的是同一条码，
+  //    不是「另一条不出网的实现」。
+  await preheatForInstall(ctx, out);
+
   const { snapshot: snap, stale, floor, pinned, verifier } = await resolveSnapshotForCommand(ctx);
   if (stale) out.warn('timestamp 已过期：本次输出全部按 stale 处理（--allow-stale 已给）');
 
@@ -515,6 +522,10 @@ export async function cmdInstall(ctx, argv, out) {
   //    完全同一个**的兼容性检查 —— 一处判定、一种文案。
   //    因此这里 `client: null`：让 resolvePackInstall 只管成员，不重复判 client。
   const byId = new Map(snap.artifacts.map((r) => [r.id, r]));
+  // 🔴 `fetchAsset` 是**同步**的（内核要求），所以字节必须在这之前就到本地。
+  //    分两波是因为 pack 本体要先下回来、验过、读出 manifest，
+  //    才知道它的成员是哪些 —— 成员的资产在下面第二波。
+  await preheatAssetsFor(ctx, records.filter((r) => r.kind === 'pack'), snap);
   const packInfos = records.filter((r) => r.kind === 'pack').map((record) => {
     const bytes = ctx.registry.fetchAsset(record);
     const manifest = withPackErrors(() => withVerifiedArtifact(
@@ -562,6 +573,12 @@ export async function cmdInstall(ctx, argv, out) {
       perClient.set(t.client, { records, packInfos, ...buildUnits(records, packInfos) });
     }
   }
+
+  // ── 第二波：单元资产（🔴 也必须在进事务之前）────────────────────────────
+  //    `installOneTarget` 是**同步**的 —— 它在锁与事务里面，不能 await。
+  //    所以真正会落盘的那些字节必须在这里就到本地。
+  //    ⚠️ 各 client 的单元可能不同，所以取的是**并集**；按摘要落盘，重复的不会重下。
+  await preheatAssetsFor(ctx, [...perClient.values()].flatMap((v) => v.units.map((u) => u.record)), snap);
 
   if (isAll) {
     // 🔴 **名单为空的 client 整个跳过，不要走一个空事务。**

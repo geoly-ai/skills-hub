@@ -222,6 +222,13 @@ export function makeContext(globals, deps = {}) {
     verifier: deps.verifier ?? null,
     /** 注入点：测试用内存 registry，生产用 `registry.mjs` 的缓存适配器 */
     registryFactory: deps.registryFactory ?? null,
+    /**
+     * 注入点：出网。生产走内建 `fetch`（`src/download.mjs` 的默认值）。
+     * 🔴 与 `verifier` 一样**没有逃生口**：不给就是真出网，
+     *    不存在「测试忘了注入所以静默不出网」这种状态 ——
+     *    那会让「--offline 有没有被绕过」这个问题看起来被回答了，其实没有。
+     */
+    fetchImpl: deps.fetchImpl ?? null,
     /** 注入点：埋点。生产是 `telemetry.record` */
     record: deps.record ?? null,
     /**

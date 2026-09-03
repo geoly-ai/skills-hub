@@ -81,7 +81,7 @@ export function packRecord(over = {}) {
     version: '0.3.6',
     path: 'artifacts/packs/geoly/plaud-theme-matrix/0.3.6',
     tree_digest: 'geoly-tree-v1:sha256:' + 'b'.repeat(64),
-    asset: { file: 'x.tar.gz', sha256: 'sha256:' + 'c'.repeat(64), size: 1 },
+    asset: { file: 'pack_geoly_plaud-theme-matrix_0.3.6.tar.gz', sha256: 'sha256:' + 'c'.repeat(64), size: 1 },
     clients: ['claude', 'cursor', 'codex', 'agents'],
     capabilities: ['none'],
     replaces: [], conflicts: [], license: 'MIT',
@@ -103,7 +103,12 @@ function recordFor({ kind, namespace, name, version, packed, over }) {
     kind, namespace, name, version,
     path: `artifacts/${kind}s/${namespace}/${name}/${version}`,
     tree_digest: packed.tree_digest,
-    asset: { file: `${name}-${version}.tar.gz`, sha256: packed.sha256, size: packed.size },
+    // 🔴 命名必须与**发布端**一致（`scripts/build-snapshot.mjs` 的 `assetFileName()`）。
+    //    夹具原本写的是 `${name}-${version}.tar.gz` —— 生产里从来不会产生这种名字
+    //    （核对过 registry/snapshots/hub-2.json 的 23 条，全是下面这个形状）。
+    //    夹具与生产不一致时，**测试测的是一个不存在的世界**：
+    //    客户端按记录字段重算文件名去下载，照夹具那种名字永远 404。
+    asset: { file: `${kind}_${namespace}_${name}_${version}.tar.gz`, sha256: packed.sha256, size: packed.size },
     clients: ['claude', 'cursor', 'codex', 'agents'],
     capabilities: ['none'],
     replaces: [], conflicts: [], license: 'MIT',
