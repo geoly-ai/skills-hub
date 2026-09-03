@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "用 skills-hub CLI 装 skill / pack —— 命令、装到哪一端、复现与离线、装崩了怎么恢复、以及为什么没有 --force。当用户要装 geoly 的 skill、说「装一下 xxx skill」、要查装了什么、或者安装失败要排查时使用。",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "skills-hub-install",
+  "namespace": "geoly-ai",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 16
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.2.0"
+}
