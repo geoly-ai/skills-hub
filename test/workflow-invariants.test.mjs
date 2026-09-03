@@ -680,6 +680,37 @@ test('🔴 每个 pr-classify.mjs 调用点都必须传全必填参数', () => {
     + '不完整的集合上判定。');
 });
 
+// 🔴 **CLI 的 Release 与 registry 的 Release 不许合并。**
+//
+// 客户端手上只有**已验签快照**里的 `asset.file` 与 `sha256`，位置靠
+// `hub-v<N>` 这个约定推导（02-registry.md §4.0）。合并到 CLI 版本号上的话，
+// 「快照号 N → 哪个 tag」这个映射**不在任何签名对象里**，客户端推不出去哪儿下载。
+//
+// ⚠️ 2026-09-03 之前的实现正是把两者挂在同一个 `v<CLI版本>` 上，结果是
+//    **「已发布但没人能装」** —— registry 里 23 个制品、快照签好了、站点能浏览，
+//    而任何一次 install 都取不到字节。这条不变式就是为了不让它被合回去。
+test('🔴 release.yml 必须建两个 Release：v<x.y.z> 与 hub-v<N>', () => {
+  const body = read('release.yml');
+  const creates = [...body.matchAll(/gh release create\s+("?)([^"\s]+)\1/g)].map((m) => m[2]);
+  assert.ok(creates.length >= 2,
+    `只找到 ${creates.length} 处 gh release create —— CLI 与 registry 必须各建各的`);
+  assert.ok(creates.some((t) => t.includes('hub-v')),
+    `没有 hub-v<N> 这个 Release —— 客户端就推不出资产地址。实际：${creates.join(', ')}`);
+  assert.ok(creates.some((t) => t.includes('TAG') || /^v/.test(t)),
+    `没有 CLI 自己的 v<x.y.z> Release。实际：${creates.join(', ')}`);
+  // 🔴 两者必须是**不同**的 tag —— 同一个就等于合并了。
+  assert.notEqual(creates[0], creates[1], '两个 Release 用了同一个 tag');
+});
+
+// 🔴 快照里记了几个制品，就必须挂几个资产。
+//    少挂一个的话，客户端按 locator 取到 404，而它手上的快照是**验过签的** ——
+//    它会以为是分发被人动了手脚，而不是我们自己漏发了。
+test('🔴 hub-v<N> 必须校验「资产数 == 快照记的制品数」', () => {
+  const body = read('release.yml');
+  assert.match(body, /artifacts\.length/,
+    'hub-v<N> 那一步没有按快照里的制品数校验资产数 —— 取不全的 Release 会被当成投毒');
+});
+
 test('🔴 promote 串行且不许取消，且没有 job 级 concurrency 覆盖它', () => {
   const body = PROMOTE();
   assert.match(body, /^concurrency:\s*\n\s+group:\s*promote\s*\n\s+cancel-in-progress:\s*false/m);
@@ -931,6 +962,11 @@ test('🔴 ci-gate 的 needs 清单与它自查的 want 清单必须逐项一致
  *    这正是这份文件反复踩的那个坑的另一个形状 —— 「看起来被守住了」。
  */
 const MUTATIONS = [
+  ['release.yml', 'gh release create "hub-v$N"', 'gh release create "$TAG-hub"',
+    'hub-v<N> 改成派生自 CLI 版本号', '必须建两个 Release'],
+  ['release.yml', 'JSON.parse(require(\'fs\').readFileSync(\'$snap\',\'utf8\')).artifacts.length',
+    '0',
+    '去掉「资产数 == 快照制品数」的校验', '资产数 == 快照记的制品数'],
   ['promote.yml', '--changed-paths "$paths" --present-paths "$present")',
     '--changed-paths "$paths")',
     'promote 调 pr-classify 时漏传 --present-paths', '必须传全必填参数'],

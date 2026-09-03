@@ -587,7 +587,8 @@ jobs:
           fi
           echo "✔ 摘要一致：$got"
 
-      - name: 建 Release 并挂资产
+      # ── ① CLI 自己的 Release：`v<x.y.z>` ────────────────────────────────
+      - name: 建 CLI Release（npm 包 + bundle）
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ needs.guard.outputs.version }}
@@ -598,39 +599,65 @@ jobs:
           #    而「多出来一个 .tgz」正是出问题时最可能的形态。
           assets=("$TGZ" "$TGZ.sigstore.json")
           [ -f attestation.sigstore.json ] && assets+=(attestation.sigstore.json)
-
-          # 🔴 §1：「建 Release hub-v<N+1>，**挂全部资产** + bundle」。
-          #    这些 .tgz 是上一个 job 按快照重建、并逐字节比对过的 ——
-          #    挂的就是快照记录的那些字节。
-          shopt -s nullglob
-          for f in dist/assets/*.tar.gz; do assets+=("$f"); done
-
-          # 🔴 **快照在 `registry/snapshots/` 下，不在根目录。**
-          #    upload-artifact 是按全部匹配项的最近公共祖先保留目录结构的，
-          #    所以 download 下来是 `registry/snapshots/hub-42.json`。
-          #    早先这里写的是根目录的 `hub-*.json` —— 匹配不上、`[ -f ]` 为假、
-          #    循环**静默跳过**，快照就这么不会被挂上去。而这条路径今天不会红：
-          #    仓库里还没有快照，谁也发现不了。
-          shopt -s nullglob
-          for f in registry/snapshots/hub-*.json; do
-            [ "${f%.sigstore.json}" = "$f" ] || continue
-            # 🔴 **有快照没 bundle 就直接失败。** 挂一张验不了签的快照上去，
-            #    比不挂更糟：它看起来是可用的分发物。
-            if [ ! -f "$f.sigstore.json" ]; then
-              echo "::error::$f 没有对应的 .sigstore.json —— 拒绝挂载一张验不了签的快照"
-              exit 1
-            fi
-            assets+=("$f" "$f.sigstore.json")
-          done
-          printf '挂载资产：%s\n' "${assets[@]}"
+          printf 'CLI Release 资产：%s\n' "${assets[@]}"
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$TAG" \
             --notes "npm 包与其 Sigstore bundle（离线验签路径见 README / 02-registry.md §8.2）。
 
-          快照（\`hub-<N>.json\`）与其 bundle、以及该快照记录的全部制品资产（\`.tar.gz\`）
-          在有快照时一并挂出。制品资产是按快照**重建并逐字节比对**过的（§1 阶段 C）。
+          ⚠️ **registry 的分发物不在这里** —— 快照与制品资产在 \`hub-v<N>\` Release 上
+          （02-registry.md §4.0 的 locator 契约）。两者刻意分开：合在一起的话
+          客户端就无法从「快照号 N」推出下载地址。" \
+            "${assets[@]}"
 
-          ⚠️ 没有快照的那几轮，这里只有 npm 包本身。" \
+      # ── ② registry 的 Release：`hub-v<N>` ────────────────────────────────
+      #
+      # 🔴 **必须与 CLI 的 `v<x.y.z>` 分开**（02-registry.md §4.0）。
+      #    客户端手上只有已验签快照里的 `asset.file` 与 `sha256`，位置靠
+      #    `hub-v<N>` 这个约定推导。合并到 CLI 版本号上的话，`<N> → tag` 这个
+      #    映射**不在任何签名对象里**，客户端推不出去哪儿下载。
+      #    📌 2026-09-03 之前的实现正是合并的，结果是「已发布但没人能装」。
+      - name: 建 registry Release hub-v<N>（快照 + 资产）
+        if: ${{ needs.publish.outputs.snapshot_n != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ needs.publish.outputs.snapshot_n }}
+        run: |
+          set -euo pipefail
+          snap="registry/snapshots/hub-$N.json"
+          # 🔴 **有快照没 bundle 就直接失败。** 挂一张验不了签的快照上去，
+          #    比不挂更糟：它看起来是可用的分发物。
+          if [ ! -f "$snap" ]; then
+            echo "::error::publish 报告了快照 $N，但 $snap 不在 —— 产物与声明对不上"
+            exit 1
+          fi
+          if [ ! -f "$snap.sigstore.json" ]; then
+            echo "::error::$snap 没有对应的 .sigstore.json —— 拒绝挂载一张验不了签的快照"
+            exit 1
+          fi
+          assets=("$snap" "$snap.sigstore.json")
+          # 这些 .tar.gz 是上一步按快照**重建并逐字节比对**过的（§1 阶段 C）。
+          shopt -s nullglob
+          for f in dist/assets/*.tar.gz; do assets+=("$f"); done
+          # 🔴 快照里有制品，就必须有对应的资产 —— 否则客户端按 locator 取到 404，
+          #    而那时它手上的快照是验过签的，会以为是分发被人动了手脚。
+          want=$(node -p "JSON.parse(require('fs').readFileSync('$snap','utf8')).artifacts.length")
+          got=$(ls dist/assets/*.tar.gz 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$want" != "$got" ]; then
+            echo "::error::快照 $N 记了 $want 个制品，但只重建出 $got 个资产 —— 拒绝发一个取不全的 Release"
+            exit 1
+          fi
+          printf 'hub-v%s 资产：%s\n' "$N" "${assets[@]}"
+          gh release create "hub-v$N" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "hub-v$N" \
+            --notes "registry 快照 $N 与它记录的全部制品资产。
+
+          客户端按 02-registry.md §4.0 的 locator 从**已验签的**快照推导下载地址：
+          \`/releases/download/hub-v$N/<asset.file>\`。
+
+          ⚠️ 资产不单独挂 Sigstore bundle —— 它们的 sha256 已经被这张**已签名的
+          快照**钉死。需要 bundle 的是信任链的锚点（快照与 timestamp）。" \
             "${assets[@]}"

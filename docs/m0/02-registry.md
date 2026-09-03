@@ -170,6 +170,44 @@ v3：timestamp **只作为 GitHub Release 资产分发**，挂在一个专用的
 | Release `timestamp` 资产 | `timestamp.json` + bundle（滚动更新） |
 | git 仓库树 | 取证回退，只按 `tree_digest` 判真伪 |
 
+### 4.0 🔴 locator：客户端如何**从已验证的快照**推出下载地址
+
+快照 record 里只有 `asset.file` / `asset.sha256` / `asset.size` —— **没有任何位置
+信息**（§2 的 schema 就是这么定的，不打算改：往签名对象里塞 URL 会让"换个分发
+通道"变成"重签一遍所有历史快照"）。
+
+所以位置必须由客户端**按约定推导**，而约定的输入只能是**已经验过签的东西**：
+
+```
+<host>/releases/download/hub-v<N>/<asset.file>          制品资产
+<host>/releases/download/hub-v<N>/hub-<N>.json          快照
+<host>/releases/download/hub-v<N>/hub-<N>.json.sigstore.json
+<host>/releases/download/timestamp/timestamp.json       滚动 timestamp 信封
+```
+
+`<N>` 来自 timestamp 里那个**已验签**的快照号；`<asset.file>` 来自**已验签**的
+快照 record。`<host>` 由 CLI 钉死（与内建信任根同源）。
+
+🔴 **推导链上不许出现任何未验签的输入。** 特别是：不许让服务端返回一个
+「资产在哪」的索引再照着取 —— 那等于把分发通道变成一个可以指挥客户端去哪儿
+取字节的东西，而它的回答不在任何签名覆盖之下。
+
+⚠️ **`hub-v<N>` 与 CLI 自己的 `v<x.y.z>` 是两个不同的 Release，不许合并。**
+   合并的话 `<N>` 就推不出 tag 了 —— 客户端必须先知道"哪个 CLI 版本发布了
+   快照 N"，而那个映射关系**不在任何签名对象里**。
+   📌 2026-09-03 之前 `release.yml` 的实现正是把两者混在一个 `v<CLI版本>` 上，
+   于是「已发布但没人能装」——客户端拿着验过的快照，推不出去哪儿下载。
+
+⚠️ 摘要已经把 tarball 钉死，**资产本身不需要再挂一份 Sigstore bundle**。
+   快照与 timestamp 需要，因为它们是信任链的锚点。
+
+📌 **代价（明写不粉饰）**：GitHub Release 有匿名限流，可用性依赖 GitHub，
+   且有写权限的人能删除或重传资产。但摘要与签名把后两者变成**拒绝服务**，
+   而不是**内容投毒** —— 这个取舍是有意的。
+   ⚠️ `raw.githubusercontent.com/main` **不作为主分发**：`main` 明确不是分发源
+   （[`01-artifacts.md`](01-artifacts.md) §1），而且它承载不了运行时生成的 tarball。
+   它最多是取证回退。
+
 ### 4.1 canonical tar.gz
 
 | 项 | 取值 |
