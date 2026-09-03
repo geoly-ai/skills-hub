@@ -34,6 +34,7 @@ export async function POST(req) {
   if (!secret) return NextResponse.json({ error: 'closed' }, { status: 503 });
 
   if (!sameOrigin(req)) return NextResponse.json({ error: 'bad-origin' }, { status: 403 });
+
   if (!take()) return back(req, 'rate', '/');
 
   const form = await req.formData().catch(() => null);
