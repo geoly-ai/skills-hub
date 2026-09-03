@@ -1,140 +1,162 @@
 /* 基础排版与页面骨架。只用 tokens.css 的变量，不写字面量色值。
-   规格：DESIGN.md §2（台账隐喻）、§5（尺度）、§8（响应式）、§9（动效）、§10（可访问性）。 */
+   规格：DESIGN.md §3（两种纸）、§5（字体）、§6（尺度）、§9（响应式）、§10（动效）、§11（可访问性）。 */
 
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
-  background: var(--c-bg);
+  background: var(--c-page);
   color: var(--c-text);
-  font: 400 var(--fs-base)/1.65 var(--f-body);
-  /* 台账里的数字要对齐 —— 等宽数字是这套隐喻的一部分，不是装饰 */
-  font-variant-numeric: tabular-nums;
+  font-family: var(--f-sans);
+  font-size: var(--fs-base);
+  line-height: 1.7;
+  /* Inter 的单层 a / 有尾 l：让它离「默认安全牌」的观感远一点，也让 l 与 1 分得开 */
+  font-feature-settings: "cv05" 1, "cv08" 1;
   -webkit-font-smoothing: antialiased;
   /* 🔴 页面本身**不许**横向滚动。宽内容各自包在 .tablescroll / .scroll-x 里滚。 */
   overflow-x: hidden;
 }
 
-/* 标题用 Archivo 的 wdth 轴拉宽 —— 分量来自宽度而不是字号，像标牌与钢印。 */
-h1, h2, h3, h4 {
-  font-family: var(--f-display);
-  font-weight: 600;
-  margin: 0;
-  line-height: 1.2;
-  font-variation-settings: "wdth" 112;
-  letter-spacing: -0.005em;
-}
+/* 中文正文行距 1.85（拉丁 1.7）—— CJK 字形更满，需要更松的行距。 */
+:lang(zh) { line-height: 1.85; }
+
+/* 🔴 衬线**只用于 ≥20px 的标题**：屏幕上小字号的宋体（中文回落）太细。
+      ≤19px 的标题一律 sans —— 见各组件里的 h3 / h4。 */
+h1, h2, h3, h4 { margin: 0; font-weight: 600; line-height: 1.25; }
 
 p { margin: 0; }
 ul, ol { margin: 0; padding-left: var(--sp-5); }
 li + li { margin-top: var(--sp-1); }
 
+/*
+ * 链接：`color: inherit` + clay 下划线。
+ * 🔴 这样链接既有 clay 的暖意，又不受 clay 只有 2.96:1 的限制 —— clay 只画线，不写字。
+ */
 a {
-  color: var(--c-ink);
-  text-decoration: none;
-  border-bottom: 1px solid color-mix(in oklab, var(--c-ink) 35%, transparent);
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--c-clay);
+  text-underline-offset: 3px;
 }
-a:hover { border-bottom-color: var(--c-ink); }
+a:hover { color: var(--c-clay-ink); text-decoration-color: currentColor; }
 
-code, .mono { font-family: var(--f-mono); }
+code, .mono { font-family: var(--f-mono); font-size: .92em; }
 
 /* 键盘焦点必须立刻可见，且**无过渡** */
-:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 2px; border-radius: 1px; }
+:focus-visible { outline: 2px solid var(--c-clay); outline-offset: 2px; border-radius: 2px; }
 
-/* 🔴 .label 永远只放拉丁/数字：text-transform:uppercase 对中文无效，
-      letter-spacing 会把中文拉散。中文小标签用 .label-cn。 */
-.label {
-  font-family: var(--f-mono); font-size: var(--fs-label); font-weight: 500;
-  letter-spacing: .10em; text-transform: uppercase; color: var(--c-text-dim);
-}
-.label-cn { font-family: var(--f-body); font-size: 13px; color: var(--c-text-dim); letter-spacing: 0; }
+.dim { color: var(--c-text-dim); }
+.mid, .muted { color: var(--c-text-mid); }
+.spacer { flex: 1 1 auto; }
 
 /*
- * 🔴 **凡是要放中文的小标签，都必须挂 `.cn`。**（DESIGN.md §4.3）
- *    `text-transform: uppercase` 对中文无效，而 `letter-spacing: .09em` 会把中文**拉散**成
- *    一个个孤立的字 —— 实测在 provenance 轨迹与表头上很明显。
- *    这条规则集中在这里，是为了让「哪些地方会letter-space」只有一处答案。
+ * 🔴 **大写只给表头与我们自己造的标签，不给数据。**
+ *    semver 区分大小写：`1.1.0-rc.1` 被 uppercase 渲染成 `1.1.0-RC.1` 就是**把值改了**。
+ * 🔴 **`.label` 里永远只放拉丁与数字。** `text-transform: uppercase` 对中文无效，
+ *    而 `letter-spacing: .08em` 会把中文**拉散**成一个个孤立的字。
+ *    标签里只要出现一个汉字，就必须换成 `.label-cn` —— 这是硬规则，不是建议。
+ *    中英混排（「A · 生命周期 lifecycle」）也算「出现了汉字」。
  */
-.label.cn,
-.members th.cn,
-.trace .t.cn,
-.fact .k.cn,
-.ledger > dt.cn,
-.chain .cellname {
-  font-family: var(--f-body);
-  letter-spacing: 0;
-  text-transform: none;
+.label {
+  font-family: var(--f-sans); font-size: var(--fs-label); font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--c-text-dim);
+  line-height: 1.4;
+}
+.label-cn {
+  font-family: var(--f-sans); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: 0; text-transform: none; color: var(--c-text-dim); line-height: 1.5;
 }
 
-.wrap { max-width: 1160px; margin: 0 auto; padding: 0 var(--sp-5); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--sp-5); }
+/* 🔴 叙述纸的量度。记录纸不受它约束 —— 表格需要宽度。 */
+.prose { max-width: 68ch; }
+.note { font-size: var(--fs-sm); color: var(--c-text-mid); max-width: 68ch; }
+.note b, .note strong { color: var(--c-text); font-weight: 600; }
+.sub {
+  display: block; font-size: var(--fs-xs); color: var(--c-text-dim);
+  line-height: 1.65; margin-top: 3px;
+}
+
+.sr-only, .sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
 
 .skip-link {
   position: absolute; left: var(--sp-3); top: calc(-1 * var(--sp-8)); z-index: 30;
-  padding: var(--sp-2) var(--sp-3); background: var(--c-surface);
-  border: 1px solid var(--c-ink); border-radius: var(--r-panel);
+  padding: var(--sp-2) var(--sp-3); background: var(--c-paper);
+  border: 1px solid var(--c-rule); border-radius: var(--r-sm);
+  text-decoration: none;
   transition: top 120ms linear;
 }
 .skip-link:focus { top: var(--sp-3); }
 
-/* ── 站头：56px，底边 2px 栏线 ─────────────────────────────────────── */
-.site-header {
-  border-bottom: 2px solid var(--c-rule);
-  background: var(--c-surface);
+/* ── 站头：60px，底边 1px 发丝线 ───────────────────────────────────── */
+.masthead {
   position: sticky; top: 0; z-index: 20;
+  background: var(--c-page);
+  border-bottom: 1px solid var(--c-hairline);
 }
-.site-header .wrap { display: flex; align-items: center; gap: var(--sp-4); min-height: 56px; flex-wrap: wrap; }
-.site-header__brand {
-  font-family: var(--f-display); font-size: 17px; font-weight: 600;
-  font-variation-settings: "wdth" 118; color: var(--c-text); border: 0;
+.masthead .wrap {
+  display: flex; align-items: center; gap: var(--sp-4);
+  min-height: 60px; flex-wrap: wrap;
 }
-.site-header__brand:hover { border: 0; color: var(--c-ink); }
-.site-header__nav { display: flex; gap: var(--sp-4); font-family: var(--f-mono); font-size: var(--fs-xs); }
-.spacer { flex: 1; }
+/* 🔴 wordmark 与按钮都要 nowrap：否则 60px 的 sticky 条会在 375px 下被撑成两行盖住正文。 */
+.wordmark {
+  font-family: var(--f-serif); font-size: 20px; font-weight: 600; letter-spacing: -.01em;
+  white-space: nowrap; min-width: 0; text-decoration: none;
+}
+.wordmark:hover { color: var(--c-clay-ink); }
+.masthead nav { display: flex; gap: var(--sp-3); font-family: var(--f-mono); font-size: var(--fs-xs); }
 
 /* ── 页面骨架 ──────────────────────────────────────────────────────── */
 /* 🔴 **不设右侧 metadata 栏。** 一旦有右栏，信任信息就会被塞进去，然后降级成脚注
-      —— 那正是 npm 的做法，DESIGN.md §7.1 明确反对。正文是唯一的列。 */
+      —— 那正是 npm 的做法，DESIGN.md §8.1 明确反对。正文是唯一的列。 */
 .page { padding: var(--sp-6) 0 var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-7); }
-.section { display: flex; flex-direction: column; gap: var(--sp-3); }
+
 /*
- * 🔴 **flex 子项必须显式 `min-width: 0`。** 默认的 `min-width: auto` 让子项可以撑到
- *    内容宽度而不收缩 —— 于是 `.tablescroll`（自己有 overflow-x:auto）在 360px 视口下
- *    根本不收缩，`.members` 的 `min-width: 640px` 直接把整页顶宽。
- *    实测：360px 视口下 `body.scrollWidth` 是 638，而 body 有 `overflow-x: hidden`，
- *    所以表现不是"页面能横滑"，而是**右半张表被裁掉且滑不到** —— 比横滑更糟。
- *    这一条是本设计"宽内容各自滚、页面不滚"能不能成立的前提。
+ * 🔴 **flex / grid 子项必须显式 `min-width: 0`。** 默认的 `min-width: auto` 让子项可以撑到
+ *    内容宽度而不收缩 —— 一个 `white-space: pre` 的命令块就能把整条轨道撑开。
+ *    实测在 375px 下把文档撑到 1377px。
  */
 .page > *, .section > * { min-width: 0; }
-/* 区段之间用 2px 栏线划开，像账簿 */
+
+/* 🔴 留白花在记录纸**之间**，不花在记录纸**里面**：区段之间 64px，块之间 16px。 */
+.section { display: flex; flex-direction: column; gap: var(--sp-4); scroll-margin-top: 72px; }
 .section > .sechead {
   display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap;
-  border-top: 2px solid var(--c-rule); padding-top: var(--sp-3); margin-bottom: var(--sp-2);
+  border-top: 1px solid var(--c-rule-hi); padding-top: var(--sp-4); margin-bottom: 0;
 }
-.section h2 { font-size: var(--fs-h2); font-variation-settings: "wdth" 118; }
-.prose { max-width: 68ch; }
-.note { color: var(--c-text-mid); font-size: var(--fs-sm); max-width: 68ch; }
-.muted { color: var(--c-text-mid); }
-.dim { color: var(--c-text-dim); }
-.sub { display: block; color: var(--c-text-dim); font-size: var(--fs-xs); margin-top: 3px; }
+/* 区段标题是叙述纸的声音：衬线、22px（≥20px 才允许用衬线）。 */
+.section h2 { font-family: var(--f-serif); font-size: var(--fs-h2); letter-spacing: -.005em; }
+.sechead .num { font-family: var(--f-mono); font-size: var(--fs-xs); font-weight: 500; color: var(--c-clay-ink); }
 
 /* 宽内容的横向滚动容器 */
 .scroll-x { overflow-x: auto; overscroll-behavior-x: contain; max-width: 100%; }
+/* 🔴 表格容器是**记录纸**：这个 --c-inset 底不许被内联样式洗成 transparent。 */
 .tablescroll {
-  overflow-x: auto; border: 1px solid var(--c-rule); border-radius: var(--r-panel);
-  background: var(--c-surface);
+  overflow-x: auto; border: 1px solid var(--c-hairline);
+  border-radius: var(--r-md); background: var(--c-inset);
 }
 .tablescroll > table { min-width: 640px; }
 
 /* ── 页脚 ──────────────────────────────────────────────────────────── */
-.site-footer { margin-top: var(--sp-8); border-top: 2px solid var(--c-rule); background: var(--c-surface); }
-.site-footer .wrap { padding-top: var(--sp-5); padding-bottom: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); }
+.site-footer { margin-top: var(--sp-8); border-top: 1px solid var(--c-hairline); background: var(--c-paper); }
+.site-footer .wrap {
+  padding-top: var(--sp-5); padding-bottom: var(--sp-6);
+  display: flex; flex-direction: column; gap: var(--sp-3);
+}
 .site-footer p { font-size: var(--fs-sm); color: var(--c-text-mid); max-width: 78ch; }
 
-/* ── 响应式（DESIGN.md §8）────────────────────────────────────────── */
+/* ── 响应式（DESIGN.md §9）───────────────────────────────────────── */
 @media (max-width: 620px) {
   .wrap { padding: 0 var(--sp-4); }
   .page { gap: var(--sp-6); }
+  /* 副标题挤不下就藏，不许把 60px 的条撑成两行 */
+  .wordmark .sub { display: none; }
+  .masthead .wrap { gap: var(--sp-2); }
 }
 
 /* 🔴 「未验证」必须看起来是空的，所以没有骨架屏 shimmer；过渡一律 ≤200ms、只改颜色。 */

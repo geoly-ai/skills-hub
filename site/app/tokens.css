@@ -1,138 +1,129 @@
 /*
  * 设计 token —— 站点里**所有**颜色 / 字号 / 间距 / 圆角的唯一定义处。
- * 规格：site/DESIGN.md §3–§5；可视证据：site/design-preview.html（token 名一一对应，直接抄的它）。
+ * 规格：site/DESIGN.md §4–§6；可视证据：site/design-preview.html
+ *（token 名与该页 `:root` 一一对应，这里就是抄的它）。
  *
  * 🔴 组件样式里不许出现字面量色值与字面量像素间距，一律 `var(--…)`。
  * 🔴 **完整的浅色定义写在裸 `:root`**，深色只**重定义** token。把某个颜色的唯一定义写进
  *    `@media` 或 `[data-theme]` 里，在另一半条件下它就没有值 —— 这是主题化最常见的
  *    "只在某个环境下才复现"的 bug。
  *
- * 中性色是 greenbar 台账纸：≈110° 色相、≈6% 饱和的极低绿偏。**不是纯灰，也不是暖米色**
- * （暖米色 + 衬线标题 + 陶土强调是 DESIGN.md §1.8 点名要回避的那套 AI 生成观感）。
+ * 中性色是**暖象牙**，取自 Anthropic 自己的样式表（ivory-light / ivory-medium /
+ * ivory-dark、clay、slate-dark）。不是纯灰，也不是上一版那套 greenbar 台账绿。
+ *
+ * 「两种纸」是这套 token 的核心（§3）：
+ *   --c-paper 叙述纸（页面在说话） / --c-inset 记录纸（机器在说话）。
+ *   🔴 记录纸是一个**真实的背景色**，不是一种排版氛围。
  */
 
 :root {
-  /* ── 中性：greenbar 台账纸 ─────────────────────────────────────────── */
-  --c-bg:        #EEF1EC;   /* 页面底 */
-  --c-surface:   #F8FAF7;   /* 面板 / 列表行 */
-  --c-sunken:    #E4E9E2;   /* 表头 / 摘要底 / 命令行底 */
-  --c-hairline:  #D3D9CF;   /* 1px 行分隔 */
-  --c-rule:      #B5BFB1;   /* 2px 区段界线、面板外框 */
-  --c-text:      #171B18;
-  --c-text-mid:  #4A524C;
-  /* ⚠️ 规格给的是 #6E776F，**实测不达标，已调深**（2026-09-01 在 Chrome 里量的）：
-     它对 --c-surface 只有 4.42:1、对 --c-sunken 只有 3.76:1，而 DESIGN.md §10 自己要求
-     正文级用途 ≥4.5:1 —— `.sub` 说明行、`.ledger > dt` 字段名、`.recheck` 的 `$`、
-     `.digest .algo` 全是 11–12px 的正文级文字，且好几处正落在 sunken 底上。
-     #5F6861 实测 surface 5.50 / sunken 4.69 / bg 5.06，全部达标，
-     色相与明度关系（比 --c-text-mid 浅、比 hairline 深）不变。 */
-  --c-text-dim:  #5F6861;
+  color-scheme: light;
 
-  /* ── 语义色。六个，全部与 --c-ink 分离 ────────────────────────────── */
-  /* 🔴 --c-ink 不表达任何状态，只说「可点 / 当前 / 有焦点」。published 不是蓝色的。 */
-  --c-ink:          #2B4A9B;
-  --c-verified:     #2C6B45;  /* 生命周期 published；验证轴 verified —— 两处含义不同，必须同时给词 */
-  --c-caution:      #8A5A0B;  /* deprecated、Tier 1、stale、**预期内的不相等** */
-  --c-revoked:      #A2352E;  /* yanked、Tier 2 */
-  --c-degraded:     #6E3D7A;  /* degraded：被成员拖累，不是自身有罪 */
-  --c-neutralbadge: #5E6862;  /* Tier 0：不值得给颜色 */
+  /* ── 中性：暖象牙。两种纸 —— 叙述纸(paper) 与 记录纸(inset) ── */
+  --c-page:      #F0EEE6;   /* 页面底（Anthropic ivory-medium） */
+  --c-paper:     #FAF9F5;   /* 叙述纸：正文面板、卡片（ivory-light） */
+  --c-inset:     #EDEAE0;   /* 记录纸：台账、表格、命令、摘要的凹陷底 */
+  --c-hairline:  #DEDACB;   /* 1px 分隔 */
+  --c-rule:      #C9C3AF;   /* 面板外框、表格外框 */
+  --c-rule-hi:   #B3AB93;   /* 区段界线 */
 
-  /* 语义底色一律由 color-mix 从语义色调出来，不另起 hex —— 换主色时底色自动跟着走 */
-  --t-verified:  color-mix(in oklab, var(--c-verified) 10%, var(--c-surface));
-  --t-caution:   color-mix(in oklab, var(--c-caution)  12%, var(--c-surface));
-  --t-revoked:   color-mix(in oklab, var(--c-revoked)  11%, var(--c-surface));
-  --t-degraded:  color-mix(in oklab, var(--c-degraded) 11%, var(--c-surface));
-  --t-ink:       color-mix(in oklab, var(--c-ink)      10%, var(--c-surface));
+  --c-text:      #141413;   /* slate-dark */
+  --c-text-mid:  #4A473F;
+  /* 🔴 #6B675C 在「yanked 灰纸 / degraded 淡紫纸」上实测只有 4.39 / 4.19:1，压深到这一档
+     （DESIGN.md §11.1 的实测表，照抄，不要自己再调）。 */
+  --c-text-dim:  #605C51;
 
-  /* ── 字体 ─────────────────────────────────────────────────────────── */
-  /* 🔴 三个拉丁字体都**不含 CJK**，必须显式挂中文栈，否则中文会掉进宋体。
+  /* ── 强调：clay。🔴 必须拆成两个 token ──
+     --c-clay 在 --c-paper 上实测只有 2.96:1，连大字级的 3:1 都不到：**它只画线，不写字**。 */
+  --c-clay:      #D97757;   /* 品牌值。下划线、计量条、焦点环、装饰线、节点圆点 */
+  --c-clay-ink:  #A34428;   /* 文字安全的 clay（5.84:1）。链接 hover、小号强调字、`$` 提示符 */
+
+  /* ── 语义色：全部是「颜料」，不是霓虹 ── */
+  --c-ok:        #43632B;   /* 🔴 全站唯一的绿。只表示「验证轴：我们这一次验过了」 */
+  --c-caution:   #855313;   /* kraft ink：deprecated / stale / Tier 1 / **预期内的不相等** */
+  --c-revoked:   #93291E;   /* oxblood：yanked / Tier 2 */
+  --c-degraded:  #74304F;   /* mulberry：degraded —— 被成员拖累 */
+  --c-neutral:   #605C52;   /* Tier 0、published（🔴 published 不给绿色） */
+
+  /* ── 纸样 paper stocks：警示靠换纸，不靠加饱和度（§3.3） ── */
+  --p-manilla:   #F4EAD4;   /* deprecated：一张发黄的旧纸 */
+  --p-grey:      #EDEDEB;   /* yanked：🔴 全站唯一一处**撤走暖色**的纸 */
+  --p-heather:   #E8E7EF;   /* degraded：冷调淡紫 */
+  --p-ok:        #E9EEDE;   /* 验证通过（只在验证链里） */
+  --p-clay:      #F7E7DE;   /* 当前项 / 按下态 */
+
+  /* ── 字体（§5）──
+     🔴 三个拉丁字体都**不含 CJK**，必须显式挂中文栈，否则中文会掉进默认字体。
      🔴 **不 web 加载任何 CJK 字体**（Noto Sans SC 全量 5–10 MB，子集化后仍不可控）——
-        中文一律走系统栈；末尾那个 "Noto Sans CJK SC" 是给已装该字体的 Linux 用的，不是网络加载。
-     变量 --font-archivo / --font-plex-sans / --font-plex-mono 由 next/font/google 在
-     app/layout.jsx 里注入（构建期下载并自托管，运行时**不向 Google 发请求** ——
-     这条对本站点是硬要求，见 layout.jsx 的说明）。 */
-  --f-display: var(--font-archivo), "Helvetica Neue",
-               "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
-               "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
-  --f-body:    var(--font-plex-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
-               "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
-               "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
-  /* 🔴 mono 栈里也要挂中文：mono 段落里夹的中文若 fallback 到默认字体，行高会跳 */
-  --f-mono:    var(--font-plex-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo,
-               Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+        中文一律走系统栈；末尾那个 "Noto Sans/Serif CJK SC" 是给已装该字体的 Linux 用的。
+     ✅ 中文标题回落到宋体在**这一版是设计意图**，不是 bug：整套方向就是衬线，
+        思源宋体 / Songti SC 与 Source Serif 4 是同一种声音。
+     变量 --font-serif / --font-sans / --font-mono 由 next/font/google 在 app/layout.jsx
+     注入（构建期下载并自托管，运行时**不向 Google 发请求**）。 */
+  --f-serif: var(--font-serif), "Source Han Serif SC", "Noto Serif CJK SC",
+             "Songti SC", STSong, SimSun, Georgia, serif;
+  --f-sans:  var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+             "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+             "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  /* 🔴 mono 栈里也要挂中文：mono 段落里夹的中文若回落到默认字体，行高会跳 */
+  --f-mono:  var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas,
+             "PingFang SC", "Microsoft YaHei", monospace;
 
-  /* ── 间距：4 的倍数 ───────────────────────────────────────────────── */
+  /* ── 间距：4 的倍数（§6.2）。🔴 台账行 10px 刻意不在这个尺度上。 ── */
   --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
-  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px; --sp-9: 96px;
 
-  /* ── 字号阶梯 ─────────────────────────────────────────────────────── */
-  --fs-display: 30px; --fs-h2: 21px; --fs-h3: 14px;
-  --fs-lg: 16px; --fs-base: 15px; --fs-sm: 13.5px;
-  --fs-mono: 12.5px; --fs-xs: 12px; --fs-label: 11px;
+  /* ── 字号阶梯（§6.1）── */
+  --fs-title: 34px; --fs-h2: 22px; --fs-h3: 15px;
+  --fs-aid: 17px;   --fs-lg: 17px; --fs-base: 15px; --fs-sm: 13.5px;
+  --fs-mono: 12.5px; --fs-xs: 12px; --fs-label: 11.5px;
 
-  /* ── 形状：圆角只有两档，列表行/表格/台账行 0px ───────────────────── */
-  --r-chip: 2px; --r-panel: 3px;
-  /* 全站唯一的阴影，只给弹出层。列表与面板无阴影、零渐变。 */
-  --shadow-pop: 0 2px 6px rgba(20,26,22,.10), 0 0 0 1px var(--c-hairline);
+  /* Anthropic 的圆角尺度：4 / 6 / 8 / 16。🔴 全站没有胶囊（999px）。 */
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 16px;
+
+  /* 🔴 全站唯一的阴影，只给弹出层。卡片、面板、记录纸一律无阴影 ——
+     记录纸是**凹陷**的，给它阴影会读成「一张浮起来的卡片」。 */
+  --shadow-pop: 0 2px 2px rgba(20,20,19,.012), 0 4px 4px rgba(20,20,19,.02),
+                0 16px 24px rgba(20,20,19,.04), 0 0 0 1px var(--c-hairline);
 }
 
-/* 暗色底不是近黑，是带蓝绿岩板感的 #111519；--c-sunken 比 --c-surface 更暗，
-   保持「凹陷」语义在两套主题里方向一致。 */
+/* 暗底不是纯黑，是**暖近黑**（Anthropic 的暗色灰阶是暖的，不是蓝黑）。
+   🔴 但 --p-grey 在暗色里必须**偏冷**：「撤走暖色」这个机制在暗色里靠色温差成立，
+      grey 也是暖的话 yanked 与普通卡片就分不开了（实测 #272726 太近，改 #2B2B2E）。 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-
-    --c-bg:       #111519;
-    --c-surface:  #171C21;
-    --c-sunken:   #0C1013;
-    --c-hairline: #29323A;
-    --c-rule:     #3B4650;
-    --c-text:     #E3E9E5;
-    --c-text-mid: #A8B2AB;
-    --c-text-dim: #7E8880;
-
-    --c-ink:      #8FB0FF;
-    --c-verified: #6FCB8F;
-    --c-caution:  #E0A64A;
-    --c-revoked:  #F08C82;
-    --c-degraded: #C79BD6;
-    --c-neutralbadge: #939E97;
-
-    --t-verified: color-mix(in oklab, var(--c-verified) 14%, var(--c-surface));
-    --t-caution:  color-mix(in oklab, var(--c-caution)  15%, var(--c-surface));
-    --t-revoked:  color-mix(in oklab, var(--c-revoked)  14%, var(--c-surface));
-    --t-degraded: color-mix(in oklab, var(--c-degraded) 14%, var(--c-surface));
-    --t-ink:      color-mix(in oklab, var(--c-ink)      14%, var(--c-surface));
-    --shadow-pop: 0 2px 8px rgba(0,0,0,.5), 0 0 0 1px var(--c-hairline);
+    --c-page: #1A1917; --c-paper: #22211E; --c-inset: #191816;
+    --c-hairline: #343329; --c-rule: #4A483E; --c-rule-hi: #5C5A4E;
+    --c-text: #F9F9F7; --c-text-mid: #C3C2B7; --c-text-dim: #A4A195;
+    --c-clay: #D97757; --c-clay-ink: #EE9873;
+    --c-ok: #A3C275; --c-caution: #E2B563; --c-revoked: #F2938A;
+    --c-degraded: #DB9FC5; --c-neutral: #ABA89B;
+    --p-manilla: #2E2820; --p-grey: #2B2B2E; --p-heather: #262533;
+    --p-ok: #232A1D; --p-clay: #35251E;
+    --shadow-pop: 0 2px 2px rgba(0,0,0,.20), 0 16px 24px rgba(0,0,0,.30),
+                  0 0 0 1px var(--c-hairline);
   }
 }
 
 /* 手动切换要能**双向**覆盖系统偏好，所以两处都要写全。 */
 :root[data-theme="dark"] {
   color-scheme: dark;
-
-  --c-bg:       #111519;
-  --c-surface:  #171C21;
-  --c-sunken:   #0C1013;
-  --c-hairline: #29323A;
-  --c-rule:     #3B4650;
-  --c-text:     #E3E9E5;
-  --c-text-mid: #A8B2AB;
-  --c-text-dim: #7E8880;
-
-  --c-ink:      #8FB0FF;
-  --c-verified: #6FCB8F;
-  --c-caution:  #E0A64A;
-  --c-revoked:  #F08C82;
-  --c-degraded: #C79BD6;
-  --c-neutralbadge: #939E97;
-
-  --t-verified: color-mix(in oklab, var(--c-verified) 14%, var(--c-surface));
-  --t-caution:  color-mix(in oklab, var(--c-caution)  15%, var(--c-surface));
-  --t-revoked:  color-mix(in oklab, var(--c-revoked)  14%, var(--c-surface));
-  --t-degraded: color-mix(in oklab, var(--c-degraded) 14%, var(--c-surface));
-  --t-ink:      color-mix(in oklab, var(--c-ink)      14%, var(--c-surface));
-  --shadow-pop: 0 2px 8px rgba(0,0,0,.5), 0 0 0 1px var(--c-hairline);
+  --c-page: #1A1917; --c-paper: #22211E; --c-inset: #191816;
+  --c-hairline: #343329; --c-rule: #4A483E; --c-rule-hi: #5C5A4E;
+  --c-text: #F9F9F7; --c-text-mid: #C3C2B7; --c-text-dim: #A4A195;
+  --c-clay: #D97757; --c-clay-ink: #EE9873;
+  --c-ok: #A3C275; --c-caution: #E2B563; --c-revoked: #F2938A;
+  --c-degraded: #DB9FC5; --c-neutral: #ABA89B;
+  --p-manilla: #2E2820; --p-grey: #2B2B2E; --p-heather: #262533;
+  --p-ok: #232A1D; --p-clay: #35251E;
+  --shadow-pop: 0 2px 2px rgba(0,0,0,.20), 0 16px 24px rgba(0,0,0,.30),
+                0 0 0 1px var(--c-hairline);
 }
 
 :root[data-theme="light"] { color-scheme: light; }
+
+/* 窄屏的尺度收缩（§9）：字号阶梯本身降档，组件不必各自写 media query。 */
+@media (max-width: 620px) {
+  :root { --fs-title: 27px; --fs-h2: 20px; --sp-8: 44px; --sp-9: 56px; }
+}
