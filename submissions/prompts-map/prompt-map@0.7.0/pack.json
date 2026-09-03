@@ -8,7 +8,11 @@
   "conflicts": [],
   "contract_paths": [
     "prompt-map-shared/SKILL.md",
-    "prompt-map-shared/scripts/"
+    "prompt-map-shared/scripts/validate_generation_integrity.py",
+    "prompt-map-shared/scripts/validate_prompt_surface_quality.py",
+    "prompt-map-shared/scripts/validate_shortlist_difference.py",
+    "prompt-map-shared/scripts/verify_coverage_convergence.py",
+    "prompt-map-shared/scripts/verify_decision_angle_gate.py"
   ],
   "description": "product-card Prompt Map 全套 9 个 skill。它们靠 ../prompt-map-shared/ 的兄弟路径互相引用，必须并排安装 —— 单独装其中一个会得到引用不到 shared 的坏 skill。",
   "kind": "pack",
