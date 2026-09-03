@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import {
   normalizeName, assertNoNormalizedCollision, readReserved, assertReservedNamespaceAllowed,
   assertVersionUnused, assertCapabilityConsistency, RESERVED_SCHEMA,
+  foldConfusables, confusableEquals,
 } from '../scripts/submission/structural-gates.mjs';
 import { collectTree } from '../src/packer.mjs';
 import { makeTree, cleanupTrees } from './fixtures/pack-tree.mjs';
@@ -80,6 +81,183 @@ test('🔴 保留 namespace 的比对也走归一化 —— 否则 `ge-oly` 就�
   //    归一化重名门挡住 —— 保留名把自己锁死了。已记进交付汇报待规格确认。
   const reserved = { schema: RESERVED_SCHEMA, namespaces: ['geoly'] };
   expectCode('E_RESERVED', () => assertReservedNamespaceAllowed({ namespace: 'ge-oly', reserved }));
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// ①b 同形折叠：保留清单挡不住「数字替字母」（2026-09-03 修）
+// ────────────────────────────────────────────────────────────────────────────
+
+/** 仓库真实的 18 条保留清单 —— 这道门的误伤面只在这张固定清单上才说得清。 */
+const REAL_RESERVED = {
+  schema: RESERVED_SCHEMA,
+  namespaces: ['admin', 'anthropic', 'claude', 'codex', 'cursor', 'example', 'geoly',
+    'github', 'hub', 'local', 'npm', 'official', 'openai', 'registry', 'security',
+    'skills', 'system', 'test'],
+};
+const allow = (ns) => assertReservedNamespaceAllowed({ namespace: ns, reserved: REAL_RESERVED });
+
+test('🔴 数字替字母的仿冒必须被拦 —— 这是本门存在的**全部理由**', () => {
+  // 修之前：normalizeName 只做 NFKC + 小写 + 去连字符，于是
+  //   拦住 GEOLY / Geoly / ｇeoly / g-e-o-l-y，却**放行** ge0ly / geo1y / anthrop1c。
+  //   保留 anthropic / claude / openai / geoly 就是为了防仿冒，而最常见的那种防不住。
+  for (const ns of [
+    'ge0ly', 'geo1y', 'g30ly',            // geoly：0→o、1→l、3→e
+    'anthrop1c', 'anthr0pic', '4nthropic', // anthropic
+    '0penai', 'opena1',                   // openai
+    'c1aude', 'ciaude',                   // claude（1→l，以及 i/l 本身同形）
+    'te5t', 't3st', '7est',               // test
+    'l0cal', '1ocal', 'loca1',            // local
+    'sk1lls', 'skil1s',                   // skills
+    'curs0r', '5ecurity', 'secur1ty', '4dmin', 'c0dex', 'g1thub', 'reg1stry', 'syst3m',
+  ]) {
+    expectCode('E_RESERVED', () => allow(ns));
+  }
+});
+
+test('🔴 大写 I 也走这条路 —— 小写之后是 `i`，字面上并不等于 `geoly`', () => {
+  // `geoIy`（大写 i）→ toLowerCase → `geoiy`，与 `geoly` **字面不等**，
+  // 旧门直接放行。靠 {i,l,1} 归一到同一类才拦得住。
+  expectCode('E_RESERVED', () => allow('geoIy'));
+  expectCode('E_RESERVED', () => allow('cIaude'));
+});
+
+test('多字符同形：`rn`→`m`、`nn`→`m`、`vv`→`w`、`cl`→`d`', () => {
+  // rn/m 是最经典的一类（`rnicrosoft.com`）。
+  for (const ns of [
+    'adrnin', 'adnnin',       // admin
+    'systern', 'systenn',     // system
+    'nprn', 'npnn',           // npm
+    'exarnple', 'exannple',   // example
+    'claucle', 'coclex', 'officlal', 'off1c1al', // cl→d（含与数字折叠的组合）
+  ]) {
+    expectCode('E_RESERVED', () => allow(ns));
+  }
+});
+
+test('🔴 `cl`→`d` 与 `l`→`i` 必须闭包 —— 否则 `c1aude` 从缝里钻过去', () => {
+  // Codex 2026-09-03：若「先多字符、后单字符」，`cl`→`d` 只认字面 `cl`，
+  //   于是 claude→daude 而 c1aude→ciaude，两者不等，**c1aude 直接绕过**。
+  //   改成「先单字符、后多字符且模式用折叠后字母」由构造保证闭包。
+  const target = foldConfusables('claude');
+  for (const v of ['claude', 'c1aude', 'ciaude', 'claucle', 'c1aucle', 'ciauc1e']) {
+    assert.ok(confusableEquals(foldConfusables(v), target), `${v} 应与 claude 同形`);
+  }
+});
+
+test('🔴 `6`/`9` 是**歧义**占位符，不能并成等价类 —— 否则 `hug` 被判成冒充 `hub`', () => {
+  // `6` 既像 `b` 又像 `g`，`9` 既像 `g` 又像 `q`。把它们并进一个类会推出 `b ≡ g`，
+  // 于是正常名字 `hug` 当场被杀（Codex 2026-09-03 给的误伤例）。
+  // 正确做法：保留 6/9 原样，逐位按「候选集合有交集」判 —— 这个关系**故意不传递**：
+  //   b ~ 6 ~ g，但 b ≁ g。
+  for (const ns of ['hu6', '6eoly', '6ithub', 'githu6', 're6istry', 're9istry', '9eoly']) {
+    expectCode('E_RESERVED', () => allow(ns));
+  }
+  assert.equal(allow('hug'), true, 'hug 是正常名字，不能因为 6 的双重身份被牵连');
+  assert.ok(!confusableEquals(foldConfusables('hub'), foldConfusables('hug')), '不传递');
+  assert.ok(confusableEquals(foldConfusables('hub'), foldConfusables('hu6')));
+  assert.ok(confusableEquals(foldConfusables('hug'), foldConfusables('hu6')));
+});
+
+test('⚠️ 诚实边界：`l`/`i` 之外的字母↔字母替换**不覆盖** —— `qeoly` `githug` 放行', () => {
+  // 🔴 这条测试钉的是**故意不做的那一层**，不是「还没做」。
+  //    要挡住它们就得把 b/g/q 并成一个字母等价类 ⇒ 推出 b ≡ g ⇒ 正常名字 `hug`
+  //    被判成冒充 `hub`。数字能按歧义处理（`hu6` 拦、`hug` 放行），是因为
+  //    「名字里出现数字」本身是信号；两个都是普通字母时没这个信号，只能二选一。
+  //    哪天有人想收紧这一层，会先看到这条测试和它的代价。
+  for (const ns of ['qeoly', 'beoly', 'qithub', 'bithub', 'reqistry', 'rebistry', 'githug']) {
+    assert.equal(allow(ns), true, `${ns} 属于明确不覆盖的层`);
+  }
+  // 对照：换成**数字**就拦得住 —— 数字是可用的信号
+  for (const ns of ['6eoly', '9eoly', '6ithub', 're6istry', 're9istry']) {
+    expectCode('E_RESERVED', () => allow(ns));
+  }
+});
+
+test('🔴 误伤面：名字里有数字是正常的 —— `web3` `s3` `i18n` `k8s` 必须放行', () => {
+  // 一道会把 web3 判成仿冒的门，报错还极难懂，两周之内就会被关掉。
+  for (const ns of ['s3', 'web3', 'h5', 'i18n', 'k8s', 'a11y', 'l10n', 'oauth2', 'p2p',
+    'sha256', 'base64', 'ipv6', 'vue3', 'es2015', 'node18', 'python3', 'log4j', 'web3-tools']) {
+    assert.equal(allow(ns), true, `${ns} 是正常投稿，不该被同形门拦`);
+  }
+});
+
+test('🔴 短保留名的拦截面是**可穷举**的 —— hub / npm 各只多拦两个串', () => {
+  // ⚠️ 这条钉住的是「误伤面到底有多大」，而不是某个具体名字。
+  //    整张 18 条清单的拦截面（不含连字符变体）一共 820 个串，全部列得出来 ——
+  //    因为 grammar 只给攻击者 a–z0–9-。短词最容易误伤，所以逐个钉死：
+  const blocked = (word, cands) => cands.filter(
+    (c) => confusableEquals(foldConfusables(c), foldConfusables(word)),
+  ).sort();
+  const three = 'abcdefghijklmnopqrstuvwxyz0123456789'.split('');
+  const all3 = [];
+  for (const a of three) for (const b of three) for (const c of three) all3.push(a + b + c);
+  assert.deepEqual(blocked('hub', all3), ['hu6', 'hu8', 'hub'],
+    'hub 的三字符拦截面必须恰好是它自己 + hu6 + hu8 —— 多一个就是误伤');
+  assert.deepEqual(blocked('npm', all3), ['npm'], 'npm 的三字符拦截面只有它自己');
+  // npm 的另外两个是四字符的（rn / nn 比 m 长一位）
+  assert.deepEqual(blocked('npm', ['nprn', 'npnn', 'npnm', 'nprm']), ['npnn', 'nprn']);
+  // `hug` / `hun` / `hud` 这类正常三字母词必须不在里面
+  for (const w of ['hug', 'hun', 'hud', 'hup', 'nom', 'nam', 'npn']) {
+    assert.equal(blocked(w, [w]).length, 1);          // 自反
+    assert.ok(!blocked('hub', [w]).length && !blocked('npm', [w]).length, `${w} 不该被牵连`);
+  }
+});
+
+test('🔴 已注册的 namespace 必须继续合法（registry/owners.json，有线上制品）', () => {
+  for (const ns of ['geoly-ai', 'prompts-map', 'plaud-theme']) {
+    assert.equal(allow(ns), true, `${ns} 已在 owners.json 且有线上制品，不能被误杀`);
+  }
+});
+
+test('🔴 判据是**全串相等**，不是包含 —— `geoly-ai` / `my-claude-helper` 放行', () => {
+  // ⚠️ 这是**有意不覆盖**的一层：包含式判定会当场杀掉 geoly-ai。
+  //    「蹭名字」这一路交给 §8 的人工门，不是这道结构门。
+  for (const ns of ['geoly-ai', 'my-claude-helper', 'claudes', 'hub-tools', 'testing',
+    'anthropic-fan', 'openai-sdk-notes', 'someone-else']) {
+    assert.equal(allow(ns), true, `${ns} 只是包含保留词，不是仿冒判据`);
+  }
+});
+
+test('折叠的结构不变量：幂等，且不会把原本拦住的名字放走', () => {
+  const corpus = ['geoly', 'anthropic', 'ge0ly', 'adrnin', 'web3', 'i18n', 'hu6', 'skills',
+    'c1aude', 'geoly-ai', 'rnn', 'nnn', 'cinn', 'vvv', 'cicd', '6', '9', 'a-b-c'];
+  for (const s of corpus) {
+    // 单趟左到右扫描就是不动点（四条多字符规则的首字符 r/n/v/c 两两不同，
+    // 输出 m/w/d 也都不是任何规则的首字符或次字符）
+    assert.equal(foldConfusables(foldConfusables(s)), foldConfusables(s), `${s} 的折叠应幂等`);
+  }
+  // 🔴 最危险的回归：某条折叠反而**放走**了本来会被字面相等挡住的名字。
+  //    折叠是纯函数、两侧同调 ⇒ normalizeName 相等必然蕴含同形相等。
+  for (const a of corpus) {
+    for (const b of corpus) {
+      if (normalizeName(a) !== normalizeName(b)) continue;
+      assert.ok(confusableEquals(foldConfusables(a), foldConfusables(b)),
+        `${a} 与 ${b} 归一化后相等，折叠后却不同 —— 折叠放走了原本拦得住的名字`);
+    }
+  }
+});
+
+test('🔴 同形折叠**只**用在保留清单一侧，不用在 namespace 内的重名门', () => {
+  // 两边容忍度不同：
+  //   · 保留清单是**有限固定**的高风险集合（18 条），可以用更激进的折叠；
+  //   · 同 namespace 内的 name 是**开放集合**，折叠会让两个正常名字互撞，
+  //     且撞的对数随注册量二次增长 —— 而它挡的不是仿冒，是「人和 agent 分不开」。
+  assert.equal(assertNoNormalizedCollision({ name: 'ge0ly', existing: ['geoly'] }), true);
+  assert.equal(assertNoNormalizedCollision({ name: 's3-tools', existing: ['se-tools'] }), true);
+  // 原有的「去连字符」判据不受影响
+  expectCode('E_NAME_COLLIDE', () => assertNoNormalizedCollision({
+    name: 'ge-oly', existing: ['geoly'],
+  }));
+});
+
+test('reserved.json 内部必须折叠单射 —— 否则 fail-closed（折叠表放太宽的告警器）', () => {
+  const root = mkroot();
+  const p = join(root, 'r.json');
+  writeFileSync(p, JSON.stringify({ schema: RESERVED_SCHEMA, namespaces: ['geoly', 'ge0ly'] }));
+  expectCode('E_RESERVED_AMBIGUOUS', () => readReserved(p));
+  // 真实清单必须是单射的
+  writeFileSync(p, JSON.stringify(REAL_RESERVED));
+  assert.equal(readReserved(p).namespaces.length, 18);
 });
 
 test('reserved.json：schema 严格、**拒绝重复 key**；文件不存在＝还没有保留清单', () => {

@@ -63,6 +63,98 @@ export function assertNoNormalizedCollision({ name, existing }) {
 
 // ── ① 保留 namespace ───────────────────────────────────────────────────────
 
+// ── 同形折叠（confusable fold）—— **只服务于保留清单比对** ──────────────────
+//
+// 🔴 **为什么只在这一层。** `normalizeName` 那套（NFKC + 小写 + 去连字符）挡得住
+//    `GEOLY` / `ｇeoly` / `g-e-o-l-y`，却**挡不住数字替字母**：
+//    `ge0ly`、`geo1y`、`anthrop1c` 原来全部放行 —— 而防仿冒正是保留
+//    `anthropic` / `claude` / `openai` / `geoly` 的**全部理由**。
+//
+// 🔴 **攻击面是可枚举的，不是无底洞。** namespace 的 grammar 是
+//    `[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?`（01-artifacts.md §3）—— 攻击者手里
+//    **只有** a–z、0–9、连字符。连字符已被 `normalizeName` 去掉，非 ASCII 已被
+//    NFKC + grammar 拦在门外。于是残余的同形手段**只剩两类**：
+//      ① 数字冒充字母（`0`/`o`、`1`/`l`/`i`、`5`/`s` …）
+//      ② 小写 ASCII 字母冒充另一个字母或字母序列（`rn`/`m`、`vv`/`w`、`cl`/`d`）
+//    本模块把这两类都折掉，然后**全串相等**比对。
+//
+// ⚠️ **明确不覆盖的层（不要以为这道门是「防仿冒」的完备实现）：**
+//    · **子串 / 前后缀包含**：`geoly-ai`、`my-claude-helper`、`claudes` 一律放行。
+//      这是**有意的** —— `geoly-ai` / `prompts-map` / `plaud-theme` 已在
+//      `registry/owners.json` 里且有线上制品，包含式判定会当场把它们杀掉。
+//    · **编辑距离 / 模糊相似**：`anthropi`、`anthropicc`、`caludе`（转置）不管。
+//    · **语音相似**：`fasebook` 这一路不管。
+//    · 🔴 **`l`/`i` 之外的字母↔字母替换**：`qeoly`、`beoly`、`qithub`、`bithub`、
+//      `reqistry`、`githug` **全部放行**。这不是漏了，是**算过账之后不做**：
+//      要挡住它们就得把 `b`/`g`/`q` 并成一个字母等价类，而那立刻推出 `b ≡ g` ——
+//      正常名字 `hug` 当场被判成冒充 `hub`（Codex 2026-09-03 实测给的）。
+//      **数字**之所以能按歧义处理（`hu6` 拦、`hug` 放行），是因为「名字里出现数字」
+//      本身就是可用的信号；两个都是普通字母时没有这个信号，只能二选一。
+//      `l`/`i` 是唯一一对强到值得付这个代价的 —— 无衬线字体里它们**完全同形**。
+//    · **`li`→`h`、`ci`→`a`、`nn` 之外的更弱多字符对**：见下面 MULTI 的注释，
+//      逐条写了为什么不做。
+//    真正兜住这些的是 §8 的人工门，不是这道结构门。
+
+/** 小写 ASCII 里真正的**字母↔字母**同形对。`l` 与 `i` 归一到 `i`。 */
+const LETTER_CLASS = { l: 'i' };
+
+/**
+ * 数字 → 它能冒充的字母。**只有一个候选的**在折叠时就地替换掉。
+ * 🔴 `6` 与 `9` 有**两个**候选（`6` 既像 `b` 又像 `g`，`9` 既像 `g` 又像 `q`），
+ *    **不能**把它们并进同一个等价类 —— 那会让 `b ≡ g`，于是 `hug` 被判成
+ *    冒充 `hub`（Codex 2026-09-03 给的误伤例）。它们**原样保留**，
+ *    在 `confusableEquals` 里按「候选集合有交集」逐位判 —— 那个关系
+ *    **故意不是传递的**：`b ~ 6 ~ g` 但 `b ≁ g`。
+ *    因为比对永远是「候选 vs 保留名」的单向两两比，不传递不构成问题。
+ */
+const DIGIT_SOLE = { 0: 'o', 1: 'i', 2: 'z', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b' };
+const DIGIT_AMBIG = { 6: ['b', 'g'], 9: ['g', 'q'] };
+
+/**
+ * 多字符同形对。**在单字符折叠之后**施加，且模式写的是**折叠后的字母表**。
+ *
+ * 🔴 顺序是判据的一部分，不是实现细节。Codex 2026-09-03 指出：若按
+ *    「先多字符、后单字符」，`cl`→`d` 只认字面 `cl`，而 `l` 又会折成 `i` ——
+ *    于是 `claude`→`daude` 但 `c1aude`→`ciaude`，**等价关系不闭包，`c1aude` 直接绕过**。
+ *    改成「先单字符、后多字符 + 模式用折叠后字母」就由构造保证闭包：
+ *    `cl` / `c1` / `ci` 都先变成 `ci`，再统一折成 `d`。
+ *
+ * 🔴 四条规则的**首字符两两不同**（r / n / v / c），所以同一位置最多命中一条 ——
+ *    不存在「贪心顺序依赖」这种可被利用的非合流。输出字符（m / w / d）也都不是
+ *    任何规则的首字符或次字符，所以**单趟左到右扫描就是不动点**。有测试钉住这两条。
+ *
+ * ⚠️ 没做的：`li`→`h`（会把 `liub` 判成 `hub`，而那可能是正常名字）、
+ *    `ci`→`a`（与这里的 `ci`→`d` 直接冲突，二选一）、`vv` 之外的 `w` 变体。
+ */
+const MULTI = [['rn', 'm'], ['nn', 'm'], ['vv', 'w'], ['ci', 'd']];
+
+/**
+ * 把名字折成「同形规范形」。结果里可能仍留有 `6` / `9` —— 它们是**歧义占位符**，
+ * 由 `confusableEquals` 处理，见 `DIGIT_AMBIG`。
+ */
+export function foldConfusables(name) {
+  let s = '';
+  for (const ch of normalizeName(name)) s += LETTER_CLASS[ch] ?? DIGIT_SOLE[ch] ?? ch;
+  let out = '';
+  for (let i = 0; i < s.length;) {
+    const rule = MULTI.find(([pat]) => s.startsWith(pat, i));
+    if (rule) { out += rule[1]; i += rule[0].length; } else { out += s[i]; i += 1; }
+  }
+  return out;
+}
+
+/** 一个折叠后字符能代表的字母集合。 */
+const charAlts = (c) => DIGIT_AMBIG[c] ?? [c];
+
+/** 两个**已折叠**的名字是否同形。⚠️ 故意不传递，见 `DIGIT_AMBIG`。 */
+export function confusableEquals(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (!charAlts(a[i]).some((x) => charAlts(b[i]).includes(x))) return false;
+  }
+  return true;
+}
+
 /**
  * 🔴 **保留清单管的是 `namespace`，不是制品 `name`。**
  *    05-lifecycle.md §1.1：「以下 **namespace** 只能由 hub 维护者使用：
@@ -90,6 +182,24 @@ export function readReserved(path) {
   if (!Array.isArray(doc.namespaces) || doc.namespaces.some((n) => typeof n !== 'string')) {
     bad('E_RESERVED_SCHEMA', 'reserved.json.namespaces 必须是字符串数组');
   }
+  // 🔴 **同形折叠必须在保留清单内部保持单射 —— 否则 fail-closed**（Codex 2026-09-03）。
+  //    这是给「折叠表将来被放宽」准备的告警器：哪天有人往 `LETTER_CLASS` / `MULTI` 里
+  //    加一条，把两个**本来互不相同的真实单词**折到一起了，这里会当场红 ——
+  //    而不是等到某个正常投稿被莫名其妙判成仿冒才发现。
+  const folds = doc.namespaces.map((n) => ({ n, f: foldConfusables(n) }));
+  for (let i = 0; i < folds.length; i += 1) {
+    for (let j = i + 1; j < folds.length; j += 1) {
+      if (confusableEquals(folds[i].f, folds[j].f)) {
+        bad('E_RESERVED_AMBIGUOUS',
+          `保留清单内部自撞：${folds[i].n} 与 ${folds[j].n} 同形折叠后无法区分`
+          + `（${JSON.stringify(folds[i].f)} / ${JSON.stringify(folds[j].f)}）。\n`
+          + '  三种可能：① 其中一条是笔误；② 其中一条是**冗余别名**'
+          + '（如 `openai` 之外再列 `open-ai` —— 归一化后本就相同，直接删掉那条即可）；'
+          + '③ structural-gates.mjs 的折叠表放得太宽 —— 宽到能把两个正常单词合并，'
+          + '就一定会误伤正常投稿。');
+      }
+    }
+  }
   return doc;
 }
 
@@ -102,11 +212,30 @@ export function readReserved(path) {
 export function assertReservedNamespaceAllowed({ namespace, reserved, byMaintainer = false }) {
   const target = normalizeName(namespace);
   const hit = reserved.namespaces.filter((r) => normalizeName(r) === target);
-  if (hit.length === 0) return true;
+  // 🔴 归一化相等之外，再查一层**同形折叠**（`ge0ly` / `geo1y` / `anthrop1c`）——
+  //    见上面那段「攻击面是可枚举的」。折叠只用在**这一层**（与 18 条固定清单
+  //    比全串相等），**不用在 `assertNoNormalizedCollision`**：那边比的是
+  //    同 namespace 内的**开放集合**，折叠会让两个正常名字互撞，
+  //    且撞的对数随注册量二次增长，而它挡的不是仿冒、是「人和 agent 分不开」。
+  const folded = foldConfusables(namespace);
+  const lookalike = reserved.namespaces.filter(
+    (r) => !hit.includes(r) && confusableEquals(foldConfusables(r), folded),
+  );
+  if (hit.length === 0 && lookalike.length === 0) return true;
   if (byMaintainer) return true;                    // §1.1：维护者可以用
+  if (hit.length) {
+    bad('E_RESERVED',
+      `namespace ${namespace} 命中保留清单（${hit.join(', ')}，归一化后相同）——`
+      + '05-lifecycle.md §1.1：这些 namespace 只能由 hub 维护者使用。');
+  }
   bad('E_RESERVED',
-    `namespace ${namespace} 命中保留清单（${hit.join(', ')}，归一化后相同）——`
-    + '05-lifecycle.md §1.1：这些 namespace 只能由 hub 维护者使用。');
+    `namespace ${namespace} 与保留 namespace ${lookalike.join(', ')} **同形**`
+    + `（数字/字母同形折叠后都是 ${JSON.stringify(folded)}）——`
+    + '05-lifecycle.md §1.1：这些 namespace 只能由 hub 维护者使用，'
+    + '而「数字替字母」正是保留它们要防的那种仿冒。\n'
+    + '  ⚠️ 这道门只比**全串**：名字里带数字本身没问题（`web3`、`s3`、`i18n` 都放行），'
+    + '包含保留词也没问题（`geoly-ai` 放行）—— 只有整个名字折叠后与保留名相同才拒。'
+    + '要是你确实不是在仿冒，换一个不会折叠到保留名上的写法即可。');
 }
 
 // ── ③ 版本未占用 ───────────────────────────────────────────────────────────
