@@ -125,6 +125,9 @@ async function run(w, argv) {
     env: { ...process.env, CODEX_HOME: undefined },
     stateDir: w.stateDir,
     cacheDir: w.cacheDir,
+    // 🔴 测试绝不出网：注入会炸的 fetch，让意外的网络访问当场暴露。
+    //    （这里的 fetchImpl 是给 install 的 preheat 用的，与上报那个是两回事。）
+    fetchImpl: () => { throw new Error('测试里不许出网（没有注入 fetchImpl）'); },
     now: () => new Date(NOW),
     cliVersion: '1.2.3',
     verifier: fakeVerifier(),
@@ -267,6 +270,9 @@ test('🔴 install 成功收尾后自动发一次，且告知**先于**那一次
     const code = await main(['install', 'demo', '--clients', 'claude'], {
       home: w.home, cwd: w.projectRoot, env: { ...process.env, CODEX_HOME: undefined },
       stateDir: w.stateDir, cacheDir: w.cacheDir, now: () => new Date(NOW),
+    // 🔴 测试绝不出网：注入会炸的 fetch，让意外的网络访问当场暴露。
+    //    （这里的 fetchImpl 是给 install 的 preheat 用的，与上报那个是两回事。）
+    fetchImpl: () => { throw new Error('测试里不许出网（没有注入 fetchImpl）'); },
       cliVersion: '1.2.3', verifier: fakeVerifier(), stdout: so, stderr,
     });
     assert.equal(code, 0, so.s + stderr.s);

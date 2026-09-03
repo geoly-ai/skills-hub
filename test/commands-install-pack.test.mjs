@@ -83,6 +83,13 @@ async function run(w, argv) {
     env: { ...process.env, GEOLY_TELEMETRY: '0', CODEX_HOME: undefined },
     stateDir: w.stateDir,
     cacheDir: w.cacheDir,
+    // 🔴 **测试绝不出网。** 注入一个会炸的 fetch —— 任何意外的网络访问
+    //    当场暴露，而不是变成一次静默的真实下载。
+    //    ⚠️ 2026-09-03 踩到：`fetchImpl` 缺省是 null，preheat 拿到 null 时报
+    //    「没有内建 fetch」，被当成「网络失败」吞掉、退回缓存 —— 于是这套测试
+    //    **看起来**是离线的。修好 null 之后它们真的开始下载 github 上的
+    //    timestamp，58 个测试当场红。掩盖它的正是那个 bug。
+    fetchImpl: () => { throw new Error('测试里不许出网（没有注入 fetchImpl）'); },
     now: () => new Date(NOW),
     cliVersion: '1.2.3',
     verifier: fakeVerifier(),

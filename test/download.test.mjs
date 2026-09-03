@@ -174,3 +174,22 @@ test('HTTP 4xx/5xx 报成 NetworkError 且带状态码', async () => {
     /HTTP 404/,
   );
 });
+
+test('🔴 fetchImpl 传 null 时要落到内建 fetch —— 默认参数只挡 undefined', async () => {
+  // 2026-09-03 干净 home 端到端首次安装炸出来的：
+  // `context.mjs` 里 fetchImpl 缺省是 **null**（与 verifier 等注入点一致），
+  // 而 `download()` 原本写的是默认参数 `fetchImpl = globalThis.fetch` ——
+  // null 原样穿过去，报「当前 Node 没有内建 fetch」，而 Node 25 明明有。
+  //
+  // ⚠️ 这条**单元测试原本永远抓不到**：每个测试都注入了替身，走不到缺省分支。
+  //    所以这里刻意不注入，只断言「不是那句错误」。
+  assert.ok(typeof globalThis.fetch === 'function', '前提：本 Node 有内建 fetch');
+  await assert.rejects(
+    () => download('https://127.0.0.1:1/x', { host: '127.0.0.1:1', fetchImpl: null, timeoutMs: 300 }),
+    (e) => {
+      assert.ok(!/没有内建 fetch/.test(e.message),
+        `🔴 null 没有落到内建 fetch：${e.message}`);
+      return true;   // 连不上是预期的，我们只关心它有没有走到内建 fetch
+    },
+  );
+});

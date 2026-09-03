@@ -2,7 +2,8 @@
 // 这一份**不碰磁盘、不造制品** —— 端到端在 test/commands-e2e.test.mjs。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseGlobals, uintArg, assertPlatformSupported } from '../src/commands/context.mjs';
+import { parseGlobals, uintArg, assertPlatformSupported, ownVersion, makeContext } from '../src/commands/context.mjs';
+import { readFileSync } from 'node:fs';
 import { parseRecoverArgs, assertModeAllowed } from '../src/commands/recover.mjs';
 import {
   EXIT, classify, exitForViolations, VIOLATION_EXIT, UsageError, ConflictError,
@@ -278,4 +279,19 @@ test('标注在每一行上重复出现，值一律是布尔（缺席会被读�
   for (const v of Object.values(a)) assert.equal(typeof v, 'boolean');
   assert.equal(annotationSuffix(a), ' [stale] [offline]');
   assert.equal(annotationSuffix(annotations()), '');
+});
+
+test('🔴 CLI 自报版本必须等于 package.json —— 不许是硬编码的字面量', () => {
+  // 2026-09-03 首次端到端安装撞到：这里原本硬编码 '0.0.0-m1'，
+  // 而 `bin/skills-hub.mjs` 一个 dep 都不传 —— 于是**发布出去的 CLI
+  // 自报 0.0.0-m1，被自己的 timestamp.min_cli_version 当场挡死**。
+  // ⚠️ 这不是显示问题：min_cli_version 是按真实版本号比对的策略门。
+  const pkg = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+  assert.equal(ownVersion(), pkg.version);
+  // 且它必须真的进到 context 里（不是只有这个函数对）
+  const g = parseGlobals([]);
+  const ctx = makeContext(g.globals ?? g, { env: {}, home: '/tmp/x', cwd: '/tmp/x' });
+  assert.equal(ctx.cliVersion, pkg.version, 'makeContext 没把真实版本号带进去');
 });

@@ -135,11 +135,18 @@ export async function download(url, {
   redirectHosts = REDIRECT_HOSTS,
   maxRedirects = MAX_REDIRECTS,
   cap = MAX_DOWNLOAD_BYTES,
-  fetchImpl = globalThis.fetch,
+  fetchImpl,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   what = url,
 } = {}) {
   assertDownloadUrl(url, host);
+  // 🔴 用 `??` 而不是默认参数：**默认参数只对 `undefined` 生效**。
+  //    `commands/context.mjs` 里 `fetchImpl` 的缺省值是 **`null`**（与 verifier
+  //    等注入点一致），null 会原样穿过默认参数，于是生产路径上拿到的是 null。
+  //    ⚠️ 单元测试**永远抓不到这一条** —— 它们每次都注入替身，走不到缺省分支。
+  //    2026-09-03 干净 home 端到端首次安装时才炸出来：
+  //    「当前 Node 没有内建 fetch」 —— 而 Node 25 明明有。
+  fetchImpl = fetchImpl ?? globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
     throw new NetworkError('当前 Node 没有内建 fetch，且调用方没有注入 fetchImpl');
   }

@@ -176,6 +176,32 @@ export function uintArg(name, val) {
  * @param {object} globals  parseGlobals 的产物
  * @param {object} deps     🔴 只从 `main(argv, deps)` 的第二个形参来，argv/env 到不了这里
  */
+/**
+ * 本 CLI 自己的版本 —— 🔴 **从 package.json 读，不要硬编码。**
+ *
+ * ⚠️ 这里原本是字面量 `'0.0.0-m1'`。后果不是「显示得不好看」：
+ *    `timestamp.min_cli_version` 是按真实版本号比对的策略门，
+ *    而 `bin/skills-hub.mjs` 一个 dep 都不传 —— 于是**发布出去的 CLI
+ *    自报 0.0.0-m1，会被自己的 min_cli_version 当场挡死**。
+ *    2026-09-03 首次端到端安装时撞到：timestamp 写着 0.3.0，
+ *    而刚从 npm 装下来的 0.3.0 报的是 0.0.0-m1 → E_MIN_CLI_VERSION。
+ *
+ * 🔴 读不到就**抛**，不要退回一个假版本号：一个编出来的版本号会让
+ *    版本门做出错误判定，而那正是这道门要防的事。
+ */
+let cachedVersion;
+export function ownVersion() {
+  if (cachedVersion === undefined) {
+    const p = new URL('../../package.json', import.meta.url);
+    const v = JSON.parse(readFileSync(p, 'utf8')).version;
+    if (typeof v !== 'string' || v === '') {
+      throw new Error('读不出本 CLI 的版本号（package.json 的 version 不是非空字符串）');
+    }
+    cachedVersion = v;
+  }
+  return cachedVersion;
+}
+
 export function makeContext(globals, deps = {}) {
   const env = deps.env ?? process.env;
   const home = deps.home ?? homedir();
@@ -213,7 +239,7 @@ export function makeContext(globals, deps = {}) {
     cacheDir,
     /** 🔴 时间只从这里取：canonical JSON 要求严格 `YYYY-MM-DDTHH:MM:SSZ`，测试要能定死它 */
     now: deps.now ?? (() => new Date()),
-    cliVersion: deps.cliVersion ?? env.GEOLY_CLI_VERSION ?? '0.0.0-m1',
+    cliVersion: deps.cliVersion ?? env.GEOLY_CLI_VERSION ?? ownVersion(),
     /**
      * 🔴 验签器**没有逃生口**：`deps.verifier` 只有 `main(argv, deps)` 的调用方能给，
      *    而生产入口 `bin/skills-hub.mjs` 一个 dep 都不传。

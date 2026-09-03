@@ -16,8 +16,10 @@
 import { existsSync } from 'node:fs';
 import { resolveCurrent } from '../snapshot.mjs';
 import { readTrustFloor, resolveStateDir } from '../trust.mjs';
+import { mkdirChainFsync } from '../atomic-fs.mjs';
 import { preheatAssets, preheatMetadata, promoteMetadata, discard, newBudget } from '../preheat.mjs';
 import { createCacheRegistry } from './registry.mjs';
+import { getVerifier } from './snapshot-access.mjs';
 
 /**
  * 联网刷新一次 metadata（timestamp + 当前快照）到本地缓存。
@@ -28,6 +30,16 @@ export async function preheatOnce({
   cacheDir, stateDir, verifier, cliVersion, now, fetchImpl, timeoutMs,
   budget = newBudget(),
 }) {
+  // 🔴 preheat 现在是**第一个**碰这两个目录的人。
+  //    在它之前，建目录那一步藏在 `resolveSnapshotForCommand()` 里面 ——
+  //    而 preheat 排在它前面，于是干净 home 上第一次安装直接 ENOENT。
+  //    2026-09-03 端到端撞到：`lstat '<home>/.local'`。
+  //    ⚠️ 顺序要紧：`resolveStateDir()` 内部是 `realpathSync`，**要求目录已存在**。
+  //    我第一版写成 `mkdirChainFsync(resolveStateDir(stateDir))` —— 先解析后创建，
+  //    在干净 home 上必然 ENOENT，而且报的是 `lstat '<home>/.local'`，
+  //    看起来完全不像「目录还没建」。
+  mkdirChainFsync(cacheDir);
+  mkdirChainFsync(stateDir);
   const { stagingDir, n } = await preheatMetadata({ cacheDir, fetchImpl, timeoutMs, budget });
   try {
     // 🔴 registry 指向 **staging**，不是 cache —— 验的必须是刚下回来的那份。
@@ -70,10 +82,23 @@ export async function preheatForInstall(ctx, out) {
   if (ctx.registryFactory) return { refreshed: false, reason: 'custom-registry' };
   const haveCache = existsSync(`${ctx.cacheDir}/timestamp.json`);
   try {
+    // 🔴 `ctx.verifier` 的缺省值是 **null**（不是 undefined）——
+    //    直接传会得到 `E_VERIFIER_MISSING`。命令面统一走 `getVerifier()`，
+    //    它在没注入时落到**真验签器**（内置信任根）。
+    //    ⚠️ 与 fetchImpl 是**同一个形状**：注入点缺省为 null，而下游按
+    //    「没给就用默认」写。一处栽了就该全仓找同形状的——这是第二处。
     const r = await preheatOnce({
       cacheDir: ctx.cacheDir, stateDir: ctx.stateDir,
-      verifier: ctx.verifier, cliVersion: ctx.cliVersion, now: ctx.now,
-      fetchImpl: ctx.fetchImpl,
+      verifier: await getVerifier(ctx),
+      cliVersion: ctx.cliVersion,
+      // 🔴 `ctx.now` 是**函数**（`() => new Date()`），而 `resolveCurrent` 要的是
+      //    **毫秒数**。直接传函数会一路走到 `makeFloor` 里 `new Date(fn).toISOString()`
+      //    → `RangeError: Invalid time value`，报出来的话完全看不出是这儿。
+      //    命令面原本就写着 `now: ctx.now().getTime()`（snapshot-access.mjs:54）——
+      //    ⚠️ 这是我今天**第三次**把 ctx 字段原样传下去而没看形状
+      //    （前两次：fetchImpl 与 verifier 的缺省是 null）。
+      now: ctx.now().getTime(),
+      fetchImpl: ctx.fetchImpl ?? undefined,
     });
     if (r.refreshed) out?.note?.(`已刷新到快照 ${r.n}`);
     return r;
