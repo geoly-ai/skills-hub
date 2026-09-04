@@ -178,10 +178,27 @@ export async function download(url, {
         //    2026-09-03 我自己被这句话挡了两轮，最后是手写探针才挖出
         //    UND_ERR_CONNECT_TIMEOUT，进而发现是代理没被认。
         const why = e.cause?.code ?? e.cause?.message ?? e.code ?? '';
-        const hint = /TIMEOUT|ETIMEDOUT|ECONNREFUSED/.test(String(why))
-          ? '\n  连不上。若你在代理后面：本 CLI 认 HTTPS_PROXY / NO_PROXY，'
-            + '但那需要 Node ≥ 24（当前 ' + process.version + '）。'
-          : '';
+        // 🔴 提示要**按当前环境分情形**，不能一句话套所有人。
+        //    我第一版无论如何都说「需要 Node ≥ 24」，而在 Node 25 上读者会
+        //    合理地认为「我满足了，那问题在别处」—— 一句正确但不适用的话，
+        //    比不说更能把人带偏。
+        let hint = '';
+        if (/TIMEOUT|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/.test(String(why))) {
+          const major = Number(process.versions.node.split('.')[0]);
+          const hasProxyEnv = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']
+            .some((k) => process.env[k]);
+          if (hasProxyEnv && major < 24) {
+            hint = `\n  你配了代理，但代理支持需要 Node ≥ 24（当前 ${process.version}）。`
+              + '\n  可以先在能直连的网络里跑一次把缓存热起来，之后 --offline 可用。';
+          } else if (hasProxyEnv && process.env.NODE_USE_ENV_PROXY === '0') {
+            hint = '\n  你配了代理，但显式设了 NODE_USE_ENV_PROXY=0 —— CLI 因此没走代理。';
+          } else if (!hasProxyEnv) {
+            hint = '\n  连不上。若你的网络需要代理，设置 HTTPS_PROXY 后重试'
+              + '（NO_PROXY 也会被尊重）。';
+          } else {
+            hint = '\n  代理已配置且已启用，但仍然连不上 —— 请检查代理本身是否可达。';
+          }
+        }
         throw new NetworkError(`${what} 下载失败：${e.message}${why ? `（${why}）` : ''}${hint}`);
       }
 
