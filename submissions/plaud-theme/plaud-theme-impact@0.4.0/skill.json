@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "PLAUD Shopify 主题矩阵的 Assess 阶段（order 2）：改动影响面侦察。 用户问\"改这个会影响什么\"\"影响范围多大\"\"blast radius\"\"波及哪些模板/页面\"\"依赖树\"\"上下游调用方\" \"这个 snippet 谁在用\"\"改共享 snippet / 全局 CSS / token 会不会炸全站\"\"旧 section 有没有连带影响\" \"这次改动能不能到店\"\"改了各店收得到吗\"\"17 个店都会生效吗\"\"保护清单\"\"受保护路径\"\"同步会不会覆盖\" \"改 templates/*.json 各店能收到吗\"\"改 locales 文案店里会变吗\"\"PageFly / pf-* / matycube 文件能不能改\" \"站点自研代码\"\"某个店自己写的文件会不会冲突\"\"sync 不覆盖\" \"有多少实例\"\"实例数\"\"disabled 实例算不算\"\"改动风险高不高\"\"该动模板存值还是 schema 还是模块代码\" 时使用；Path A 改已有 section/snippet/CSS、Path B 新建 sa-* section 查复用面与冲突面、 Path C UX 迁移前的 Blast Radius 与实例审计，都先过本 skill。 产出 LegacyImpact / IntegrationSurface / InlineLite 三种 ReconMode 下的事实： 理论引用数 vs 实际受影响实例清单、启用/disabled 实例分列、依赖树、共享传播链、 token→class 全实例覆盖核查、dangling 引用核查、build 产物 vs 源文件区分、 可选修改入口与各自风险、RiskTier、应跑的 QA profile， 以及 **v0.4.0 新增的 SyncReach**：本次改动能不能通过「基线 origin/main → 17 个独立 Shopify 店」的 sync 到店 —— 逐改动项比对 15 条保护规则与两条例外，区分 templates 的文件级（只有基线新增的模板能过）与 locales 的字段级（新增/删除字段能过、改已本地化的键值过不去），并指出站点自研代码造成的影响面下界偏差。 SyncReach 只判「这条路径能不能过 sync」，**不推断要推哪几个站**（那仍由 plaud-theme-qa-intake 按运营出处填）， 也不出逐店落地方案（那是提测材料 SyncReachStatus）。 本 skill 只产出事实与证据命令：不改任何代码、不写 section、不做 UX 迁移、 不下 RootCause 根因结论、不选实现方案、不做验收、不判定可交付、不批准模板存值编辑。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "plaud-theme-impact",
+  "namespace": "plaud-theme",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 20
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.4.0"
+}

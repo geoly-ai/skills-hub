@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "PLAUD Shopify 主题 Path A 通用开发（Implement 阶段，order 3）：bug 修复、性能优化、 新功能、UX 微调。用户说改 Plaud 主题 bug、修 Swiper、 swiper cards/cube 图不加载、点击触发多次、下拉被 overflow 裁切、移动端样式不生效、 inline style 覆盖媒体查询、弹窗 popup、drawer、custom element 泄漏、 disconnectedCallback 没清理 timer/observer、DOMParser 重复创建、循环里输出 stylesheet_tag、图片没 width/height 导致 CLS、lazy-load 与 Swiper effect 冲突、 组件写死宽高需要适配、给某个 section 加个新功能/新开关； 以及**零改动（没有 ChangeSetId）**的只读 code review / A11y 无障碍审计 / 对比度、aria-label、focus-visible 审计—— **用户要不要\"最终交付判定\"都不改变归属**：零改动没有 ChangeSet 可绑， plaud-theme-qa 结构上接不了、会原样转回来（v0.2.2 第八轮修掉的 dev↔QA 回环）； 此时按 §2 只读通道出 ReadOnlyProof，ReadyForDelivery 填 N/A(ReadOnly) 并说明 \"零改动不存在交付判定\"。已有 ChangeSetId（即有改动）→ 走 plaud-theme-qa-intake（提测准入），由它放行到 plaud-theme-qa。 只要是 Plaud 主题（plaudRelease、plaudAsen、 PLAUD SG、shopify-plaud-sg-test 等仓库）的 sections/snippets/assets/Liquid/CSS/JS 改动且不属于 Path B / Path C，就用本 skill。 本 skill 只做 Orient / Decide / Act（根因、方案、最小实现）， 不做影响面事实收集（那是 plaud-theme-impact），也无权宣布可交付（那是 plaud-theme-qa）。 不适用：Figma / 设计稿 / 新建 sa-* section → plaud-theme-section-build； UX Spec v1.3 迁移 / 刷模块 / 对齐 ux / 迁移日志 → plaud-theme-ux-migration； 非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "plaud-theme-dev",
+  "namespace": "plaud-theme",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 20
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.4.0"
+}
