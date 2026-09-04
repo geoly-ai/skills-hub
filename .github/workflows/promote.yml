@@ -30,6 +30,12 @@ on:
   push:
     branches: [main]
     paths: ['submissions/**']
+  # 🔴 补一个手动口：push 触发失败后**没有任何办法重跑**——
+  #    `gh run rerun` 会用触发那次的 workflow 文件（修好了也用不上），
+  #    而再次触发要求再推一次 `submissions/**`，那等于为了重试而伪造一次投稿。
+  #    2026-09-04 实测吃过这个亏。手动跑时 `github.sha` 就是 main 的 HEAD，
+  #    与 push 触发拿到的是同一个值，下游一个字都不用改。
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -82,6 +88,7 @@ jobs:
             echo "::error::  0 张 = 有人直推 main（分支保护该拦住）；>1 张 = 无法确定审批归属。"
             exit 1
           fi
+          prnum=$(jq -r '.[0].number' pulls.json)
           ref=$(jq -r '.[0].head.ref' pulls.json)
           headrepo=$(jq -r '.[0].head.repo.full_name' pulls.json)
           author=$(jq -r '.[0].user.node_id' pulls.json)
@@ -104,14 +111,31 @@ jobs:
           #
           #    这一步同时完成 §3 第 2 项（变更路径白名单）—— assertPathsAllowed
           #    就在 pr-classify 的 CLI 里，判定与路径检查本来就是一件事。
-          paths=$(git diff --no-renames --name-only "$basesha...$headsha")
-          # 🔴 `--present-paths` 与 `--changed-paths` 必须**同一次 diff 算出来**，
-          #    差别只在 `--diff-filter=d`（排除本次删掉的）。pr-classify 用两者之差
-          #    判断 promotion 的 `submissions/**` 是不是「只删不增」。
-          #    ⚠️ 它是**必填**：缺了会直接报错而不是默默放行 —— 2026-09-02 我把它
-          #    设成必填却只接了 validate-pr.yml、漏了这里，promote 当场红在
-          #    「缺少 --present-paths」。pr-classify 有**两个**调用点，改一处就要改两处。
-          present=$(git diff --no-renames --name-only --diff-filter=d "$basesha...$headsha")
+          # 🔴 **变更路径问 API 要，不用 `git diff`。** 两个理由，第二个是安全的：
+          #
+          #   ① PR 的 head commit **不一定在本地历史里**：`fetch-depth: 0` 拉的是
+          #      分支与 tag，**不含 `refs/pull/*`**；squash 合并 + 删分支之后
+          #      head 在任何分支上都不可达，`git diff a...b` 当场
+          #      `fatal: Invalid symmetric difference expression`。
+          #      2026-09-04 实测：PR #20 就是这么红的。
+          #
+          #   ② 🔴 **本 job 有 `contents: write` 与 PAT，绝不能把 fork 的对象取进来。**
+          #      我第一版是 `git fetch refs/pull/<n>/head` —— 只 fetch 不 checkout，
+          #      看起来安全，但 `workflow-invariants` 那条「promote.yml 绝不 checkout
+          #      fork」当场变红。那道闸是有意设的，不该为了方便撬开：
+          #      **问 API 要文件名，一个不可信对象都不进工作区。**
+          #
+          # `--paginate` 必须有：超过 30 个文件时默认只回第一页，
+          # 而「少看见几个路径」在白名单判定里等于**静默放行**。
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$prnum/files" \
+            --jq '.[] | [.status, .filename] | @tsv' > prfiles.tsv
+          if [ ! -s prfiles.tsv ]; then
+            echo "::error::PR #$prnum 的文件列表是空的 —— 不判定，交人工"
+            exit 1
+          fi
+          paths=$(cut -f2 prfiles.tsv)
+          # `--present-paths` = 排除本次删掉的，与原先 `--diff-filter=d` 同义。
+          present=$(awk -F'\t' '$1 != "removed" { print $2 }' prfiles.tsv)
           # 🔴 维护者名单从**已合并到 main 的**那一份读（本 workflow 跑在 main 上，
           #    从不 checkout fork）。取 `.id` 不取 `.login` —— 同 validate-pr.yml。
           #    ⚠️ 这里**必须**传：pr-classify 把 `--maintainer-ids` 列为必填，
@@ -237,8 +261,14 @@ jobs:
         id: stage
         if: ${{ steps.facts.outputs.skip == 'false' }}
         env:
+          # 🔴 改用 API 之后 BASE/HEAD 不再参与算路径，但**保留**：
+          #    下面还有别的地方用它们，而且它们是「这次 promote 基于哪一对 commit」
+          #    的记录，删掉会让日志少一条可追溯的事实。
           BASE: ${{ steps.facts.outputs.base }}
           HEAD: ${{ steps.facts.outputs.head }}
+          PR: ${{ steps.facts.outputs.pr }}
+          # 只读：列 PR 的文件。不用 PAT —— PAT 只给「开 PR」那一步（§5）。
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # 🔴 **只搬这一次 PR 带来的那几个。** 触发条件是「push 到 main 且动了
@@ -248,7 +278,13 @@ jobs:
           # 🔴 `--diff-filter=d` 排掉**删除**：一张同时删掉别的投稿的 PR，
           #    删掉的那个会进 want 名单，然后与盘上的实际内容对不上，
           #    报成「少了 X」—— 而真相是它本来就该没有。
-          only=$(git diff --no-renames --diff-filter=d --name-only "$BASE...$HEAD" \
+          # 🔴 与上面「取 PR 事实」同一个理由：**不用 `git diff`**。
+          #    ① squash + 删分支后 head 不可达，`$BASE...$HEAD` 直接 fatal；
+          #    ② 本 job 有 contents: write 与 PAT，不能把 fork 的对象取进来。
+          #    ⚠️ 这是同一个 bug 的**第二个实例** —— 改一处不够，
+          #    promote.yml 里有两处按 `$BASE...$HEAD` 算 diff。
+          only=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" \
+            --jq '.[] | select(.status != "removed") | .filename' \
             | sed -n 's|^submissions/\([^/]*\)/\([^/]*\)/.*$|\1/\2|p' \
             | sort -u | paste -sd, -)
           if [ -z "$only" ]; then

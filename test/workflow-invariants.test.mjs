@@ -618,13 +618,28 @@ test('🔴 promote.yml 只由 push 到 main 的 submissions/** 触发 —— 一
   //    （`repository_dispatch`、`issues`、`pull_request_review`…），
   //    而且在既有 `push:` 下加一行 `tags: ['*']` 就能绕开 paths 过滤
   //    —— tag push 不受 paths filter 限制（Codex 2026-08-31）。
+  //
+  // 📌 **2026-09-04 加入 `workflow_dispatch`，理由写在这里以免下次被当成误加。**
+  //    起因：PR #20 用 `--squash --delete-branch` 合并后 promote 第一步就红
+  //    （head commit 不可达）。修好之后发现**没有任何办法重跑**：
+  //    `gh run rerun` 用的是触发那次的 workflow 文件（修了也用不上），
+  //    而再次触发要求再推一次 `submissions/**` —— 那等于为了重试伪造一次投稿。
+  //    **一个卡住就无法恢复的 promote，本身就是运维风险。**
+  //
+  //    🔴 判据是「它绕不绕过门」，不是「触发口多不多」：
+  //    手动触发照样重跑 §3 全部四项（审批未失效、路径白名单、结构门、版本未占用），
+  //    产出的仍是**一张要审的 promotion PR**，不是直推 main。
+  //    而能手动触发它的人本来就有仓库写权限。
+  //
+  //    ⚠️ 仍然是**白名单**：下面是「恰好这四行」，多一个事件就红。
   const body = PROMOTE();
   const on = onBlock(body);
   assert.deepEqual(on, [
     'push:',
     "branches: [main]",
     "paths: ['submissions/**']",
-  ], `promote.yml 的 on: 块必须**恰好**是这三行，实际：\n  ${on.join('\n  ')}`);
+    'workflow_dispatch:',
+  ], `promote.yml 的 on: 块必须**恰好**是这四行，实际：\n  ${on.join('\n  ')}`);
 });
 
 // 🔴 **collect 的输出不能就地写回 build-inputs 的输入。**
@@ -751,10 +766,35 @@ test('🔴 promote 的分流用的是 router 那一份代码，不是 shell 复�
   //    于是「去掉 --diff-filter=d」那条变异改坏一处、另一处还在，断言照样绿。
   //    ⚠️ 一个只问「存不存在」的断言，会随着同名东西变多而**自己失效**，
   //    而且不会有任何迹象。判据要钉在它真正关心的那一行上。
-  assert.match(body, /only=\$\(git diff[^\n]*--diff-filter=d/,
-    '算「本次 PR 带来哪些投稿」（only=…）时要排掉删除');
-  assert.match(body, /present=\$\(git diff[^\n]*--diff-filter=d/,
-    'present 清单就是「排掉删除的 changed」——两者必须来自同一次 diff');
+  // 📌 2026-09-04：手段从 `git diff --diff-filter=d` 换成了 GitHub API
+  //    （`pulls/<n>/files` + `select(.status != "removed")`）。原因有两个，
+  //    第二个是安全的：① squash + 删分支后 head commit 不可达，`git diff a...b`
+  //    直接 fatal；② 本 job 有 contents: write 与 PAT，**不能把 fork 的对象
+  //    取进工作区** —— 第一版我写的是 `git fetch refs/pull/<n>/head`，
+  //    被上面那条「promote.yml 绝不 checkout fork」当场拦下。
+  //
+  // 🔴 所以这两条断言改成钉**语义**而不是**手段**：
+  //    「排掉删除」与「两份清单同源」才是要守的东西，
+  //    用 git 还是用 API 是实现细节。
+  //    ⚠️ 原来那种写法有个坏处：换个等价实现就假红，
+  //    而假红久了会被人直接删掉断言 —— 那时它守的东西就真没了。
+  assert.match(body, /only=\$\(gh api[^\n]*pulls\/\$PR\/files/,
+    '算「本次 PR 带来哪些投稿」（only=…）要问 API 要文件列表');
+  assert.ok(/only=\$\(gh api[\s\S]{0,200}?status != "removed"/.test(body),
+    'only=… 必须排掉删除（status != "removed"）');
+  assert.ok(/present=\$\(awk[^\n]*\$1 != "removed"/.test(body),
+    'present 清单就是「排掉删除的 changed」——必须与 paths 来自同一份文件列表');
+  assert.match(body, /paths=\$\(cut -f2 prfiles\.tsv\)/,
+    'paths 与 present 必须来自同一份 prfiles.tsv —— 两次独立取用会漂移');
+  // 🔴 判据是「**没有**不带 --paginate 的 pulls 列表调用」，
+  //    不是「存在某一处带了 --paginate」。
+  //    ⚠️ 后者正是本文件 764 行记过的坑：文件里有三处 `gh api --paginate`，
+  //    只要还剩一处，「存在」型断言就永远绿 —— 去掉另外两处也抓不到。
+  //    写成否定式之后，将来加第四处也自动被守到。
+  const unpaged = body.match(/gh api "repos\/\$GITHUB_REPOSITORY\/pulls\/[^"]*"/g) ?? [];
+  assert.deepEqual(unpaged, [],
+    '🔴 列 PR 的 files/reviews 必须 --paginate：默认只回第一页，'
+    + `少看见路径 = 静默放行。缺的：\n  ${unpaged.join('\n  ')}`);
   // 🔴 `--maintainer-ids` 在 pr-classify 里是**必填**（「名单没取到」不能与
   //    「显式空名单」长得一样）。promote 是第二个调用方 —— 不传的话，
   //    **每一次 promote 都会因为缺参直接失败**，而这个文件是本机唯一能提前
@@ -996,12 +1036,18 @@ const MUTATIONS = [
   ['promote.yml', "    paths: ['submissions/**']", "    paths: ['submissions/**']\n  workflow_dispatch:", 'promote 多一个触发', '只由 push'],
   ['promote.yml', 'cancel-in-progress: false', 'cancel-in-progress: true', 'promote 允许取消', '串行且不许取消'],
   ['promote.yml', 'git push origin "$branch"', 'git push origin main', 'promote 直推 main', '不直推 main'],
-  ['promote.yml', 'only=$(git diff --no-renames --diff-filter=d --name-only',
-    'only=$(git diff --no-renames --name-only',
-    'only= 那一处去掉 --diff-filter=d', '分流用的是 router'],
-  ['promote.yml', 'present=$(git diff --no-renames --name-only --diff-filter=d',
-    'present=$(git diff --no-renames --name-only',
-    'present 那一处去掉 --diff-filter=d', '分流用的是 router'],
+  // 📌 2026-09-04：手段从 git diff 换成 GitHub API，变异跟着换到新实现上。
+  //    ⚠️ 旧变异指着一段**已经不存在的字符串**，harness 会报「找不到」而不是
+  //    「改坏了仍然绿」—— 那是它该有的行为：变异必须打在真实存在的行上。
+  ['promote.yml', 'select(.status != "removed") | .filename',
+    'select(true) | .filename',
+    'only= 那一处不再排掉删除', '分流用的是 router'],
+  ['promote.yml', "awk -F'\\t' '$1 != \"removed\" { print $2 }' prfiles.tsv",
+    "cut -f2 prfiles.tsv",
+    'present 清单不再排掉删除', '分流用的是 router'],
+  ['promote.yml', 'gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$prnum/files"',
+    'gh api "repos/$GITHUB_REPOSITORY/pulls/$prnum/files"',
+    '🔴 去掉 --paginate：超过 30 个文件时静默少看见路径', '分流用的是 router'],
   ['promote.yml', 'node --no-warnings scripts/submission/pr-classify.mjs', 'true #', 'promote 不再调 router', '分流用的是 router'],
 
   // ── Codex 2026-08-31 第二轮点名的形状 ────────────────────────────────
