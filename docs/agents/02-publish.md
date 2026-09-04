@@ -65,6 +65,11 @@ submissions/<namespace>/<name>@<version>/
 才知道 —— 所以顺序是：**先开 PR → 拿到号 → 写进 skill.json → 强推同一分支**。
 写错会被 `assertProvenanceMatchesPr` 直接拒（fail-closed，不静默改写）。
 
+⚠️ **skill 不能靠「不写，让 promote 填」绕过这一圈** —— `build-inputs.mjs` 在
+provenance 缺失时直接报「skill.json 必填它」。省掉回填只对 **pack** 与
+**`PROMOTION.json`** 成立（那两处刻意**拒绝**投稿者声明 PR 事实）。
+📌 同一件事在 skill 与 pack 上是**相反**的规则，这是本仓库最容易记反的一处。
+
 ### `PROMOTION.json`（首次注册 namespace 才需要）
 
 ```json
