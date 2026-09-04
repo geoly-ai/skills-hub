@@ -86,7 +86,20 @@
 🔴 **没有在 workflow 里编一个默认值** —— owner 与 provenance 是要签进快照的，
 写错了事后改不动。
 
-### 3.3 promotion PR 现在**跑不了任何门**
+### 3.3 promotion PR 现在**跑不了任何门** —— ✅ 2026-09-04 已闭合
+
+> ✅ **实测闭合。** 快照 2 的 promotion PR（#19）由 **release bot 的 PAT** 开出
+> （作者 `chovizzz`，分支 `promotion/hub-2`），因此 GitHub **会**为它触发 workflow：
+> `promotion-gates` pass、`pr-gate` pass、`ci-gate` pass、穷举崩溃注入双版本 pass。
+>
+> 🔴 关键是**用 PAT 而不是 `GITHUB_TOKEN`**：GitHub 刻意不为 `GITHUB_TOKEN`
+> 开出的 PR 触发 workflow（防自触发循环），而 PAT 没有这个限制。
+> `promote.yml` 的「开 promotion PR」那一步用的是 `secrets.RELEASE_BOT_TOKEN`。
+>
+> ⚠️ 代价照旧记着：那是**长期凭据**，会过期（建议 90 天），
+> **到期不换 = promotion 静默停摆**。
+>
+> 以下原文保留，作为当时的判断记录。
 
 `promote.yml` 用 `GITHUB_TOKEN` 开 PR，而 GitHub 不为它触发 workflow，
 PR 作者也会是 `github-actions[bot]` 而非 release bot。见
@@ -102,12 +115,32 @@ PR 作者也会是 `github-actions[bot]` 而非 release bot。见
 「`SKILL.md` 正文让 agent 去 `bash helper.md`」这一类静态判据认不出来。
 见 [R-21](../m2/01-residual-risks.md#r-21)，**待拍板**。
 
-### 3.5 R-17 只闭合了一半
+### 3.5 R-17 只闭合了一半 —— ✅ 2026-09-04 已闭合
+
+> ✅ timestamp 已按决策 ③ 封成**单资产信封**，「两资产非原子」在构造上消失
+> （线上核实：`timestamp` Release 只挂 `timestamp.json` 一个）。
+> cron 同日启用（每 3 天）。详见 [R-17](../m2/01-residual-risks.md#r-17) 的闭合说明。
+> ⚠️ 换来的不是「没有窗口」，是窗口形态从**验签失败**变成**资产不存在**（404）。
+>
+> 以下原文保留。
 
 长期坏状态没了（回读比摘要 + 失败即回滚），**瞬时的两资产窗口还在**。
 🔴 **打开 timestamp cron 之前必须先定它**。见 [R-17](../m2/01-residual-risks.md#r-17)。
 
-### 3.6 workflow 全部**没有真跑过**
+### 3.6 workflow 全部**没有真跑过** —— ✅ 2026-09-03/04 已跑过
+
+> ✅ 都真跑过了，且**每一条都是踩着失败跑通的**，不是一次就绿：
+> · `promote.yml` → 快照 2 的 promotion PR #19，门全过、已合并
+> · `release.yml` → 0.3.1 / 0.3.2 / 0.3.3；中途暴露三个真问题：
+>   npm 回查窗口太短（2 分钟 → 10 分钟，按 npm 自己说的 "a few minutes" 定）、
+>   `hub-v<N>` 与 npm publish 不该耦合（加 `registry_only`）、
+>   `default_workflow_permissions` 被改成 read 导致建 Release 403（改用 PAT）
+> · `timestamp.yml` → 首次运行 + 刷新，`min_cli_version` 0.3.0 → 0.3.1
+>
+> 📌 **「没真跑过」本身就是最大的那个风险** —— 上面三个问题没有一个是
+> 读代码能发现的，全是真跑才炸出来的。
+>
+> 以下原文保留。
 
 `validate-pr.yml` / `promote.yml` 里的判定逻辑都抽成了 `.mjs` 并有单测覆盖，
 但 **YAML 本身、GitHub 的事件语义、token 权限**三样本机无从证明。
