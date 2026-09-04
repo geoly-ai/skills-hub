@@ -24,16 +24,34 @@ Vercel 会自动追加一个随机词（这就是 `-pearl` 的来历）。那个
 
 ## 安装
 
+不用先装 CLI —— `npx` 直接跑：
+
 ```sh
-npm i -g @geoly-ai/skills-hub     # 或 npx @geoly-ai/skills-hub <命令>
-skills-hub --help
+# 装一个 skill
+npx @geoly-ai/skills-hub install skill:geoly-ai/skills-hub-install --clients claude
+
+# 装一整套矩阵（pack 是一个制品，成员一次装完）
+npx @geoly-ai/skills-hub install pack:prompts-map/prompt-map --clients claude
+
+# 装全部可装的（要 --yes-i-really-want-everything，--yes 不够）
+npx @geoly-ai/skills-hub install --all --clients claude --yes-i-really-want-everything
 ```
 
-**已发布**：[`@geoly-ai/skills-hub@0.1.0`](https://www.npmjs.com/package/@geoly-ai/skills-hub)
-（46 个文件，带 npm provenance；发布 workflow 会用**本包自带的验签器 + 内置信任根**
+首次装到某个 client 时目录可能还不存在，加 `--create-missing claude`。
+装过一次之后 `--offline` 可用（资产按 sha256 内容寻址缓存在
+`~/.cache/geoly-skills`）。
+
+想常驻就装全局：`npm i -g @geoly-ai/skills-hub`。
+
+**已发布**：[`@geoly-ai/skills-hub@0.3.3`](https://www.npmjs.com/package/@geoly-ai/skills-hub)
+（带 npm provenance；发布 workflow 会用**本包自带的验签器 + 内置信任根**
 自验一遍它自己签的 tarball）。
 
 平台：**macOS / Linux / WSL**，**Node ≥ 22.13**。
+
+> ⚠️ **在企业代理后面需要 Node ≥ 24。** Node 的内建 fetch 直到 24 才支持
+> `HTTPS_PROXY` / `NO_PROXY`（CLI 会自动启用它）。22.x 用户可以先在能直连的
+> 网络里跑一次把缓存热起来，之后 `--offline` 可用。这是**已知缺口**。
 
 ### 当前能装到哪几端
 
@@ -57,21 +75,16 @@ skills-hub --help
 | M3 · 投稿与审核 | — |
 | M4 · update / remove | — |
 
-**930 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
+**1386 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
 逐个反向命中）是 CI 的合并门。
 
-### 🔴 0.1.0 明确**没有**做到的
+### 🔴 现在明确**没有**做到的（截至 0.3.3）
 
 不写清楚就等于默认承诺了，所以逐条列出：
 
-- **制品（skill tar.gz）与快照的签发链不存在** —— packer 是 M2。
-  这一版签的是 **npm 包本身**（provenance + cosign 对 `.tgz` 的签名），不是 skill 制品。
-  ⚠️ M2 进行中：`scripts/build-snapshot.mjs` 已能从 `artifacts/**` 确定性地**构建**
-  快照与资产（打包、摘要、pack 的 clients 交集 / capabilities 并集、`degraded` 重算、
-  `latest` 投影），但**它不签名** —— 签名仍是 release workflow 的事，尚未接上。
-  且 record 必填的 `owner` / `review`（以及 pack 的 `provenance`，`pack.json` 里没有
-  这个字段）目前由显式的 `--inputs` 提供，M3 的投稿流水线接上后才自动产出。
-- **registry 是纯缓存，没有网络客户端** —— `resolveCurrent()` 是同步的，接不进 `fetch`。
+- **投稿流水线还没接上**：record 必填的 `owner` / `review`（以及 pack 的
+  `provenance`）目前由 promotion 的显式 `--inputs` 提供，不是自动产出的。
+- **Node 22.x 在代理后面装不了**（见上面的安装说明）。
 - **`--from-generation` 只做到编译计划**，接成正向事务的入口还没写。
 - **`--release-frozen` 如实拒绝**（没有按 label 解冻 attic 的导出），不提供假装成功的路径。
 - `cursor` 未验证；`search` 搜不了 description（快照 record 里没有这个字段）。

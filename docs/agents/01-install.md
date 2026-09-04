@@ -7,10 +7,13 @@
 
 ## 最短路径
 
+不用先装 CLI：
+
 ```sh
-npm i -g @geoly-ai/skills-hub          # 或每次 npx @geoly-ai/skills-hub …
-skills-hub install skill:<ns>/<name>@<version>
+npx @geoly-ai/skills-hub install skill:<ns>/<name> --clients claude
 ```
+
+要常驻就 `npm i -g @geoly-ai/skills-hub`，之后直接 `skills-hub …`。
 
 制品 id 的形状是固定的三段式：
 
@@ -21,8 +24,18 @@ pack:plaud-theme/plaud-theme-matrix@0.3.6
  kind   namespace        name         semver
 ```
 
-⚠️ **版本必须写全**（`@0.7.0`，不是 `@0.7` 也不是 `latest`）。制品是不可变的，
-"最新"这个概念只存在于快照的 `latest` 字段里，不在安装命令里。
+**版本可以省略** —— 省略即取快照的 `latest`（非 yank、非 prerelease、非 degraded）。
+写版本就必须写全：`@0.7.0`，**不能**是 `@0.7`，也**没有** `@latest` 这个写法
+（"最新"是快照的 `latest` 字段，不是一个可以写进命令的版本号）。
+
+🔴 **不确定就别写版本。** 钉死一个版本意味着：那个版本日后被 yank 了，
+你的命令仍然指着它 —— 而 `install` 会**拒绝**装 yanked（退出码 3），
+于是一条昨天还好好的命令今天开始失败。省略版本则自动落到当前可装的那一个。
+⚠️ 反过来，需要**可复现**（CI、lockfile、事故复盘）时必须写全版本 ——
+那正是「不可变制品」存在的理由。两种需求，两种写法，别混。
+
+📌 这一条 2026-09-03 更正过：本文原先写的是「版本必须写全」，
+   而 grammar 一直是 `[@<version>]`（`resolve.mjs:26`），省略是合法的。
 
 ---
 
@@ -41,6 +54,16 @@ pack:plaud-theme/plaud-theme-matrix@0.3.6
 | `vendor <pack> --out <dir>` | 把 pack 与成员物化成一棵目录树，**不走安装账本** |
 
 ---
+
+## 先决条件
+
+- **Node ≥ 22.13**（macOS / Linux / WSL）。
+- ⚠️ **在企业代理后面需要 Node ≥ 24**：Node 的内建 fetch 直到 24 才认
+  `HTTPS_PROXY` / `NO_PROXY`（CLI 会自动启用）。22.x 在代理后面会以
+  `UND_ERR_CONNECT_TIMEOUT` 失败 —— 那不是 registry 挂了。
+  变通：先在能直连的网络里跑一次把缓存热起来，之后 `--offline` 可用。
+- 首次装到某个 client 时它的目录可能还不存在，加 `--create-missing <client>`；
+  不加会以「客户端目录不存在」失败。
 
 ## 装到哪
 

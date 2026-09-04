@@ -63,6 +63,12 @@ inputs，`build-snapshot.mjs` **一行都没改** —— 这个接缝留对了�
 `update pack:` 与 `remove` 是 M4；投稿与审核是 M3；
 registry 仍**没有网络客户端**（`resolveCurrent()` 是同步的，接不进 `fetch`）。
 
+> 📌 **2026-09-03 后记：这一条已闭合，本文其余部分保持原样。**
+> 出网被整个挪到了 `resolveCurrent()` **之前**（`src/preheat.mjs`）——
+> 下载到 staging、验签通过才原子提升进缓存，内核**一行没改**、仍是同步的。
+> 0.3.3 起在干净环境实测通过：单个 skill、整套 `pack:`、`--offline` 重装。
+> 交付记录不改写历史，所以上面那句话**当时是对的**；这条后记是它的现状指针。
+
 ---
 
 ## 3. 本轮撞到的规格缺口
@@ -128,7 +134,7 @@ M2 的那一份并不存在。逐条列出以便归位 —— **本轮只清点�
 |---|---|---|
 | `packer.mjs:344` | `origin_tree_digest` 的书写形式冲突 | ✅ [`ERRATA E-8`](../m0/ERRATA.md) |
 | `pack.mjs:680` | bundled 成员 degraded 的取舍 | ✅ 本文 §4 ③ |
-| `registry.mjs:13` | 没有网络客户端 | ✅ README + 本文 §2.4 |
+| `registry.mjs:13` | 没有网络客户端 | ✅ **已闭合**（见 §2.4 后记）|
 | `packer.mjs:315` | 打包端比安装端**严**，两侧接受集合不等 | ❌ |
 | `trust.mjs:83` / `trust.mjs:541` | 实测复现的覆盖问题 / 规格缺口 | ❌ |
 | `pack.mjs:213` | 契约门看不见的那一类变更 | ❌ |

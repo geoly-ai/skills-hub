@@ -1,16 +1,17 @@
 // registry 读取层 —— 02-registry.md §6 的**取字节**那一半。
 //
-// 🔴 **M1 只有缓存适配器，没有网络客户端。** 两个理由，都不是「还没写」：
+// 🔴 **本模块一个字节都不出网** —— 这是设计，不是缺口（0.3.0 起已有网络层）。
 //
-//   ① `snapshot.resolveCurrent()` 是**同步**函数，它要求 `fetchTimestamp()` /
-//      `fetchSnapshot(N)` 同步返回 `{ bytes, bundle }`。内建 `fetch` 返回 Promise，
-//      接不进去。把内核改成 async 是**内核 API 变更**，不在本块的文件边界内。
-//   ② 真实 registry 端点在 M1 还不存在。造一个假的出网路径，只会让
-//      「`--offline` 有没有被绕过」这个问题**看起来**被回答了。
+//   `snapshot.resolveCurrent()` 是**同步**函数，它要求 `fetchTimestamp()` /
+//   `fetchSnapshot(N)` 同步返回 `{ bytes, bundle }`。内建 `fetch` 返回 Promise，
+//   接不进去。所以出网被整个挪到了它**之前**：`src/preheat.mjs` 下载到 staging，
+//   验签通过后原子提升进缓存，然后这一层照旧只读缓存。
 //
-//    因此：**本模块一个字节都不出网**，`--offline` 与否走的是同一条码。
-//    缓存未命中就是退出码 6，文案里如实说明是「M1 没有网络客户端」还是「离线未命中」。
-//    这条缺口写进交付汇报。
+//   于是 `--offline` 与否走的是**同一条码** —— 不存在「另一条不出网的实现」，
+//   也就不会有「离线路径其实偷偷出网了」这种事。
+//
+// 📌 2026-09-03 之前这里确实没有网络层，那时的文案说的是「M1 没有网络客户端」。
+//    现在有了；缓存未命中意味着 preheat 没取回来（通常是被降级成了「用缓存继续」）。
 //
 // 缓存布局（内容寻址，摘要即身份）：
 //   <cacheDir>/timestamp.json            ← **单资产信封**（正文 + bundle 合一）
@@ -52,8 +53,8 @@ function miss(what, path, offline) {
       ? `${what} 未命中缓存（--offline）：${path}\n`
         + '  离线模式只用缓存；先在联网状态下取一次，或去掉 --offline。'
       : `${what} 未命中缓存：${path}\n`
-        + '  ⚠️ M1 的 CLI **没有网络客户端**（见 src/commands/registry.mjs 顶部注释）——\n'
-        + '  这一条不是「网络失败」，是「本地缓存里没有，而本版本还取不了」。',
+        + '  ⚠️ 出网发生在 preheat（install 之前），本层只读缓存。走到这里说明\n'
+        + '  preheat 没有把它取回来 —— 通常是上游报错被降级成了「用本地缓存继续」。',
     { telemetryReason: offline ? 'offline' : 'not-found' },
   );
 }
