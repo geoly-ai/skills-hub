@@ -1,0 +1,87 @@
+{
+  "bundled": [],
+  "compatibility": {
+    "breaking_reasons": [
+      "首个版本，没有可比对的前一版"
+    ],
+    "kind": "breaking",
+    "previous": null
+  },
+  "conflicts": [],
+  "contract_paths": [
+    "plaud-theme-shared/SKILL.md",
+    "plaud-theme-shared/matrix-contract.md",
+    "plaud-theme-shared/references/handoff-schema.md",
+    "plaud-theme-shared/references/sync-reach.md",
+    "plaud-theme-shared/references/version-manifest.md"
+  ],
+  "description": "PLAUD Shopify 主题矩阵全套 10 个 skill（order 0–9）。它们共用 plaud-theme-shared 的契约层（两轴状态机、handoff schema、SyncReach），必须并排安装 —— 单独装其中一个会得到一个读不到契约的 skill，而矩阵里每个 skill 开工前都要求先读契约层。",
+  "kind": "pack",
+  "license": "MIT",
+  "members": [
+    {
+      "id": "skill:plaud-theme/plaud-theme-shared@0.4.0",
+      "order": 0,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:67635b28c0071986f075a1cc25d069226fdc0f2d77a872f6e6cc6dd85e6be834"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-orchestrator@0.4.0",
+      "order": 1,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:ae51e8a8b006bf585f3730887508552eea7784c0ac70eeb34eead0d09436525b"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-impact@0.4.0",
+      "order": 2,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:bd21df5d654cb459450b62348423c829efb124da031b5cb26baf7337da5cd84c"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-dev@0.4.0",
+      "order": 3,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:517950ea0fb7aeaaf52b23cc49dfd2e0c5bcf634925a43fdd785a335c54575ff"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-section-build@0.4.0",
+      "order": 4,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:9f9ac0855dba5e3c8ab29978a30d63529b009735a3751c2311091b6d0885b8ba"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-ux-migration@0.4.0",
+      "order": 5,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:ae449491a9cde3738c2d5db1e33b4768ac3f84f418c22ad1d88d215319aa6625"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-qa-intake@0.4.0",
+      "order": 6,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:5efc794ce396881ca3351a03ac3482687134ff97fd626f58d6762daf8b458489"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-qa@0.4.0",
+      "order": 7,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:46001867fe44f2609f043d602bf292475cb993f248b6938638729e64232873a2"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-feedback-triage@0.4.0",
+      "order": 8,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:fdae1af4d6dfd6d3b89a88a85e656ab0bdcbf46fce6de7efd187ec8e31f1c15b"
+    },
+    {
+      "id": "skill:plaud-theme/plaud-theme-release-ops@0.4.0",
+      "order": 9,
+      "role": "matrix",
+      "tree_digest": "geoly-tree-v1:sha256:a1a4706bf9bce6bdf8524940597c2f23866f8d4f4855fb5825f92abe894942a3"
+    }
+  ],
+  "name": "plaud-theme-matrix",
+  "namespace": "plaud-theme",
+  "schema": "geoly.skills.pack/1",
+  "version": "0.4.0"
+}
