@@ -666,6 +666,29 @@ jobs:
             exit 1
           fi
           printf 'hub-v%s 资产：%s\n' "$N" "${assets[@]}"
+
+          # 🔴 **幂等：`hub-v<N>` 已存在就核对后跳过，不当成失败。**
+          #    快照 N 是**不可变**的（N 定了内容就定了），所以重跑一次
+          #    CLI 发布时它当然已经在了 —— `gh release create` 会以
+          #    「a release with the same tag name already exists」失败，
+          #    把一次完全正常的发布染红。
+          #    ⚠️ 良性的红灯**也是红灯**：它训练人忽略失败，
+          #    等到真出事那次也会被当成「又是那个已知的红」。
+          #
+          #    但**绝不 `--clobber` 覆盖**：同一个 N 下出现两份不同的字节，
+          #    说明至少有一份是错的，那是完整性问题，要吵出来。
+          if gh release view "hub-v$N" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            have=$(gh release view "hub-v$N" --repo "$GITHUB_REPOSITORY" \
+                     --json assets --jq '.assets | length')
+            need=$(( want + 2 ))   # 制品 + 快照正文 + 快照 bundle
+            if [ "$have" != "$need" ]; then
+              echo "::error::hub-v$N 已存在，但它挂着 $have 个资产、应为 $need 个 —— 人工核对，不自动覆盖"
+              exit 1
+            fi
+            echo "::notice::hub-v$N 已存在且资产数吻合（$have）——跳过。快照不可变，重发没有意义。"
+            exit 0
+          fi
+
           gh release create "hub-v$N" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
