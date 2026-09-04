@@ -42,7 +42,7 @@ import { makeLockfileHook } from './sync-lock.mjs';
  *
  * 多个制品要**嵌套**：任意一层抛错，它自己和外层的隔离目录都会被清掉。
  */
-function withVerifiedArtifacts(items, parent, fn, acc = []) {
+export function withVerifiedArtifacts(items, parent, fn, acc = []) {
   if (items.length === 0) return fn(acc);
   const [head, ...tail] = items;
   return withVerifiedArtifact({ bytes: head.bytes, record: head.record, parent }, (art) =>

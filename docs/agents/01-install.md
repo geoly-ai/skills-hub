@@ -45,6 +45,8 @@ pack:plaud-theme/plaud-theme-matrix@0.3.6
 |---|---|
 | `install <spec>…` | 装一个或多个 |
 | `install --all` | 装快照里的全部（非交互下还要 `--yes-i-really-want-everything`） |
+| `update [<spec>…]` / `--all` | 重解析账本里的 root：**展示 diff、要求确认**（非交互下要 `--yes`），确认后在一个事务里应用。不给 spec = 全部 root |
+| `remove <name>` | **减引用；引用归零才删目录**。真会删目录时要确认（非交互下要 `--yes`） |
 | `list --installed` / `--outdated` / `--packs` | 看装了什么 |
 | `search <kw>` | 搜 |
 | `check` | 两阶段校验：**字节对不对** + **现在还该不该用** |
@@ -52,6 +54,15 @@ pack:plaud-theme/plaud-theme-matrix@0.3.6
 | `sync-lock` | 重算 `geoly-skills.lock.json` |
 | `recover` | 装到一半崩了之后收拾现场 |
 | `vendor <pack> --out <dir>` | 把 pack 与成员物化成一棵目录树，**不走安装账本** |
+
+🔴 **`remove <name>` 减掉的是「你自己那一条 direct 引用」**，不是「把这个目录删掉」。
+一个 skill 可以同时被你直接装过、又被某个 pack 带进来（`why <name>` 就是看这个）：
+那时 `remove` 只摘掉 direct 那条边，**目录照旧留着**，并如实告诉你还有谁在要它。
+只被 pack / `all@snapshot` 请求的成员**删不掉** —— 它的引用永远不归零。
+想去掉它请走 `update pack:<name>`（新版本不再含它就会被退役）。
+
+🔴 **`update` 不接受 `--snapshot`**：钉快照能决定「解析到哪个版本」，
+但回答不了「现在还该不该用」。要复现某一版用 `install <name>@<version>`。
 
 ---
 

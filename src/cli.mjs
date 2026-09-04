@@ -27,6 +27,8 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
           [--reset-generation N] [--resume-cleanup]
   vendor <pack-spec> --out <dir> [--layout flat]
                                      把 pack 与全部成员物化成一棵目录树（不走安装账本）
+  update [<spec>…] | --all           重解析账本里的 root：展示 diff、确认后在一个事务里应用
+  remove <name>                      减引用；🔴 **引用归零才删目录**（why <name> 看谁在要它）
 
   stats [--json] [--export <file>]   本地埋点报表
   telemetry <status|flush>           埋点/上报开关与队列
@@ -71,6 +73,8 @@ const COMMANDS = {
   check: () => import('./commands/check.mjs').then((m) => m.cmdCheck),
   'sync-lock': () => import('./commands/sync-lock.mjs').then((m) => m.cmdSyncLock),
   recover: () => import('./commands/recover.mjs').then((m) => m.cmdRecover),
+  remove: () => import('./commands/remove.mjs').then((m) => m.cmdRemove),
+  update: () => import('./commands/update.mjs').then((m) => m.cmdUpdate),
   vendor: () => import('./commands/vendor.mjs').then((m) => m.cmdVendor),
 };
 

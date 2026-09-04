@@ -89,7 +89,7 @@ npx @geoly-ai/skills-hub install --all --clients claude --yes-i-really-want-ever
 | **M2 · pack 与受控 catalog** | ✅ 命令面与 promotion 的派生均已就绪；元数据来源待 M3 |
 | **分发真的通了** | ✅ **0.3.3** —— registry 上线 23 个制品 / 3 张快照，单个 skill、整套 `pack:`、`--offline` 三条路径在干净环境实测通过 |
 | M3 · 投稿与审核 | 🚧 元数据（`owner` / `review` / `provenance`）仍靠 promotion 的显式 `--inputs` |
-| M4 · update / remove | — |
+| M4 · update / remove | ✅ 命令面已实现 —— 边界逐条列在下面「明确没做到的」里 |
 
 > 📌 **「发布了」不等于「能装」。** 0.1.0 与 0.2.0 都能发布、能验签、能浏览 registry，
 > 但**任何一次 `install` 都取不到字节**：客户端推不出下载地址、CLI 没有网络层、
@@ -106,7 +106,35 @@ npx @geoly-ai/skills-hub install --all --clients claude --yes-i-really-want-ever
 - **投稿流水线还没接上**：record 必填的 `owner` / `review`（以及 pack 的
   `provenance`）目前由 promotion 的显式 `--inputs` 提供，不是自动产出的。
 - **Node 22.x 在代理后面装不了**（见上面的安装说明）。
-- **`--from-generation` 只做到编译计划**，接成正向事务的入口还没写。
+- **`--from-generation` 只做到编译计划**，接成正向事务的入口还没写
+  （M4 的 `update` / `remove` **没有**顺手把它接上 —— 两条命令都只用现成的
+  `runTransaction`，不新增 journal op、不新增故障注入点）。
+- **`remove` 只减「你自己那一条 direct 引用」**：`remove <name>` 减掉的是
+  `direct:<该 entry 的 artifact>` 那条边。一个**只被 pack / `all@snapshot` 请求**的
+  成员因此删不掉（它的引用永远不归零）—— 规范只给了 `remove <name>` 这一种语法，
+  没有「删掉整条 pack root」的入口，CLI **不自己发明一个**。
+  出路是 `update pack:<name>`（新版本不再含它就会被退役）。
+- **`update` 不接受 `--snapshot`**：钉快照能决定「解析到哪个版本」，
+  但回答不了「现在还该不该用」（那必须查当前快照）。两者怎么组合规范没写。
+- **`update` 的冲突没有 `--replace` 出路**：在一次升级里顺手删掉你先前装过的东西
+  不是你表达过的意思。
+- **项目级 lockfile 的重算仍不是原子的**（R-11 第四条）。M4 把两格提前到**动手之前**
+  就失败（缓存里没有要用到的历史快照；任一在册项目 target 的引用图不闭合），
+  但**没有做完整的 dry-run**（没有真的用 post-state 复算一次 `projectLockfile()`），
+  磁盘在预热与收尾之间坏掉也仍会落回那个缺口 ——
+  兜底照旧是 `check` 报「lockfile 过时」+ `sync-lock`。
+  🔴 另外，**`--clients` 会同时收窄「投影哪些 target」与「预热哪些 target」**：
+  两者内部一致（不会出现「预热漏了、重算却要」），但显式 `--clients` 时
+  未点名的项目 target **不进 lockfile** —— 这是 `recalcLockfile()` 既有的性质
+  （`install` / `sync-lock` 同样如此），不是 M4 引入的，本轮也没有改它。
+- **`plan.strictlyMatches()` 不查被验目录**自己**是不是 symlink**（它从
+  `readdirSync(dir)` 开始递归，查的是子项）。`update` / `remove` 在自己这一侧
+  补了这道门（`refgraph.entryStillMatches` / `assertEntryTreeIntact`），
+  但 `install` 的 §4.2 adopt 分支仍会走进去 —— **既有缺口，本轮未修**。
+- **有 lockfile 时 `install` 仍不「只按 lockfile 装」**（04-install.md §8 的那一条）：
+  lockfile 目前只被写出与被 `check` 比对，还没有当成 `install` 的权威输入。
+- **`replaces` 与 `--freeze-attic` 在 `update` / `remove` 上同样没实现** ——
+  它们在 `install` 上本来就没实现，M4 没有扩大范围。
 - **`--release-frozen` 如实拒绝**（没有按 label 解冻 attic 的导出），不提供假装成功的路径。
 - `cursor` 未验证；`search` 搜不了 description（快照 record 里没有这个字段）。
 
@@ -132,6 +160,8 @@ M2 交出了什么、**明确没做到什么**，见
 
 ```sh
 skills-hub install <spec> --clients claude   # 装
+skills-hub update [<spec>…] | --all          # 重解析 root：展示 diff、确认后应用
+skills-hub remove <name>                     # 减引用；🔴 引用归零才删目录
 skills-hub list --installed                  # 看装了什么
 skills-hub check                             # 字节对不对 + 现在还该不该用
 skills-hub why <name>                        # 这东西是谁请求装的
