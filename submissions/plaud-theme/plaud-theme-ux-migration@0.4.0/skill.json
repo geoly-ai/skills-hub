@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "PLAUD Shopify 主题矩阵的 Path C 实现阶段（order 5）：UX Spec v1.3 迁移。 用户说\"按 UX Spec v1.3 对齐\"\"刷模块\"\"spec 迁移\"\"对齐 ux\"\"对齐规范\"\"这个模块还没迁\" \"字号总览\"\"修改前后对比表\"\"迁移日志\"\"验收后写日志\"\"待评估项\"\"区头对齐\"\"移动端区头左对齐\" \"disabled 实例要不要算\"\"空 pre_heading / subheading\"\"三层入口\"\"模板存值还是 schema 还是模块代码\" \"utility class 还是组件 CSS\"\"FOUC\"\"critical bundle\"\"12 条约定\"\"schema 四件套\"\"配色方案 opt-in\" \"use-color-scheme\"\"Slideshow 换 New Slide\"\"旧版 Multi Content 重建成 WW\"\"token 改成 utility 类\" \"第三方插件字号对齐\"\"blast radius 出来了怎么改\"时使用。 产出：模块审计与 spec 偏差清单、修改入口选择、按 12 条约定 + §4.1–§4.20 踩坑库落地的改动、 验收后的迁移日志与 memory 状态更新。 本 skill 不做影响面评估（blast radius / 理论引用 vs 实际受影响 / 依赖树 / 共享传播链归 plaud-theme-impact， 本 skill 消费其 AssessmentRef，不自行重算），不做验收判定、不判定可交付（归 plaud-theme-qa）、 不新建 sa-* section（归 plaud-theme-section-build）、不做 bug 修复与性能优化（归 plaud-theme-dev）。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce， 也不用于只读 UX 规范文档总结、无 Plaud 上下文的泛化 CSS/Liquid review。",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "plaud-theme-ux-migration",
+  "namespace": "plaud-theme",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 20
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.4.0"
+}

@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "PLAUD Shopify 主题矩阵的全流程编排入口（order 1）。 **进入门槛只有一条：这项工作必须拆成 ≥2 个可独立验收的 ChangeSet。** 典型是迁移 wave（一次刷多个模板/模块）、跨多个互不相干模块的批量改动、 Path A+C 交叉必须裂成不同路径的块，或用户点名要把这样一批工作端到端管起来。 用户说\"把这批模块一起迁了\"\"这几个互不相干的模块一起改，排一下顺序\"\"哪些能并行\" \"改 token 之后下游这几个模块都要跟着调\"\"这轮迁移里顺带把这几个 bug 也修了\"时使用。 **也在集成落盘之后回到本 skill**：用户说\"这几块我已经合到一棵树上了\"\"集成做完了\" \"合并好了，接下来怎么走\"\"登记一下集成结果\"时，由集成者交出 IntegrationResultTreeOid （集成后工作树里跑 plaud_theme_tree 的前两段），本 skill 更新同一个 OrchestrationId 的 协调工件补上第 6 个子字段——只有补齐的那一版才能被 plaud-theme-qa-intake / plaud-theme-qa 消费。 本 skill **不做 merge、也不代算这个 oid**（矩阵不做 merge，代算等于取证方与验证方是同一方）。 **单一 ChangeSet 能装下的工作一律直接走实现 skill。** \"改动涉及好几个文件\"不是理由——同一个 ChangeSet 里本来就可以有多个文件； 改的是共享 snippet / 全局 CSS / token / build 产物也不是理由； 要完整走 Assess → Implement → Verify 更不是理由，那是每一块的正常链路。 本 skill 只做路径判定、阶段推进、任务拆分与串并行编排、handoff 工件汇总、ChangeSetId 生命周期追踪、 阶段门守卫；**不自己实现任何代码改动**，不改 sections/snippets/assets/templates， 不做影响面事实收集（plaud-theme-impact），不做验收判定，也无权宣布可交付（只有 plaud-theme-qa 能）。 **普通任务不要绕本 skill**：单个 bug、单个 section 的性能/UX/A11y 微调 → plaud-theme-dev； 单个 Figma 稿转 sa-* section（含\"按设计稿新建 section 同时要符合 UX spec\"这种 B+C 交叉， 它是一个 ChangeSet，不裂块）→ plaud-theme-section-build；单个模板/模块的 spec 迁移 → plaud-theme-ux-migration；只问影响面 → plaud-theme-impact；只要验收 → plaud-theme-qa； 提测材料齐不齐 → plaud-theme-qa-intake；反馈算缺陷还是变更 → plaud-theme-feedback-triage； 发版推站与上线后 → plaud-theme-release-ops。 不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "plaud-theme-orchestrator",
+  "namespace": "plaud-theme",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 20
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.4.0"
+}

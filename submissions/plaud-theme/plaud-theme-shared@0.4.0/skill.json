@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "conflicts": [],
+  "description": "PLAUD Shopify 主题矩阵的契约层（order 0）：两轴状态机、handoff schema、ChangeSetId 绑定、 交付权归属、Stop-don't-guess 停机规则、全路径红线、视觉与 UX 基线索引、版本清单。 矩阵内任何 skill 在开工前都必须先读本 skill；全流程任务必须过本层契约。 本 skill 不实现任何主题改动、不做 bug 修复、不写 section、不做 UX 迁移、不做验收—— 它只定义规则与交接格式。用户不需要直接调用本 skill；由 plaud-theme-orchestrator / plaud-theme-impact / plaud-theme-dev / plaud-theme-section-build / plaud-theme-ux-migration / plaud-theme-qa-intake / plaud-theme-qa / plaud-theme-feedback-triage / plaud-theme-release-ops 引用。若用户直接问\"矩阵怎么衔接\"\"handoff 字段是什么\"\"为什么必须过 QA\"，可直接读本 skill 回答。",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "plaud-theme-shared",
+  "namespace": "plaud-theme",
+  "provenance": {
+    "author_github_id": "U_kgDODu4RvA",
+    "kind": "original",
+    "submitted_by_pr": 20
+  },
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.4.0"
+}
