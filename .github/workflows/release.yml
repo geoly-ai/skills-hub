@@ -137,6 +137,22 @@ jobs:
       #
       #    ⚠️ 放在 guard 里（这个 job 没有 OIDC、没有写权限），比 publish job 里的
       #    canary 还早一步。
+      - name: 🔴 RELEASE_BOT_TOKEN 必须在（建 Release 要用它）
+        # 🔴 拦在 guard 里，与「版本必须还空着」同一格：再往下走会先签名、
+        #    写 Rekor（永久且公开）、发 npm（版本号用掉就不能再用），
+        #    最后才在建 Release 那一步发现没有 token。
+        #    那正是 v0.3.2 的遭遇：包发出去了，Release 没建成。
+        if: ${{ inputs.dry_run == false }}
+        env:
+          TOK: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOK:-}" ]; then
+            echo "::error::RELEASE_BOT_TOKEN 不在 —— 建 Release 会失败，而那时 npm 已经发了。"
+            exit 1
+          fi
+          echo "::notice::RELEASE_BOT_TOKEN 在 ✅"
+
       - name: 🔴 版本在 npm 上必须还空着（真发布是硬门）
         # registry_only 不发 npm，版本占没占用与它无关 —— 这一门对它没有意义。
         if: ${{ inputs.registry_only == false }}
@@ -602,10 +618,19 @@ jobs:
 
       # ── ① CLI 自己的 Release：`v<x.y.z>` ────────────────────────────────
       - name: 建 CLI Release（npm 包 + bundle）
+        # 🔴 用 `RELEASE_BOT_TOKEN`，不是 `github.token`。
+        #    2026-09-04 实测：v0.3.1 建 Release 成功，28 分钟后 v0.3.2 同一步
+        #    `HTTP 403: Resource not accessible by integration` —— 期间仓库的
+        #    `default_workflow_permissions` 变成了 `read`，job 里写的
+        #    `permissions: contents: write` 不再拿得到写权限。
+        #    ⚠️ 发布路径**不该依赖一个能被仓库设置从旁改掉的东西** ——
+        #    它会让「发布成功与否」取决于一个没人会在发版时去看的开关。
+        #    📌 代价：多用一次长期凭据（02-registry.md §8.2 写的是「无长期 token」）。
+        #    配好 npm trusted publisher 之后，这里与 npm 那处一起收回。
         # registry_only 不发 npm，也就没有「这个版本的 CLI Release」可建。
         if: ${{ inputs.registry_only == false }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
           TAG: v${{ needs.guard.outputs.version }}
           TGZ: ${{ needs.publish.outputs.tgz }}
         run: |
@@ -634,11 +659,20 @@ jobs:
       #    映射**不在任何签名对象里**，客户端推不出去哪儿下载。
       #    📌 2026-09-03 之前的实现正是合并的，结果是「已发布但没人能装」。
       - name: 建 registry Release hub-v<N>（快照 + 资产）
+        # 🔴 用 `RELEASE_BOT_TOKEN`，不是 `github.token`。
+        #    2026-09-04 实测：v0.3.1 建 Release 成功，28 分钟后 v0.3.2 同一步
+        #    `HTTP 403: Resource not accessible by integration` —— 期间仓库的
+        #    `default_workflow_permissions` 变成了 `read`，job 里写的
+        #    `permissions: contents: write` 不再拿得到写权限。
+        #    ⚠️ 发布路径**不该依赖一个能被仓库设置从旁改掉的东西** ——
+        #    它会让「发布成功与否」取决于一个没人会在发版时去看的开关。
+        #    📌 代价：多用一次长期凭据（02-registry.md §8.2 写的是「无长期 token」）。
+        #    配好 npm trusted publisher 之后，这里与 npm 那处一起收回。
         # 🔴 **不带 registry_only 条件** —— 这一步在两种模式下都要跑，
         #    它就是 registry_only 存在的理由。
         if: ${{ needs.publish.outputs.snapshot_n != '' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
           N: ${{ needs.publish.outputs.snapshot_n }}
         run: |
           set -euo pipefail
