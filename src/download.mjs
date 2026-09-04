@@ -182,8 +182,13 @@ export async function download(url, {
         //    我第一版无论如何都说「需要 Node ≥ 24」，而在 Node 25 上读者会
         //    合理地认为「我满足了，那问题在别处」—— 一句正确但不适用的话，
         //    比不说更能把人带偏。
+        // 🔴 **不按错误码枚举**。2026-09-04 实测：真实现场返回的是 `UND_ERR_SOCKET`，
+        //    而我当时枚举的是 TIMEOUT/ECONNREFUSED/ENOTFOUND/EAI_AGAIN —— 提示一个字没打。
+        //    undici 的错误码谱系又长又会变（UND_ERR_SOCKET / UND_ERR_CONNECT_TIMEOUT /
+        //    ECONNRESET / EPIPE / 证书类…），**枚举注定漏**。
+        //    判据换成：**走到这里就是取不到字节**，那时告诉用户「怎么走网络」总是有用的。
         let hint = '';
-        if (/TIMEOUT|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/.test(String(why))) {
+        {
           const major = Number(process.versions.node.split('.')[0]);
           const hasProxyEnv = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']
             .some((k) => process.env[k]);
