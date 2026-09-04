@@ -193,8 +193,21 @@ export async function download(url, {
           } else if (hasProxyEnv && process.env.NODE_USE_ENV_PROXY === '0') {
             hint = '\n  你配了代理，但显式设了 NODE_USE_ENV_PROXY=0 —— CLI 因此没走代理。';
           } else if (!hasProxyEnv) {
-            hint = '\n  连不上。若你的网络需要代理，设置 HTTPS_PROXY 后重试'
-              + '（NO_PROXY 也会被尊重）。';
+            // 🔴 **系统代理不等于环境变量。** Clash / Surge / 公司 VPN 客户端
+            //    通常只写 macOS 的系统代理设置，而 **Node 的内建 fetch 不读它**
+            //    （curl 和浏览器读，所以「浏览器能开 github」不能证明 CLI 能）。
+            //    2026-09-04 用户就是这么撞上的：一句「设置 HTTPS_PROXY」
+            //    对一个「我明明挂着代理」的人来说，读起来像是答非所问。
+            hint = '\n  连不上 —— 无法访问 github.com。'
+              + '\n  ⚠️ 如果你在用 Clash / Surge / VPN 客户端：它们通常只设**系统代理**，'
+              + '\n     而 Node 不读系统代理（curl 和浏览器读，所以浏览器能打开不算数）。'
+              + '\n     要显式导出环境变量：'
+              + (process.platform === 'darwin'
+                ? '\n       scutil --proxy | grep -iE "HTTPSProxy|HTTPSPort"   # 看端口'
+                  + '\n       export HTTPS_PROXY=http://127.0.0.1:<端口>'
+                : '\n       export HTTPS_PROXY=http://<host>:<port>')
+              + '\n  （NO_PROXY 也会被尊重。代理支持需要 Node ≥ 24，当前 '
+              + process.version + '。）';
           } else {
             hint = '\n  代理已配置且已启用，但仍然连不上 —— 请检查代理本身是否可达。';
           }
