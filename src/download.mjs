@@ -171,7 +171,18 @@ export async function download(url, {
         });
       } catch (e) {
         if (ac.signal.aborted) throw new NetworkError(`${what} 下载超时（${timeoutMs} ms）`);
-        throw new NetworkError(`${what} 下载失败：${e.message}`);
+        // 🔴 **必须带上 `e.cause`。** undici 抛的永远是 `TypeError: fetch failed`，
+        //    真因（ETIMEDOUT / UND_ERR_CONNECT_TIMEOUT / ENOTFOUND / 证书错误…）
+        //    全在 `cause` 里。只报 message 的话用户看到的就是一句
+        //    「fetch failed」—— 什么都定位不了。
+        //    2026-09-03 我自己被这句话挡了两轮，最后是手写探针才挖出
+        //    UND_ERR_CONNECT_TIMEOUT，进而发现是代理没被认。
+        const why = e.cause?.code ?? e.cause?.message ?? e.code ?? '';
+        const hint = /TIMEOUT|ETIMEDOUT|ECONNREFUSED/.test(String(why))
+          ? '\n  连不上。若你在代理后面：本 CLI 认 HTTPS_PROXY / NO_PROXY，'
+            + '但那需要 Node ≥ 24（当前 ' + process.version + '）。'
+          : '';
+        throw new NetworkError(`${what} 下载失败：${e.message}${why ? `（${why}）` : ''}${hint}`);
       }
 
       if (res.status >= 300 && res.status < 400) {
