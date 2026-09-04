@@ -1,0 +1,1500 @@
+{
+  "schema": "geoly.skills.snapshot/2",
+  "artifacts": [
+    {
+      "asset": {
+        "file": "pack_plaud-theme_plaud-theme-matrix_0.4.0.tar.gz",
+        "sha256": "sha256:18da97b80de77268c634bb1425f9e522f58ace119ddc7391a1e0b3cf563f5700",
+        "size": 1329
+      },
+      "capabilities": [
+        "external-tool",
+        "shell"
+      ],
+      "clients": [
+        "agents",
+        "claude",
+        "codex",
+        "cursor"
+      ],
+      "conflicts": [],
+      "id": "pack:plaud-theme/plaud-theme-matrix@0.4.0",
+      "kind": "pack",
+      "license": "MIT",
+      "name": "plaud-theme-matrix",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/packs/plaud-theme/plaud-theme-matrix/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 22
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "4c8ff1b3b0bd0049a0398b008570dbd6d61385a3",
+        "pr": 22
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:fe1080f49d7ca72f9cd8e12f42bf139ab9243d151a3f1a30c023a2f9e1b1d28a",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "pack_prompts-map_prompt-map_0.7.0.tar.gz",
+        "sha256": "sha256:060645bbfd69ee59304a64b9cc5b58e21852bc51f65b0e512a8b9fa31905f10c",
+        "size": 1225
+      },
+      "capabilities": [
+        "external-tool",
+        "shell"
+      ],
+      "clients": [
+        "agents",
+        "claude",
+        "codex",
+        "cursor"
+      ],
+      "conflicts": [],
+      "id": "pack:prompts-map/prompt-map@0.7.0",
+      "kind": "pack",
+      "license": "MIT",
+      "name": "prompt-map",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/packs/prompts-map/prompt-map/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 18
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "8eccd52406adf1e83638a474ef5988da6c15b559",
+        "pr": 18
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:9cdeb7b501a3e2ca91cb2470f98c9bcb5fe6858c9336ce861c0c463992f4d858",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_geoly-ai_skills-hub-install_0.2.0.tar.gz",
+        "sha256": "sha256:c19697c8ba98926bb0998fe5af068687c1c1c8baf6625d3761f8182ccf9825a6",
+        "size": 2816
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:geoly-ai/skills-hub-install@0.2.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "skills-hub-install",
+      "namespace": "geoly-ai",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/geoly-ai/skills-hub-install/0.2.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 18
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "8eccd52406adf1e83638a474ef5988da6c15b559",
+        "pr": 18
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:a9b763fbb9ce3f395f6ad50b63078f6f4ef0a0d4cb22a7f5c8cb7bfe3e9e0c7b",
+      "version": "0.2.0"
+    },
+    {
+      "asset": {
+        "file": "skill_geoly-ai_skills-hub-publish_0.2.0.tar.gz",
+        "sha256": "sha256:b2d9d6c7c82fb8da11c03dae30c322702fbe6f09dd3bd36c16a6768262306f73",
+        "size": 4384
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:geoly-ai/skills-hub-publish@0.2.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "skills-hub-publish",
+      "namespace": "geoly-ai",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/geoly-ai/skills-hub-publish/0.2.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 18
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "8eccd52406adf1e83638a474ef5988da6c15b559",
+        "pr": 18
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:fb83bd6a2347422ecadb48073661000ca5d14be88f2e8a2791599118ca93a819",
+      "version": "0.2.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-dev_0.3.6.tar.gz",
+        "sha256": "sha256:4e0f64856c82f37f46ad943f69782bb6d00b0d95993d0912bf5bed276dc69d78",
+        "size": 32222
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-dev@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-dev",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-dev/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:7baa11a2a8287af1103a8d1c156e3b59a48d68df8c1f2c7b3fbacaf071c2bb62",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-dev_0.4.0.tar.gz",
+        "sha256": "sha256:2c96adba4f12abb2642ab6793dfe1d1b1d817e9232eec2fb387364c7a5daf295",
+        "size": 34028
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-dev@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-dev",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-dev/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:517950ea0fb7aeaaf52b23cc49dfd2e0c5bcf634925a43fdd785a335c54575ff",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-feedback-triage_0.3.6.tar.gz",
+        "sha256": "sha256:929b7a3ed6ba631e286eb05dbcd344c77c541c58b462387137f8408924ddd619",
+        "size": 15003
+      },
+      "capabilities": [
+        "external-tool"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-feedback-triage@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-feedback-triage",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-feedback-triage/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 1,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:3804ad652a0903464e893b93e7298718900dbfe8e2a2bc7d7bc8659cd32f98c6",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-feedback-triage_0.4.0.tar.gz",
+        "sha256": "sha256:a023fd895c8cf494885c34637343296a9ff7af75b7462825b37fee970628a033",
+        "size": 15632
+      },
+      "capabilities": [
+        "external-tool"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-feedback-triage@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-feedback-triage",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-feedback-triage/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 1,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:fdae1af4d6dfd6d3b89a88a85e656ab0bdcbf46fce6de7efd187ec8e31f1c15b",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-impact_0.3.6.tar.gz",
+        "sha256": "sha256:f946eb221e56fb7d65e70956c8d5d8866cfa5fdeae17552f8e3ed767b43fe202",
+        "size": 33307
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-impact@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-impact",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-impact/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:6e7f1c1103ee25284779f2100e06b4746f5f9dbb105c9f1eeeeb5a0d51a9d072",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-impact_0.4.0.tar.gz",
+        "sha256": "sha256:ac7bf8d05adecb4f75b4623d06a8c9b2d00e4997874e02a47b5da441e34fbe6e",
+        "size": 41445
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-impact@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-impact",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-impact/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:bd21df5d654cb459450b62348423c829efb124da031b5cb26baf7337da5cd84c",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-orchestrator_0.3.6.tar.gz",
+        "sha256": "sha256:be750b4b8c920da8404bbdb23d7f3c39b0c5f0bc708dbb64612f892962dc8324",
+        "size": 25792
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-orchestrator@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-orchestrator",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-orchestrator/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:6cdd9066340dcc9f4fa0db95bd438faea54e76a2fa70abf7823e588eaaa1dc06",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-orchestrator_0.4.0.tar.gz",
+        "sha256": "sha256:3687edf0333bb1467d1ceabe32d408621559dbe5112a44236e25df6886c5c660",
+        "size": 26957
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-orchestrator@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-orchestrator",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-orchestrator/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:ae51e8a8b006bf585f3730887508552eea7784c0ac70eeb34eead0d09436525b",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-qa-intake_0.3.6.tar.gz",
+        "sha256": "sha256:14e5a7fc8725ed388c24f01d2005e9ce2ddb545f7beb3ecf38bc75b0c761fbf0",
+        "size": 42996
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-qa-intake@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-qa-intake",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-qa-intake/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:9806e432736656d1cd6e30c207b4aeec1d81c95a5827b35b88aca8e800622fb0",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-qa-intake_0.4.0.tar.gz",
+        "sha256": "sha256:ebb38143bed9bfc8d284316954e9964c43af52a8523d6813493dbbc2a70fcd08",
+        "size": 52322
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-qa-intake@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-qa-intake",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-qa-intake/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:5efc794ce396881ca3351a03ac3482687134ff97fd626f58d6762daf8b458489",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-qa_0.3.6.tar.gz",
+        "sha256": "sha256:5658294d0cf7e98a489f9bb80a44c7265d33be39839c1c2bfd043a65f7821d75",
+        "size": 103126
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-qa@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-qa",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-qa/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:c670b9f0a37e422bde637d1155dd6aca4147c0d95b60babbb8ab0bd741114adc",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-qa_0.4.0.tar.gz",
+        "sha256": "sha256:5b44144879fab9c75f762b929b2f813d7924b7896636a1b8ca8e5abc5f84d812",
+        "size": 105388
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-qa@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-qa",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-qa/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:46001867fe44f2609f043d602bf292475cb993f248b6938638729e64232873a2",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-release-ops_0.3.6.tar.gz",
+        "sha256": "sha256:a39fb2326ae39f1700cb046f1ed18270d1a3aa8f7055d4589d14e017c9d3d233",
+        "size": 27654
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-release-ops@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-release-ops",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-release-ops/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:a734ade696f1808a03fb43d34f3908ee13c5ed95695f2add7650508dd5d7af95",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-release-ops_0.4.0.tar.gz",
+        "sha256": "sha256:317c71da9b504148ea28142a2e8abfdf3861815d35e3cf04af6ccbedd2be44f4",
+        "size": 35660
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-release-ops@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-release-ops",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-release-ops/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:a1a4706bf9bce6bdf8524940597c2f23866f8d4f4855fb5825f92abe894942a3",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-section-build_0.3.6.tar.gz",
+        "sha256": "sha256:5fcb1a209fcd47cc60a15fa8f92cf57ad26ea0f9290a72be05f08f200cf10aa7",
+        "size": 44335
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-section-build@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-section-build",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-section-build/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:d2895df34b83b09ad8da0d37a533627919f1dad504fc6fd442b849447d1fcaab",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-section-build_0.4.0.tar.gz",
+        "sha256": "sha256:b89db71cfcd222390f7923b1b7d6611f522d4073f186908eec09140fc2925d06",
+        "size": 46372
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-section-build@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-section-build",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-section-build/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:9f9ac0855dba5e3c8ab29978a30d63529b009735a3751c2311091b6d0885b8ba",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-shared_0.3.6.tar.gz",
+        "sha256": "sha256:c5efa5099bb18abc10f8b4762d441cca4613e3c261a21a557ad5da668df4441b",
+        "size": 171179
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-shared@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-shared",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-shared/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:ec6bda014f94114f269061a96be3ceec3f91d6b7b7b888c7f946b6da782bee13",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-shared_0.4.0.tar.gz",
+        "sha256": "sha256:c15093a0ca21b169bbfbb4fb72bac81eb0d8d8b7b96616180542df34fb16225c",
+        "size": 197319
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-shared@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-shared",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-shared/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:67635b28c0071986f075a1cc25d069226fdc0f2d77a872f6e6cc6dd85e6be834",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-ux-migration_0.3.6.tar.gz",
+        "sha256": "sha256:b896736fe5003a3e675fa002b35853da720381f1cedf5f3439bd59605f004719",
+        "size": 80920
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-ux-migration@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-ux-migration",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-ux-migration/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:ee27b6024ed579433068989b44dfbc26b55678dc838125647f084bfb694875f8",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_plaud-theme-ux-migration_0.4.0.tar.gz",
+        "sha256": "sha256:7322dbd0860384768c4437991638e69f32604fc1aae21dce0c02c06b9411bf2f",
+        "size": 82815
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/plaud-theme-ux-migration@0.4.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "plaud-theme-ux-migration",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/plaud-theme-ux-migration/0.4.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 20
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "892e3bf747cd55b78134dbeecba76ac3dc52620f",
+        "pr": 20
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:ae449491a9cde3738c2d5db1e33b4768ac3f84f418c22ad1d88d215319aa6625",
+      "version": "0.4.0"
+    },
+    {
+      "asset": {
+        "file": "skill_plaud-theme_yidian-draft-pr_0.3.6.tar.gz",
+        "sha256": "sha256:c71e035cdbdb10db5a1aaa29deb3d67ada923d86fb4a0e06b402fa1b1e7f0111",
+        "size": 17101
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:plaud-theme/yidian-draft-pr@0.3.6",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "yidian-draft-pr",
+      "namespace": "plaud-theme",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/plaud-theme/yidian-draft-pr/0.3.6",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 14
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "714736afbe0c63589104d5bba2a1ca8fa171b2ff",
+        "pr": 14
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:09c7f0cbbf808d2dbf3b629622a0fcd3c45d610696f493aa21b2091728b6f2a1",
+      "version": "0.3.6"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-coverage-audit_0.7.0.tar.gz",
+        "sha256": "sha256:b32e16a9610282bb1b1ba7c994968dd84755d82472ff88be567ee5af60a6d3b2",
+        "size": 8559
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-coverage-audit@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-coverage-audit",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-coverage-audit/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:5a7574789b5f49d0deef41151ce9f2854af6aad9834794a00f60e6ed01349d22",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-delivery_0.7.0.tar.gz",
+        "sha256": "sha256:8ff9a0e274f080c3cbb738b4d77bda9b2ce05c53719830ab9b9017e696e10e38",
+        "size": 4747
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-delivery@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-delivery",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-delivery/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:d9a348acc55cd584fd53357bb890ea1df18ac88569853fa588c7453dd138ac52",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-demand-extractor_0.7.0.tar.gz",
+        "sha256": "sha256:9d63da52a3ad0cd1c8b2c770433b5788da6676e02a7b01012d0daabe11820aaf",
+        "size": 3873
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-demand-extractor@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-demand-extractor",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-demand-extractor/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:c5947e96f09f12f85a15455260e4363d7ef71f547de9680ed2518b5e11751412",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-demand-grid_0.7.0.tar.gz",
+        "sha256": "sha256:ec8da7d56eda120e37575dac83de3b52456f07ca3726c18a32ae0726b2343fa5",
+        "size": 3859
+      },
+      "capabilities": [
+        "external-tool"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-demand-grid@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-demand-grid",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-demand-grid/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 1,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:dee33065a71d62dec8817b04ba6c16c59bfb4ca36b48b7ed1e4f05002c8f9791",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-generator_0.7.0.tar.gz",
+        "sha256": "sha256:8a23c93869b31b7b70b42d55b35001025a456d9ce0c586c2d040d0931f0b2a29",
+        "size": 13985
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-generator@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-generator",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-generator/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:96f77ee30220000818530f3e10a04b19abf2a81cded2cd693a36ea64e1cdadb1",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-input-normalizer_0.7.0.tar.gz",
+        "sha256": "sha256:6bcddc12aadc48b1a5ca3225a8ecbe98c81c947a22f71c10f845c6ce32769a33",
+        "size": 3022
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-input-normalizer@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-input-normalizer",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-input-normalizer/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:620d9bf26317ae8cddd9e03f9c520953a01ab2327e38597e177355cfe16b7233",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-orchestrator_0.7.0.tar.gz",
+        "sha256": "sha256:31afb968c7ae7ea2894ca3a01cfb7b2872d3abdeaaee940fa6c365ddc4315b55",
+        "size": 12168
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-orchestrator@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-orchestrator",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-orchestrator/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:021a69a129530041e9d445d31b1362de633bd23f8c8cf77523921da9bf66a8f3",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-semantic-dedupe_0.7.0.tar.gz",
+        "sha256": "sha256:21b10c8a5541a2b023c821d233f44a84820c8ac0b2ff0827bfd2d60303653644",
+        "size": 3659
+      },
+      "capabilities": [
+        "external-tool"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-semantic-dedupe@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-semantic-dedupe",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-semantic-dedupe/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 1,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:dd850f2b1a10d98e6bfd996d6a53b439b85cda12b93a2de27cd5f17b75e5b994",
+      "version": "0.7.0"
+    },
+    {
+      "asset": {
+        "file": "skill_prompts-map_prompt-map-shared_0.7.0.tar.gz",
+        "sha256": "sha256:0a8c90ebb19577d9d52d05a10f10177fc35eb9b2f75c43260473492a98d40b3f",
+        "size": 116623
+      },
+      "capabilities": [
+        "shell"
+      ],
+      "clients": [
+        "claude",
+        "cursor",
+        "codex",
+        "agents"
+      ],
+      "conflicts": [],
+      "id": "skill:prompts-map/prompt-map-shared@0.7.0",
+      "kind": "skill",
+      "license": "MIT",
+      "name": "prompt-map-shared",
+      "namespace": "prompts-map",
+      "owner": {
+        "id": "O_kgDOD7uDqA",
+        "kind": "org",
+        "login": "geoly-ai"
+      },
+      "path": "artifacts/skills/prompts-map/prompt-map-shared/0.7.0",
+      "provenance": {
+        "author_github_id": "U_kgDODu4RvA",
+        "kind": "original",
+        "submitted_by_pr": 11
+      },
+      "replaces": [],
+      "review": {
+        "approved_by": [],
+        "capability_tier": 2,
+        "head_sha": "5390646b07a495718db46fd8cb6edd3bb310dfce",
+        "pr": 11
+      },
+      "status": "published",
+      "tree_digest": "geoly-tree-v1:sha256:4014aaf6672c385cbd1ede388428cbb7fcbcd783d82049b97fb60b62849a9ae0",
+      "version": "0.7.0"
+    }
+  ],
+  "created_at": "2026-09-04T09:08:05Z",
+  "latest": {
+    "pack:plaud-theme/plaud-theme-matrix": "0.4.0",
+    "pack:prompts-map/prompt-map": "0.7.0",
+    "skill:geoly-ai/skills-hub-install": "0.2.0",
+    "skill:geoly-ai/skills-hub-publish": "0.2.0",
+    "skill:plaud-theme/plaud-theme-dev": "0.4.0",
+    "skill:plaud-theme/plaud-theme-feedback-triage": "0.4.0",
+    "skill:plaud-theme/plaud-theme-impact": "0.4.0",
+    "skill:plaud-theme/plaud-theme-orchestrator": "0.4.0",
+    "skill:plaud-theme/plaud-theme-qa": "0.4.0",
+    "skill:plaud-theme/plaud-theme-qa-intake": "0.4.0",
+    "skill:plaud-theme/plaud-theme-release-ops": "0.4.0",
+    "skill:plaud-theme/plaud-theme-section-build": "0.4.0",
+    "skill:plaud-theme/plaud-theme-shared": "0.4.0",
+    "skill:plaud-theme/plaud-theme-ux-migration": "0.4.0",
+    "skill:plaud-theme/yidian-draft-pr": "0.3.6",
+    "skill:prompts-map/prompt-map-coverage-audit": "0.7.0",
+    "skill:prompts-map/prompt-map-delivery": "0.7.0",
+    "skill:prompts-map/prompt-map-demand-extractor": "0.7.0",
+    "skill:prompts-map/prompt-map-demand-grid": "0.7.0",
+    "skill:prompts-map/prompt-map-generator": "0.7.0",
+    "skill:prompts-map/prompt-map-input-normalizer": "0.7.0",
+    "skill:prompts-map/prompt-map-orchestrator": "0.7.0",
+    "skill:prompts-map/prompt-map-semantic-dedupe": "0.7.0",
+    "skill:prompts-map/prompt-map-shared": "0.7.0"
+  },
+  "previous": 3,
+  "repo": "geoly-ai/skills-hub",
+  "snapshot": 4,
+  "yanked": []
+}
