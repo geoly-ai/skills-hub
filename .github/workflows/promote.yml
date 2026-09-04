@@ -365,6 +365,9 @@ jobs:
       # ── 自检：把 validate-promotion 会跑的那道门先在本地跑一遍 ──────────
       - name: 自检（开 PR 之前先自己过一遍复算门）
         if: ${{ steps.facts.outputs.skip == 'false' }}
+        env:
+          # 手动触发时 `github.event.before` 不存在，用它推基线（见下）
+          PROMOTE_SHA: ${{ inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           # 🔴 开一张注定被自己的门拒掉的 PR，只会让维护者去查 CI 而不是查这里。
@@ -375,7 +378,23 @@ jobs:
           trap 'git worktree remove --force "$base" 2>/dev/null || true' EXIT
           # ⚠️ `github.event.before` 在「main 刚被创建」时是全零、force-push 之后
           #    可能已不可达 —— 两种都不该静默按创世处理，直接报错让人来看。
+          #
+          # 🔴 **手动触发时它根本不存在**（那是 push 事件独有的字段）——
+          #    2026-09-04 实测：第一次手动跑就红在「拿不到 push 之前的 commit（）」，
+          #    括号里是空的，因为那个字段压根没被赋值。
+          #    手动跑的等价基线是**被 promote 的那个 commit 的父提交**：
+          #    push 触发时 before 就是「投稿合并之前的 main」，父提交正是同一个东西。
+          #    ⚠️ 不能退回「用 HEAD^」—— HEAD 可能已经比投稿多好几个无关 commit
+          #    （修 promote 自己的那些），拿它当基线会把无关改动算进复算门。
           before='${{ github.event.before }}'
+          if [ -z "$before" ]; then
+            before=$(git rev-parse --verify --quiet "$PROMOTE_SHA^" || true)
+            if [ -z "$before" ]; then
+              echo "::error::手动触发但取不到 $PROMOTE_SHA 的父提交 —— 无法自检，请人工复核。"
+              exit 1
+            fi
+            echo "::notice::手动触发：基线取 $PROMOTE_SHA 的父提交 $before"
+          fi
           if ! git rev-parse --verify --quiet "$before^{commit}" >/dev/null; then
             echo "::error::拿不到 push 之前的 commit（$before）—— 无法自检，请人工复核。"
             exit 1
