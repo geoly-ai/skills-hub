@@ -99,7 +99,7 @@ skill 走 `skill.json`；pack 只能走 `--inputs`。
 | # | 事项 | 现状 | 代价 |
 |---|---|---|---|
 | ① | promotion 的 `owner` / `review` 来源 | ✅ **已闭合**（M3，`a97dddb`）—— `scripts/promote/build-inputs.mjs` 产出那份 inputs，`build-snapshot.mjs` 一行未改 | — |
-| ② | `timestamp.yml` 的分发方式 | ✅ 已按 §3.2 改成滚动 Release 资产 | 遗留 R-17（两资产非原子），打开 cron 前须解决 |
+| ② | `timestamp.yml` 的分发方式 | ✅ 已按 §3.2 改成滚动 Release 资产；**2026-09-04 起 cron 已启用**（每 3 天）| R-17 已闭合（单资产信封），前置满足 |
 | ③ | bundled 成员是 `degraded` 的 pack 时，跳过还是终止 | 已选「跳过并告警」 | 见下 |
 
 **③ 的原委**（`src/pack.mjs` 的 `resolvePackInstall` 里已写明，这里归位）：

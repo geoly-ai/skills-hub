@@ -12,6 +12,21 @@
 |---|---|
 | registry 浏览站 | **https://skills-hub-pearl.vercel.app/** |
 | 埋点摄入端 | `https://skills-hub-telemetry.vercel.app/v1/events` |
+| **分发（客户端真正取字节的地方）** | GitHub Releases —— 见下 |
+
+分发地址**不配置、不发现**，由客户端从**已验签**的对象推导
+（locator 契约见 [`docs/m0/02-registry.md`](docs/m0/02-registry.md) §4.0）：
+
+```
+/releases/download/timestamp/timestamp.json      ← 新鲜度锚点（滚动，每 3 天刷新）
+/releases/download/hub-v<N>/hub-<N>.json[.sigstore.json]
+/releases/download/hub-v<N>/<asset.file>         ← 制品资产
+```
+
+🔴 **`hub-v<N>` 与 CLI 的 `v<x.y.z>` 是两个 Release，刻意分开。**
+合成一个的话，「快照号 N → 哪个 CLI 版本」这个映射就**不在任何签名对象里**，
+客户端拿着验过签的快照也推不出去哪儿下载 —— 那正是 0.2.0
+「已发布但没人能装」的根因。
 
 🔴 **不是 `skills-hub.vercel.app`** —— `.vercel.app` 子域名全局唯一，项目名撞车时
 Vercel 会自动追加一个随机词（这就是 `-pearl` 的来历）。那个裸域名**不属于本项目**，
@@ -70,13 +85,19 @@ npx @geoly-ai/skills-hub install --all --clients claude --yes-i-really-want-ever
 | 阶段 | 状态 |
 |---|---|
 | **M0 · 制品与信任模型** | ✅ 已通过（v45，2026-08-25） |
-| **M1 · 只读分发** | ✅ **已完成并发布 0.1.0** —— resolve / install / recover / check / list-search-why / sync-lock |
-| **M2 · pack 与受控 catalog** | 🚧 进行中 —— 命令面已齐（`vendor` / `install pack:` / `install --all`）；promotion 的**派生**那一半已就绪（`scripts/build-snapshot.mjs`），元数据来源待 M3 |
-| M3 · 投稿与审核 | — |
+| **M1 · 只读分发** | ✅ 已完成（0.1.0 首发）—— resolve / install / recover / check / list-search-why / sync-lock |
+| **M2 · pack 与受控 catalog** | ✅ 命令面与 promotion 的派生均已就绪；元数据来源待 M3 |
+| **分发真的通了** | ✅ **0.3.3** —— registry 上线 23 个制品 / 3 张快照，单个 skill、整套 `pack:`、`--offline` 三条路径在干净环境实测通过 |
+| M3 · 投稿与审核 | 🚧 元数据（`owner` / `review` / `provenance`）仍靠 promotion 的显式 `--inputs` |
 | M4 · update / remove | — |
 
-**1386 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 51 个注入点
-逐个反向命中）是 CI 的合并门。
+> 📌 **「发布了」不等于「能装」。** 0.1.0 与 0.2.0 都能发布、能验签、能浏览 registry，
+> 但**任何一次 `install` 都取不到字节**：客户端推不出下载地址、CLI 没有网络层、
+> 服务端一个 Release 都没有。这三件事到 0.3.3 才全部闭合，
+> 判据是**从 npm 装下来的那个包在干净 home 上真的装成了**，不是测试绿。
+
+**1386 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 **72** 个注入点逐个反向命中，
+数目取自 `test/harness/fault-points.mjs` 的 CATALOG）是 CI 的合并门。
 
 ### 🔴 现在明确**没有**做到的（截至 0.3.3）
 
@@ -90,11 +111,11 @@ npx @geoly-ai/skills-hub install --all --clients claude --yes-i-really-want-ever
 - `cursor` 未验证；`search` 搜不了 description（快照 record 里没有这个字段）。
 
 已知且**明确接受**的残余风险见 [`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)（R-1 … R-11）
-与 [`docs/m2/01-residual-risks.md`](docs/m2/01-residual-risks.md)（R-12 … R-16），
+与 [`docs/m2/01-residual-risks.md`](docs/m2/01-residual-risks.md)（R-12 … R-21），
 M0 正文的勘误见 [`docs/m0/ERRATA.md`](docs/m0/ERRATA.md)（E-1 … E-8）。
 
-M2 交出了什么、**明确没做到什么**、以及三条待拍板项，见
-[`docs/m2/00-delivery.md`](docs/m2/00-delivery.md)。
+M2 交出了什么、**明确没做到什么**，见
+[`docs/m2/00-delivery.md`](docs/m2/00-delivery.md)（当时的三条待拍板项现已全部闭合）。
 
 ## 从哪读起
 
@@ -107,12 +128,24 @@ M2 交出了什么、**明确没做到什么**、以及三条待拍板项，见
 
 ## 已经能跑的
 
+装好之后（安装见上）：
+
+```sh
+skills-hub install <spec> --clients claude   # 装
+skills-hub list --installed                  # 看装了什么
+skills-hub check                             # 字节对不对 + 现在还该不该用
+skills-hub why <name>                        # 这东西是谁请求装的
+skills-hub recover                           # 装到一半崩了之后收拾现场
+skills-hub stats                             # 本地埋点文本报表
+skills-hub telemetry status                  # 埋点/上报开关
+```
+
+从源码开发：
+
 ```sh
 node bin/skills-hub.mjs --help
-node bin/skills-hub.mjs stats            # 本地埋点文本报表
-node bin/skills-hub.mjs telemetry status # 埋点/上报开关
-npm test                                 # 60 个测试
-npm run test:matrix                      # 在 Node 22.13 / 24.19 上各跑一遍
+npm test                                     # 1386 个测试
+npm run test:matrix                          # 在 Node 22.13 / 24.19 上各跑一遍
 ```
 
 基础模块：`canonical-json`、`atomic-fs`、`safe-fs`、`tree-digest`/`tx-digest`、
