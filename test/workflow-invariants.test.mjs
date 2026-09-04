@@ -633,13 +633,21 @@ test('🔴 promote.yml 只由 push 到 main 的 submissions/** 触发 —— 一
   //
   //    ⚠️ 仍然是**白名单**：下面是「恰好这四行」，多一个事件就红。
   const body = PROMOTE();
-  const on = onBlock(body);
+  // 🔴 滤掉注释行 —— 白名单钉的是**语义**，不是排版。
+  //    不滤的话，往触发块里加一句解释就会让这条断言假红，
+  //    而假红久了会被人直接放宽成模糊匹配 —— 那时白名单就名存实亡了。
+  const on = onBlock(body).filter((l) => !l.startsWith('#'));
   assert.deepEqual(on, [
     'push:',
     "branches: [main]",
     "paths: ['submissions/**']",
     'workflow_dispatch:',
-  ], `promote.yml 的 on: 块必须**恰好**是这四行，实际：\n  ${on.join('\n  ')}`);
+    'inputs:',
+    'sha:',
+    'description: "要 promote 的 commit（留空＝main 的 HEAD）"',
+    'required: false',
+    'type: string',
+  ], `promote.yml 的 on: 块（去注释后）必须**恰好**是这几行，实际：\n  ${on.join('\n  ')}`);
 });
 
 // 🔴 **collect 的输出不能就地写回 build-inputs 的输入。**

@@ -33,9 +33,20 @@ on:
   # 🔴 补一个手动口：push 触发失败后**没有任何办法重跑**——
   #    `gh run rerun` 会用触发那次的 workflow 文件（修好了也用不上），
   #    而再次触发要求再推一次 `submissions/**`，那等于为了重试而伪造一次投稿。
-  #    2026-09-04 实测吃过这个亏。手动跑时 `github.sha` 就是 main 的 HEAD，
-  #    与 push 触发拿到的是同一个值，下游一个字都不用改。
+  #    2026-09-04 实测吃过这个亏。
   workflow_dispatch:
+    inputs:
+      sha:
+        # 🔴 **必须能指定 SHA。** 手动触发时 `github.sha` 是 main 的 HEAD，
+        #    而 HEAD 往往是「修 promote 本身」的那个直推 commit —— 它没有关联 PR，
+        #    于是报「0 张 PR = 有人直推 main」。2026-09-04 实测踩到。
+        #    要重跑的是**投稿合并的那个 commit**，不是 HEAD。
+        #    ⚠️ 这不放宽任何门：给了 SHA 之后，「恰好 1 张已合并进 main 的 PR」
+        #    「approve 挂在被合并的 head 上」「结构门全部重跑」「版本未占用」
+        #    一条都不少 —— 随便给一个 SHA 只会在第一道门就被拒。
+        description: "要 promote 的 commit（留空＝main 的 HEAD）"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -76,7 +87,8 @@ jobs:
         id: facts
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
+          # 手动触发可指定；push 触发时 inputs.sha 为空，落回 github.sha
+          SHA: ${{ inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           # 🔴 **恰好一张**。一个 push 关联到 0 张（直推）或多张（同时合并）
