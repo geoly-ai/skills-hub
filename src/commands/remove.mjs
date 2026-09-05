@@ -204,7 +204,10 @@ export async function cmdRemove(ctx, argv, out) {
         const pv = byPath.get(o.path);
         const started = Date.now();
         try {
-          const r = removeOneTarget(ctx, pv, { name, hook, out });
+          // 🔴 §3.5 识别范围 ① 要「本次命令的**全部** target」（见 install.mjs 同处）
+          const r = removeOneTarget(ctx, pv, {
+            name, hook, out, targetSet: previews.map((x) => x.t.target),
+          });
           results.push({ ...r, client: pv.t.client, ok: true, ms: Date.now() - started, scope: pv.t.scope, target: pv.t.target });
         } catch (err) {
           const cls = classify(err);
@@ -270,7 +273,7 @@ function fingerprintOf(p) {
 }
 
 /** 单个 target 的第 2–10 步。🔴 全同步 —— 它在锁与事务里面，不能 await。 */
-function removeOneTarget(ctx, pv, { name, hook, out }) {
+function removeOneTarget(ctx, pv, { name, hook, out, targetSet }) {
   const target = pv.t.target;
   const P0 = layout(target);
 
@@ -279,7 +282,11 @@ function removeOneTarget(ctx, pv, { name, hook, out }) {
   if (rec.outcome !== 'nothing') out.note(`${pv.t.client}：入口分流 —— ${rec.outcome}`);
 
   // ── 第 3 步：预检 ───────────────────────────────────────────────────────
-  const pre = precheckTarget(target, { base: pv.t.base, targetSet: [target] });
+  const pre = precheckTarget(target, {
+    base: pv.t.base,
+    targetSet: targetSet ?? [target],
+    scan: ctx.scan,
+  });
   assertPrecheckOk(pre);
 
   // 🔴 **锁内重读并重算**：预览是在没有任何锁的情况下读的，从那时到现在

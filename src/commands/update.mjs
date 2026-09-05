@@ -553,7 +553,10 @@ export async function cmdUpdate(ctx, argv, out) {
         const p = byPath.get(o.path);
         const started = Date.now();
         try {
-          const r = updateOneTarget(ctx, p, { at, floor, hook, out, snap });
+          // 🔴 §3.5 识别范围 ① 要「本次命令的**全部** target」，不是「自己」（见 install.mjs 同处）
+          const r = updateOneTarget(ctx, p, {
+            at, floor, hook, out, snap, targetSet: previews.map((q) => q.t.target),
+          });
           results.push({ ...r, client: p.t.client, ms: Date.now() - started, ok: true, scope: p.t.scope, target: p.t.target });
         } catch (err) {
           const cls = classify(err);
@@ -645,7 +648,7 @@ export function namesNeedingBytes(target, g) {
 }
 
 /** 单个 target 的第 2–10 步。🔴 全同步 —— 它在锁与事务里面，不能 await。 */
-function updateOneTarget(ctx, p, { at, floor, hook, out, snap }) {
+function updateOneTarget(ctx, p, { at, floor, hook, out, snap, targetSet }) {
   const target = p.t.target;
   const P0 = layout(target);
 
@@ -654,7 +657,9 @@ function updateOneTarget(ctx, p, { at, floor, hook, out, snap }) {
   if (rec.outcome !== 'nothing') out.note(`${p.t.client}：入口分流 —— ${rec.outcome}`);
 
   // ── 第 3 步：预检 ───────────────────────────────────────────────────────
-  assertPrecheckOk(precheckTarget(target, { base: p.t.base, targetSet: [target] }));
+  assertPrecheckOk(
+    precheckTarget(target, { base: p.t.base, targetSet: targetSet ?? [target], scan: ctx.scan }),
+  );
 
   // 🔴 **锁内重读重算，比语义指纹**。预览是在没有任何锁的时候读的；
   //    从那时到现在，另一个进程（乃至上面那次 recover）完全可以改掉这张图。

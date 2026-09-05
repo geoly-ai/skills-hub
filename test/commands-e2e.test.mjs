@@ -1033,6 +1033,48 @@ test('🔴 §3.5 嵌套 target → 预检拒绝（9），且 JSON 里保留**全
   assert.ok(r.json.error.violations.every((v) => typeof v.message === 'string'));
 });
 
+test('🔴 §3.5 识别范围 ①：同一条命令里两个 target 互相嵌套，即便都还没有 .geoly 状态', async () => {
+  // 回归：三个命令原本都传 `targetSet: [target]`（只有自己），于是 §3.5 的
+  // 「本次命令的**全部** target」那一条形同虚设 —— 首次安装时内层还没有
+  // `.geoly/`，判据 ② 也认不出来，两个 target 就都放行了。
+  // $CODEX_HOME 指进 claude 的 target 里就能造出这个形状。
+  const w = makeWorld({ artifacts: [makeArtifact({ clients: ['claude', 'codex'] })] });
+  const inner = join(CLAUDE_G(w), 'inner-codex');
+  mkdirSync(inner, { recursive: true });
+  const r = await run(w, ['install', 'demo', '--clients', 'claude,codex', '--create-missing', 'all', '--json'], {
+    deps: { env: { ...process.env, GEOLY_TELEMETRY: '0', CODEX_HOME: inner } },
+  });
+  assert.equal(r.code, 9, `本该按嵌套 target 拒绝：${r.stdout}\n${r.stderr}`);
+  const codes = r.json.error.violations.map((v) => v.code);
+  assert.ok(codes.includes('target.nested'), `实际违规：${codes.join(',')}`);
+  const v = r.json.error.violations.find((x) => x.code === 'target.nested');
+  assert.equal(v.detail.via, 'target-set', '识别依据应是目标集合，不是 .geoly 状态');
+});
+
+test('🔴 --scan-max-* 真的接到预检上，且「撞了哪个上限」进得了 --json', async () => {
+  const w = makeWorld();
+  await run(w, ['install', 'demo', '--clients', 'claude']);
+  mkdirSync(join(CLAUDE_G(w), 'deep', 'a', 'b', 'c'), { recursive: true });
+
+  // 默认预算（深度 64 / 目录数 100000）下这棵树扫得完 —— 不该报扫不完
+  const ok = await run(w, ['install', 'demo', '--clients', 'claude', '--json']);
+  assert.equal(ok.code, 0, `${ok.stdout}\n${ok.stderr}`);
+
+  // 把深度预算压到 1：旋钮要真的接到 precheckTarget 上
+  const r = await run(w, ['install', 'demo', '--clients', 'claude', '--scan-max-depth', '1', '--json']);
+  assert.equal(r.code, 9, `${r.stdout}\n${r.stderr}`);
+  const v = r.json.error.violations.find((x) => x.code === 'target.nested-scan-incomplete');
+  assert.ok(v, `实际违规：${r.json.error.violations.map((x) => x.code).join(',')}`);
+  // 🔴 文案要点名撞的是哪个上限、它的实际值、以及能做什么
+  assert.match(v.message, /深度上限 1 到顶/);
+  assert.match(v.message, /--scan-max-depth/);
+  // 🔴 detail 是给机器读的那一半，必须进得了 JSON（否则只能正则解析中文文案）
+  assert.equal(v.detail.limits.maxDepth, 1);
+  assert.equal(v.detail.limits.maxDirs, 100000, '没给的那个旋钮要落在默认值上');
+  assert.ok(v.detail.stops.depth.count >= 1);
+  assert.equal(v.detail.stops.dirs, null);
+});
+
 test('🔴 target 不可写 → 退出码 10，且 JSON 里保留全部违规项', async () => {
   const w = makeWorld();
   const target = CLAUDE_G(w);

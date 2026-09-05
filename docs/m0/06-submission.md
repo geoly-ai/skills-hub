@@ -176,6 +176,20 @@ pack 的 Tier = 成员 capability 并集对应的最高 Tier。
 
 ## 9. `publish` 与 token
 
+> 🔴 **2026-09-05 起本节的授权部分不适用**（用户拍板，见
+> [`10-open-questions.md`](10-open-questions.md) Q4）：
+> **不注册应用，`publish` 用用户已有的 GitHub token，不做 `login` / `logout`。**
+>
+> 因此下面这四条**当前不成立**：device flow 的 `login`、keychain 存储、
+> 「token 只在 login/publish/logout 里读」、以及「`logout` 调 API 撤销授权」。
+> ⚠️ 最后一条同时是一条**很可能做不到**的要求：撤销端点需要的认证方式
+> 官方文档没写清，若必须 `client_secret`，公开 CLI 拿不住。
+>
+> **仍然成立的**：`npx github:` 下拒绝执行；以及**权限面必须如实告知** ——
+> 用户已有的 token 往往是 `repo` 全权限，比 `public_repo` 还大，而我们无法收窄它。
+>
+> 📌 正文原样保留：它记录的是当时定的模型，改掉就看不出偏离在哪。
+
 - `login`：GitHub device flow，scope 只要 `public_repo`。
 - 存储：优先 OS keychain；不可用时落 `~/.local/state/geoly-skills/auth.json`，`0600`，父目录 `0700`。
 - token 只在 `publish` / `logout` / `status` 三条命令里读。

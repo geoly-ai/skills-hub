@@ -684,7 +684,13 @@ export async function cmdInstall(ctx, argv, out) {
         const t = byPath.get(o.path);
         const started = Date.now();
         try {
-          const r = installOneTarget(ctx, t, perClient.get(t.client), { snap, floor, pinned, out, verifier });
+          const r = installOneTarget(ctx, t, perClient.get(t.client), {
+            snap, floor, pinned, out, verifier,
+            // 🔴 §3.5 识别范围 ① 是「本次命令的**全部** target」，不是「自己」。
+            //    只传自己会漏掉「两个 target 互相嵌套、但内层还没有 .geoly 状态」——
+            //    那正是首次安装时的形状（内层的状态目录还没建出来）。
+            targetSet: selected.map((s) => s.target),
+          });
           results.push({
             ...r, client: t.client, scope: t.scope, target: t.target, ok: true, ms: Date.now() - started,
           });
@@ -754,7 +760,7 @@ export async function cmdInstall(ctx, argv, out) {
 }
 
 /** 单个 target 的第 2–10 步。 */
-function installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor, out, verifier }) {
+function installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor, out, verifier, targetSet }) {
   const target = t.target;
   const P0 = layout(target);
   const onLedgerChanged = makeLockfileHook(ctx, { snap, verifier });
@@ -764,7 +770,11 @@ function installOneTarget(ctx, t, { units, rootSpecs, packInfos }, { snap, floor
   if (rec.outcome !== 'nothing') out.note(`${t.client}：入口分流 —— ${rec.outcome}`);
 
   // ── 第 3 步：预检（🔴 assertPrecheckOk 必须调）─────────────────────────
-  const pre = precheckTarget(target, { base: t.base, targetSet: [target] });
+  const pre = precheckTarget(target, {
+    base: t.base,
+    targetSet: targetSet ?? [target],
+    scan: ctx.scan,
+  });
   assertPrecheckOk(pre);
 
   // ── 第 4 步：取字节 → 验签/验资产/解包/manifest 绑定 ────────────────────

@@ -63,16 +63,22 @@
 | `--no-bundled` | 关 | 装 pack 时跳过 `role: tool` 成员 |
 | `--freeze-attic <label>` | — | 冻结本次 attic，不参与保留代数清理 |
 | `--keep-generations <N>` | 3 | attic 保留代数 |
+| `--scan-max-depth <N>` | 64（硬顶 1024） | 预检扫描的深度预算（[`04-install.md`](04-install.md) §3.5） |
+| `--scan-max-dirs <N>` | 100000（硬顶 5000000） | 同上，目录数预算 |
 | `--json` | 关 | 机器可读输出 |
 | `--yes` | 关 | 跳过可跳过的确认。**不能**替代 §3 的全量确认 |
 | `--yes-i-really-want-everything` | 关 | **仅** `--all` 在非交互下使用（§3） |
 | `--pre` | 关 | 允许预发布版本 |
 
-**没有** `--no-verify`、`--insecure`、`--force`、`--force-unlock`、`--assume-idle`。
+**没有** `--no-verify`、`--insecure`、`--force`、`--force-unlock`、`--assume-idle`、
+`--skip-nested-scan`。
 
 - 验签与摘要校验不可关闭；
 - 替换必须点名（`--replace`）；
 - 陈旧、yank、全量各有独立开关，不共用一个大锤；
+- 扫描预算只能**抬高**（`--scan-max-*`），不能关掉 —— 关掉它就是把
+  「无法证明没有嵌套 target」改写成「假设没有」（[`04-install.md`](04-install.md) §3.5）。
+  抬高之后仍然是一次真扫描、仍然 fail-closed；
 - `--assume-idle` 随 D5 删除 —— 本工具**不检测也不阻断**正在运行的 agent
   （[`04-install.md`](04-install.md) §9）。
 

@@ -18,6 +18,28 @@ v1 列了 8 个。Codex 第二轮指出其中 5 个是**承诺的正确性依赖
 
 ## 仍然开放
 
+### Q4 · `publish` 的 token 能不能收窄到单仓 —— ✅ **2026-09-05 用户拍板：暂不收窄**
+
+> **决定：不注册 OAuth App / GitHub App。`publish` 直接用用户已有的 GitHub token，
+> 不做 `login` / `logout`。**
+>
+> 理由：注册应用是**一次性且不可逆的公开面**；先用现有 token 把 `publish` 的价值
+> 交付出去，授权收窄留到有实际投稿量之后再说。
+>
+> 🔴 **这条把 §9 的一整块变成了不适用**（device flow / keychain 存储 / 远端撤销）——
+> 见 `06-submission.md` §9 的偏离说明。**规范正文不偷偷改**，偏离记在那里。
+>
+> 📌 顺带解掉一个**做不到**的要求：§9 写着「`logout` 调 API 撤销授权」。
+> 实测 `DELETE /applications/{client_id}/token` 返回 401（要认证），
+> 而它是否接受用户自己的 token、还是必须 `client_secret` 的 Basic 认证，
+> **两处官方文档都没写清**。若是后者，公开 CLI 根本做不到（拿不住 secret）。
+> 现在我们**不发 token**，也就没有撤销的义务 —— 这个洞是被绕开的，不是被填上的。
+>
+> ⚠️ **代价照旧要说出来**：用户已有的 token 很可能是 `repo` 全权限的 classic PAT，
+> 权限面**比 `public_repo` 还大**，而我们**无法收窄它**。
+> 所以 `publish` 必须在动手前告诉用户「这个 token 能做什么」。
+> 收窄仍然是未闭合的问题，只是换了个形态。
+
 ### Q4 · `publish` 的 token 能不能收窄到单仓
 
 `public_repo` 能改用户所有公开仓，远大于所需。候选：GitHub App（权限细到单仓）。

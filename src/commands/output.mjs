@@ -116,8 +116,14 @@ export class Output {
         message,
         unclassified: cls.unclassified,
         // 预检聚合错带全部违规项 —— 🔴 JSON 里**始终保留全部**，不只报优先级最高那条
+        // 🔴 `detail` 必须一起出：它是**给机器读的那一半**（嵌套 target 的 relation/via、
+        //    扫描没跑完时撞的是哪个上限、实际值、样例路径）。只留 message 等于逼
+        //    调用方去正则解析中文文案 —— 那正是 `detail` 存在的理由。
+        //    ⚠️ 白名单式挑字段是对的，别改成整个 `...v` 透传。
         violations: Array.isArray(err?.violations)
-          ? err.violations.map((v) => ({ code: v.code, message: v.message, path: v.path }))
+          ? err.violations.map((v) => pruneUndefined({
+            code: v.code, message: v.message, path: v.path, detail: v.detail,
+          }))
           : undefined,
         candidates: Array.isArray(err?.candidates) ? err.candidates : undefined,
       }),

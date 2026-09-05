@@ -111,8 +111,42 @@ const STATE_MARKER_FILES = [
 ];
 const STATE_MARKER_DIRS = ['journal', 'attic', 'quarantine', 'audit-archive'];
 
-/** `.geoly` 之下会出现的状态路径，全部要以 lstat 无跟随方式检查（§3.4）。 */
-const SCAN_DEFAULTS = Object.freeze({ maxDepth: 8, maxDirs: 5000 });
+/**
+ * 扫描预算。
+ *
+ * 🔴 **这三个数在规格里没有出处**（§3.4 / §3.5 只说「拒绝嵌套 target」、
+ * 「状态路径逐个 lstat」，一个数字都没写）。所以它们是**实现的资源闸**，
+ * 不是规则本身 —— 定得太紧不会更安全，只会把「证明不了」当成常态。
+ *
+ * 旧值 `maxDepth: 8` 就是这么栽的：一个真实的 `~/.claude/skills`（657 个目录）
+ * 里只要有**一个** skill vendored 了一个仓库，深度就到 12，
+ * 于是每一次 install 都报 `target.nested-scan-incomplete` 而退出 —— 装不上任何东西。
+ * 实测：那棵树扫完只要 17ms、573/657 个目录，`maxDirs: 5000` 连一半都没碰到。
+ *
+ * 🔴 **成本是 O(目录数)，与深度无关。** 所以：
+ *   · `maxDirs` / `maxEntries` 才是真正的**预算闸**（它们限制的是工作量）；
+ *   · `maxDepth` 只是一个**防病态路径的 sanity guard**（PATH_MAX 量级），
+ *     不该拿来当预算 —— 拿它当预算就是按一个与成本无关的量收费。
+ *
+ * ⚠️ `maxEntries` 补的是 `maxDirs` 的漏：一个目录**下** 500 万个条目
+ * 只算 1 个 visited，`maxDirs` 完全拦不住。（它仍然拦不住**单次** `readdirSync`
+ * 的内存尖峰 —— 那要 `opendirSync` 流式读才行，见文件末尾的「明确没做」。）
+ */
+const SCAN_DEFAULTS = Object.freeze({ maxDepth: 64, maxDirs: 100_000, maxEntries: 1_000_000 });
+
+/**
+ * 🔴 预算旋钮必须有**硬顶**。否则 `--scan-max-dirs 9007199254740991` 就等于
+ * 把有界遍历改回无界 —— 那是把资源闸删掉，而不是「用户自己负责」。
+ * 撞到硬顶要**报错**，不能静默截断成硬顶：静默截断会让用户以为他给的预算生效了。
+ */
+const SCAN_CEILINGS = Object.freeze({
+  maxDepth: 1024, // 比任何文件系统的 PATH_MAX 能容下的层数都宽
+  maxDirs: 5_000_000,
+  maxEntries: 50_000_000,
+});
+
+/** 每一类「没扫完」最多留几条样例路径。样例只用来指路，不是清单。 */
+const SAMPLE_MAX = 5;
 
 /**
  * 🔴 扫描上限必须校验。`NaN` 参与 `>=` 永远是 false ——
@@ -126,13 +160,23 @@ function normalizeScan(scan = {}) {
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
       throw new Error(`scan.${name} 必须是有限的非负数，收到 ${JSON.stringify(v)}`);
     }
-    return Math.floor(v);
+    const n = Math.floor(v);
+    if (n > SCAN_CEILINGS[name]) {
+      throw new Error(
+        `scan.${name} 超过硬顶 ${SCAN_CEILINGS[name]}（收到 ${n}）。` +
+          '预算旋钮不是关闭开关：无上限的遍历等于没有资源闸。',
+      );
+    }
+    return n;
   };
   return {
     maxDepth: pick(scan.maxDepth, SCAN_DEFAULTS.maxDepth, 'maxDepth'),
     maxDirs: pick(scan.maxDirs, SCAN_DEFAULTS.maxDirs, 'maxDirs'),
+    maxEntries: pick(scan.maxEntries, SCAN_DEFAULTS.maxEntries, 'maxEntries'),
   };
 }
+
+export { SCAN_DEFAULTS, SCAN_CEILINGS };
 
 // ── 有效状态判定 ─────────────────────────────────────────────────────────────
 
@@ -186,7 +230,7 @@ const isUnder = (child, parent) => {
  * 绝不按名字扫任意后代的 `.claude/skills` —— 那会误伤普通目录。
  */
 export function findNestedTargets(targetPath, { targetSet = [], scan = {} } = {}) {
-  const { maxDepth, maxDirs } = normalizeScan(scan);
+  const { maxDepth, maxDirs, maxEntries } = normalizeScan(scan);
   const self = tryRealpath(targetPath);
   const hits = [];
   const seen = new Set();
@@ -217,35 +261,105 @@ export function findNestedTargets(targetPath, { targetSet = [], scan = {} } = {}
   }
 
   // ②b 向下：有界遍历，找带有效状态的后代
-  const scanResult = walkBounded(self, { maxDepth, maxDirs }, (dir) => {
+  const scanResult = walkBounded(self, { maxDepth, maxDirs, maxEntries }, (dir) => {
     if (dir !== self && hasGeolyState(dir)) add(dir, 'descendant', 'geoly-state');
   });
 
-  return { nested: hits, complete: scanResult.complete, visited: scanResult.visited };
+  return { nested: hits, ...scanResult };
+}
+
+// ── 「没扫完」的原因记账 ─────────────────────────────────────────────────────
+//
+// 🔴 一条**不告诉你撞的是哪个上限**的报错，指导不了任何行动。
+// 旧版把「深度到顶」「目录数超限」「读不进去」三种原因塞进同一句
+// 「深度上限 8 / 目录数上限 5000」里，用户读完既不知道该提哪个旋钮、
+// 也不知道是不是权限问题。所以原因必须是**结构化的事实**，不是一句话。
+//
+// 🔴 不变式：`complete === false` ⇒ `stops` 里至少有一项非空。
+// 一个说不出原因的 incomplete 等于「我拒绝了但我不知道为什么」，
+// 那种拒绝没法被修，也没法被审计。`assertAttributable` 在返回前兜住它。
+
+function newStops() {
+  return {
+    depth: { count: 0, samples: [] }, // 深度到顶、但下面还有目录
+    unreadable: { count: 0, samples: [] }, // EACCES/EPERM 等：有东西但看不了
+    dirs: null, // 目录数预算耗尽时正要处理的那个路径
+    entries: null, // 目录项预算耗尽时正要处理的那个路径
+  };
+}
+
+/** 样例只用来指路，不是清单：留前 `SAMPLE_MAX` 条，但**总数照记**。 */
+function sample(bucket, value) {
+  bucket.count += 1;
+  if (bucket.samples.length < SAMPLE_MAX) bucket.samples.push(value);
+}
+
+/**
+ * 🔴 样例要**确定性**：遍历用的是 LIFO 栈，同一棵树在不同 Node 版本／不同
+ * `readdir` 返回序下拿到的前 5 条可以不一样。不排序的话，报错文案与
+ * `--json` 输出就成了不可复现的东西 —— 用户贴给我们的两次输出对不上。
+ */
+function finalizeStops(stops) {
+  const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return {
+    depth: { count: stops.depth.count, samples: [...stops.depth.samples].sort() },
+    unreadable: {
+      count: stops.unreadable.count,
+      samples: [...stops.unreadable.samples].sort(byPath),
+    },
+    dirs: stops.dirs,
+    entries: stops.entries,
+  };
+}
+
+/** `complete:false` 却一个原因都说不出 → 那是本模块自己的 bug，不该悄悄发出去。 */
+function assertAttributable(complete, stops, where) {
+  if (complete) return;
+  if (stops.depth.count || stops.unreadable.count || stops.dirs || stops.entries) return;
+  throw new Error(`内部错误：${where} 报了 complete:false 却没有可归因的原因（记账漏了一条）`);
 }
 
 /**
  * 有界遍历。不跟随 symlink（`readdirSync` 的 Dirent 判类型，不 stat）、
  * 跳过 `.geoly` 自身（它的内容由状态路径检查负责，不是嵌套候选）。
  *
+ * ✅ 「跳过 `.geoly`」这一条**实测生效**：`<target>/.geoly/tx-1/stage/1/a/…/h`
+ *    这样 12 层的事务目录，扫描结果是 `visited:1, complete:true` ——
+ *    事务目录不吃深度预算。（回归测试见 target.test.mjs。）
+ *
  * 🔴 撞到上限**不静默放过**：调用方会因此记一条 `target.nested-scan-incomplete`。
  * 「扫不完」与「扫完了没有」是两件事，把前者说成后者就是在假装证明了一个否定命题。
  */
-function walkBounded(root, { maxDepth, maxDirs }, visit) {
+function walkBounded(root, { maxDepth, maxDirs, maxEntries }, visit) {
   let visited = 0;
+  let entries = 0;
+  let maxDepthSeen = 0;
   let complete = true;
+  const stops = newStops();
   const stack = [[root, 0]];
   while (stack.length) {
     const [dir, depth] = stack.pop();
     if (visited >= maxDirs) {
       complete = false;
+      stops.dirs = dir;
       break;
     }
     visited += 1;
+    if (depth > maxDepthSeen) maxDepthSeen = depth;
     visit(dir);
     if (depth >= maxDepth) {
       // 深度到顶但下面还有目录 → 同样是「没扫完」
-      if (hasSubdir(dir)) complete = false;
+      // 🔴 EACCES 与「确认下面还有目录」**互斥归因**：读不了的时候我们并没有
+      //    确认过下面有目录，把它同时记进 depth 会让文案既劝你提高深度、
+      //    又劝你修权限 —— 其中一半是编的。只记 unreadable。
+      const more = hasSubdir(dir);
+      if (more.unreadable) {
+        complete = false;
+        sample(stops.unreadable, { path: dir, code: more.code });
+      } else if (more.yes) {
+        complete = false;
+        sample(stops.depth, dir);
+      }
       continue;
     }
     let ents;
@@ -256,8 +370,22 @@ function walkBounded(root, { maxDepth, maxDirs }, visit) {
       // 静默跳过等于宣称「这里没有」，而我们并没有看过。
       // ⚠️ 但 ENOENT/ENOTDIR 是「本来就没有东西」——目录还没建、或扫描途中被删 ——
       // 那不是盲区，不能因此把每一次「target 尚不存在」的预检都判成扫不完。
-      if (!isAbsent(err)) complete = false;
+      if (!isAbsent(err)) {
+        complete = false;
+        sample(stops.unreadable, { path: dir, code: err.code ?? 'EUNKNOWN' });
+      }
       continue;
+    }
+    // 🔴 预算检查必须**紧跟在这次 readdir 之后**，不能等到下一轮循环顶部。
+    //    等下一轮是 fail-open：`/usr/bin` 这种「924 个条目、一个子目录都没有」
+    //    的目录会把预算撑爆之后**直接把栈跑空**，于是返回 complete:true ——
+    //    预算超了却宣称扫完了。（实测：maxEntries:1 下 entries=924 而 complete:true。）
+    //    顺带把 stop 记在**真正超预算的那个目录**上，而不是下一个待处理目录。
+    entries += ents.length;
+    if (entries > maxEntries) {
+      complete = false;
+      stops.entries = dir;
+      break;
     }
     for (const e of ents) {
       if (!e.isDirectory()) continue; // Dirent 的 isDirectory 对 symlink 返回 false
@@ -265,16 +393,81 @@ function walkBounded(root, { maxDepth, maxDirs }, visit) {
       stack.push([join(dir, e.name), depth + 1]);
     }
   }
-  return { complete, visited };
+  assertAttributable(complete, stops, 'walkBounded');
+  return { complete, visited, entries, maxDepthSeen, stops: finalizeStops(stops) };
 }
 
+/**
+ * 深度到顶那一层：下面**还有没有**目录。
+ * 🔴 「读不了」与「有」要分开报：两者都让 `complete` 变 false，但用户的下一步不同
+ *    （一个是提高 `--scan-max-depth`，一个是去修权限）。旧版把两者合成一个布尔，
+ *    于是权限问题会被文案说成「深度不够」，把人指向错误的方向。
+ */
 function hasSubdir(dir) {
   try {
-    return readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() && e.name !== STATE_DIR);
+    const ents = readdirSync(dir, { withFileTypes: true });
+    return { yes: ents.some((e) => e.isDirectory() && e.name !== STATE_DIR), unreadable: false };
   } catch (err) {
     // 🔴 读不了 → 无法证明下面没有目录，按「还有」算；不存在则确实没有
-    return !isAbsent(err);
+    if (isAbsent(err)) return { yes: false, unreadable: false };
+    return { yes: true, unreadable: true, code: err.code ?? 'EUNKNOWN' };
   }
+}
+
+/**
+ * 把「没扫完」的记账翻成一句**能指导下一步**的话。
+ *
+ * 🔴 三件事缺一不可：撞的是**哪个**上限、它的**实际值**、以及**怎么办**。
+ * 旧文案（「深度上限 8 / 目录数上限 5000」）三件事只占了半件 ——
+ * 它把两个上限并列念了一遍，既没说是哪个，也没给任何出路。
+ */
+function describeIncomplete(stops, bounds, walk) {
+  const parts = [];
+  if (stops.depth.count) {
+    parts.push(
+      `深度上限 ${bounds.maxDepth} 到顶，仍有 ${stops.depth.count} 处目录没往下看` +
+        `（例如 ${stops.depth.samples.join('、')}）` +
+        `；提高它：--scan-max-depth <N>（硬顶 ${SCAN_CEILINGS.maxDepth}）`,
+    );
+  }
+  if (stops.dirs) {
+    parts.push(
+      `目录数上限 ${bounds.maxDirs} 用尽（已访问 ${walk.visited} 个，停在 ${stops.dirs}）` +
+        `；提高它：--scan-max-dirs <N>（硬顶 ${SCAN_CEILINGS.maxDirs}）`,
+    );
+  }
+  if (stops.entries) {
+    parts.push(
+      `目录项上限 ${bounds.maxEntries} 用尽（已读 ${walk.entries} 条，停在 ${stops.entries}）` +
+        '；这通常意味着 target 下有超大目录，先确认那里该不该有这些文件',
+    );
+  }
+  if (stops.unreadable.count) {
+    parts.push(
+      `有 ${stops.unreadable.count} 处目录读不进去（例如 ` +
+        stops.unreadable.samples.map((s) => `${s.path}[${s.code}]`).join('、') +
+        '）；这是权限问题，提高扫描上限没有用，请修好权限或换一个 target',
+    );
+  }
+  return parts.join('；');
+}
+
+/**
+ * 给机器读的那一半（`violation.detail`）。
+ *
+ * 🔴 文案与 detail 必须来自**同一份**记账，不能各算各的 ——
+ * 两边分头拼字符串正是「报错说 A、JSON 说 B」的来源。
+ * detail 里带 `limits`，是因为默认值会随版本变：用户贴给我们一份 JSON 时，
+ * 我们要能看出他当时**实际**跑的是哪一组预算，而不是去猜他装的哪个版本。
+ */
+function scanDetail(bounds, walk) {
+  return {
+    limits: { ...bounds },
+    visited: walk.visited,
+    entries: walk.entries,
+    maxDepthSeen: walk.maxDepthSeen,
+    stops: walk.stops,
+  };
 }
 
 /** 「这里本来就没东西」而不是「有东西但我看不了」。两者的 fail-closed 处置相反。 */
@@ -306,35 +499,69 @@ function tryRealpath(p) {
  * 动作点仍然必须复验并 fail-closed（见文件顶部）。
  */
 export function scanStatePaths(stateDir, scanOpts = {}) {
-  const { maxDepth, maxDirs } = normalizeScan(scanOpts);
+  const bounds = normalizeScan(scanOpts);
+  const { maxDepth, maxDirs, maxEntries } = bounds;
+  // 🔴 提前返回的三条路径也要给出**同形状**的结果：调用方读 `stops` 前不该先判
+  // 「这次是不是走了短路分支」。少一个字段就多一处 `?.`，而 `?.` 正是把
+  // 「没扫完」悄悄读成「没问题」的那种写法。
+  const empty = (over) => ({
+    symlinks: [],
+    notPlain: [],
+    complete: true,
+    visited: 0,
+    entries: 0,
+    maxDepthSeen: 0,
+    stops: finalizeStops(newStops()),
+    ...over,
+  });
   const bad = [];
   let st;
   try {
     st = lstatSync(stateDir);
   } catch (err) {
-    if (isAbsent(err)) return { symlinks: [], notPlain: [], complete: true }; // 还不存在，后面才创建
-    return { symlinks: [], notPlain: [], complete: false }; // 🔴 看不了 ≠ 没问题
+    if (isAbsent(err)) return empty(); // 还不存在，后面才创建
+    // 🔴 看不了 ≠ 没问题。而且要说清是**哪一种**看不了 —— 这条以前只回一个
+    // `complete:false`，报错文案便只能泛泛地说「深度/目录数/读不进去」三选一。
+    const stops = newStops();
+    sample(stops.unreadable, { path: stateDir, code: err.code ?? 'EUNKNOWN' });
+    return empty({ complete: false, stops: finalizeStops(stops) });
   }
-  if (st.isSymbolicLink()) return { symlinks: [stateDir], notPlain: [], complete: true };
-  if (!st.isDirectory()) return { symlinks: [], notPlain: [stateDir], complete: true };
+  if (st.isSymbolicLink()) return empty({ symlinks: [stateDir] });
+  if (!st.isDirectory()) return empty({ notPlain: [stateDir] });
 
   const symlinks = [];
   let visited = 0;
+  let entries = 0;
+  let maxDepthSeen = 0;
   let complete = true;
+  const stops = newStops();
   const stack = [[stateDir, 0]];
   while (stack.length) {
     const [dir, depth] = stack.pop();
     if (visited >= maxDirs) {
       complete = false;
+      stops.dirs = dir;
       break;
     }
     visited += 1;
+    if (depth > maxDepthSeen) maxDepthSeen = depth;
     let ents;
     try {
       ents = readdirSync(dir, { withFileTypes: true });
     } catch (err) {
-      if (!isAbsent(err)) complete = false; // 🔴 看不了就不能宣称这下面没有 symlink
+      if (!isAbsent(err)) {
+        complete = false; // 🔴 看不了就不能宣称这下面没有 symlink
+        sample(stops.unreadable, { path: dir, code: err.code ?? 'EUNKNOWN' });
+      }
       continue;
+    }
+    // 🔴 同 walkBounded：检查必须紧跟 readdir，等下一轮循环顶部是 fail-open
+    //    （目录项撑爆预算、但没有子目录可推 → 栈跑空 → 宣称 complete:true）。
+    entries += ents.length;
+    if (entries > maxEntries) {
+      complete = false;
+      stops.entries = dir;
+      break;
     }
     for (const e of ents) {
       const p = join(dir, e.name);
@@ -344,13 +571,25 @@ export function scanStatePaths(stateDir, scanOpts = {}) {
       }
       if (e.isDirectory()) {
         if (depth < maxDepth) stack.push([p, depth + 1]);
-        else complete = false;
+        else {
+          complete = false;
+          sample(stops.depth, p);
+        }
         continue;
       }
       if (!e.isFile()) bad.push(p); // FIFO / socket / 设备节点
     }
   }
-  return { symlinks, notPlain: bad, complete };
+  assertAttributable(complete, stops, 'scanStatePaths');
+  return {
+    symlinks,
+    notPlain: bad,
+    complete,
+    visited,
+    entries,
+    maxDepthSeen,
+    stops: finalizeStops(stops),
+  };
 }
 
 // ── 挂载点（§3.4） ───────────────────────────────────────────────────────────
@@ -556,13 +795,15 @@ export function precheckTarget(targetPath, opts = {}) {
     add(
       V.STATE_SCAN_INCOMPLETE,
       stateDir,
-      `${stateDir} 没扫完（深度上限/目录数上限，或某个子目录读不进去），` +
-        '无法证明状态路径里没有符号链接',
+      `${stateDir} 没扫完，无法证明状态路径里没有符号链接 —— ` +
+        describeIncomplete(stateScan.stops, bounds, stateScan),
+      scanDetail(bounds, stateScan),
     );
   }
 
   // ── §3.5 嵌套 target
-  const { nested, complete } = findNestedTargets(targetPath, { targetSet, scan: bounds });
+  const nestedScan = findNestedTargets(targetPath, { targetSet, scan: bounds });
+  const { nested, complete } = nestedScan;
   for (const n of nested) {
     add(
       V.NESTED_TARGET,
@@ -577,8 +818,9 @@ export function precheckTarget(targetPath, opts = {}) {
     add(
       V.SCAN_INCOMPLETE,
       targetPath,
-      `嵌套 target 扫描未跑完（深度上限 ${bounds.maxDepth} / ` +
-        `目录数上限 ${bounds.maxDirs}），无法证明其下没有嵌套 target`,
+      `嵌套 target 扫描未跑完，无法证明 ${targetPath} 之下没有嵌套 target —— ` +
+        describeIncomplete(nestedScan.stops, bounds, nestedScan),
+      scanDetail(bounds, nestedScan),
     );
   }
 

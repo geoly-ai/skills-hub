@@ -295,3 +295,49 @@ test('🔴 CLI 自报版本必须等于 package.json —— 不许是硬编码�
   const ctx = makeContext(g.globals ?? g, { env: {}, home: '/tmp/x', cwd: '/tmp/x' });
   assert.equal(ctx.cliVersion, pkg.version, 'makeContext 没把真实版本号带进去');
 });
+
+// ── 扫描预算旋钮（04-install.md §3.5 的 fail-closed 不得被关掉）──────────────
+
+test('🔴 --skip-nested-scan 不存在，且拒绝文案要说清为什么 + 指向正确的旋钮', () => {
+  const e = grab(() => parseGlobals(['install', 'x', '--skip-nested-scan']));
+  assert.equal(e.exitCode, EXIT.USAGE);
+  assert.match(e.message, /假设没有嵌套/, '要说清关掉它等于把无法证明改写成假设');
+  assert.match(e.message, /--scan-max-depth/, '要指向真正能用的旋钮');
+  assert.match(e.message, /权限问题/, '要说清抬预算对 EACCES 没用');
+});
+
+test('--scan-max-depth / --scan-max-dirs 解析成 ctx.scan，没给就是 undefined', () => {
+  const g = parseGlobals(['install', 'x', '--scan-max-depth', '200', '--scan-max-dirs=9000']).globals;
+  assert.equal(g.scanMaxDepth, 200);
+  assert.equal(g.scanMaxDirs, 9000);
+  const ctx = makeContext(g, { env: {}, home: '/tmp/x', cwd: '/tmp/x' });
+  assert.deepEqual({ ...ctx.scan }, { maxDepth: 200, maxDirs: 9000 });
+
+  // 🔴 没给旋钮时必须是 undefined，**不能**在这里填默认值：
+  //    填了默认值就有了两个出处（context 一份、target.mjs 一份），
+  //    而这正好是用户照着报错去调的那个数。
+  const bare = makeContext(parseGlobals(['install', 'x']).globals,
+    { env: {}, home: '/tmp/x', cwd: '/tmp/x' });
+  assert.deepEqual({ ...bare.scan }, { maxDepth: undefined, maxDirs: undefined });
+});
+
+test('🔴 硬顶在**解析期**就拒，不能等到预检里才抛（那时已经建目录、取过锁了）', () => {
+  // 预检里抛的是普通 Error → classify 判 unclassified → 退出码 2「完整性失败」，
+  // 把「参数超上限」说成「制品坏了」；而且 install 那时已经有磁盘副作用。
+  for (const [flag, over] of [['--scan-max-depth', 1025], ['--scan-max-dirs', 5000001]]) {
+    const e = grab(() => parseGlobals(['install', 'x', `${flag}=${over}`]));
+    assert.equal(e.exitCode, EXIT.USAGE, `${flag} 该在解析期报用法错误`);
+    assert.match(e.message, /超过硬顶/);
+  }
+  // 硬顶本身是合法值
+  assert.equal(parseGlobals(['install', 'x', '--scan-max-depth=1024']).globals.scanMaxDepth, 1024);
+  assert.equal(parseGlobals(['install', 'x', '--scan-max-dirs=5000000']).globals.scanMaxDirs, 5000000);
+});
+
+test('🔴 扫描预算旋钮走同一套整数校验（不许浮点/负数/前导零）', () => {
+  // 🔴 `-1` 只能走 `=` 形式：分开写时 `-1` 会被当成下一个 flag，报的是另一种错。
+  for (const bad of ['-1', '1.5', '01', 'abc', '1e3']) {
+    assert.throws(() => parseGlobals(['install', 'x', `--scan-max-dirs=${bad}`]), /非负整数/, bad);
+    assert.throws(() => parseGlobals(['install', 'x', `--scan-max-depth=${bad}`]), /非负整数/, bad);
+  }
+});

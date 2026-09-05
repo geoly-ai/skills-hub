@@ -16,6 +16,7 @@ import { homedir, platform } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { UsageError, UnsupportedError } from '../exit-codes.mjs';
+import { SCAN_CEILINGS } from '../target.mjs';
 
 /** §2 那张表。`arg: true` = 后面跟一个值。 */
 const GLOBAL_FLAGS = Object.freeze({
@@ -31,6 +32,8 @@ const GLOBAL_FLAGS = Object.freeze({
   '--no-bundled': { arg: false },
   '--freeze-attic': { arg: true },
   '--keep-generations': { arg: true },
+  '--scan-max-depth': { arg: true },
+  '--scan-max-dirs': { arg: true },
   '--json': { arg: false },
   '--yes': { arg: false },
   '--yes-i-really-want-everything': { arg: false },
@@ -51,6 +54,12 @@ const REMOVED_FLAGS = Object.freeze({
   '--clear-lock': '同 --force-unlock：协议里没有任何 unlink，也就没有可清的东西（§5.1）。',
   '--assume-idle':
     '本工具**不检测也不阻断**正在运行的 agent（D5，04-install.md §9），所以没有可假设的东西。',
+  '--skip-nested-scan':
+    '嵌套 target 扫描**不能关闭**（04-install.md §3.5）。关掉它是把「无法证明没有嵌套」'
+    + '改写成「假设没有嵌套」，而外层替换会连内层的 .geoly/ 一起搬走、两把锁互不相识。\n'
+    + '扫描超预算时报错里会点名撞的是哪个上限：深度/目录数用 `--scan-max-depth <N>` / '
+    + '`--scan-max-dirs <N>` 抬高（仍然是真扫描、仍然 fail-closed）；'
+    + '说「读不进去」的那种是权限问题，抬预算没有用。',
   '--allow-pending':
     'Q12 是阻塞门，不是建议。要开某一格就补那一格的实测证据（docs/m1/01-residual-risks.md R-4）。',
 });
@@ -152,12 +161,40 @@ function applyGlobal(g, name, val) {
     case '--no-bundled': g.noBundled = true; break;
     case '--freeze-attic': g.freezeAttic = val; break;
     case '--keep-generations': g.keepGenerations = uintArg(name, val); break;
+    // 🔴 预检的**预算旋钮**，不是关闭开关。抬高它仍然是一次真扫描、仍然 fail-closed；
+    //    抬到硬顶还不够就照旧拒绝。故意**不提供** `--skip-nested-scan`：
+    //    那会把「无法证明没有嵌套」改成「假设没有嵌套」，正是 §3.5 要防的事
+    //    （同 REMOVED_FLAGS 里 --force / --no-verify 的理由）。
+    //    上界由 target.mjs 的 SCAN_CEILINGS 兜底，超了报错而不是静默截断。
+    //    🔴 硬顶要在**解析期**就拒，不能等到预检里才抛：那时 install 已经
+    //    建过 target/.geoly、取过锁，而 target.mjs 抛的是普通 Error ——
+    //    会被 classify 判成 unclassified（退出码 2「完整性失败」），
+    //    把一个「参数超上限」说成「制品坏了」。解析期拒 = 零磁盘副作用 + 退出码 1。
+    //    （target.mjs 里那道保留为纵深防御：库调用方不经过本文件。）
+    case '--scan-max-depth': g.scanMaxDepth = scanArg(name, val, 'maxDepth'); break;
+    case '--scan-max-dirs': g.scanMaxDirs = scanArg(name, val, 'maxDirs'); break;
     case '--json': g.json = true; break;
     case '--yes': g.yes = true; break;
     case '--yes-i-really-want-everything': g.yesEverything = true; break;
     case '--pre': g.pre = true; break;
     default: throw new UsageError(`未处理的全局 flag ${name}`);
   }
+}
+
+/**
+ * 扫描预算旋钮：非负整数 **且** 不超过 `target.mjs` 的硬顶。
+ * 🔴 硬顶的**唯一出处**是 `SCAN_CEILINGS` —— 这里不复制一份数字，
+ *    复制的那份迟早会跟本体漂。
+ */
+function scanArg(name, val, key) {
+  const n = uintArg(name, val);
+  if (n > SCAN_CEILINGS[key]) {
+    throw new UsageError(
+      `${name} 超过硬顶 ${SCAN_CEILINGS[key]}（收到 ${n}）。`
+      + '预算旋钮不是关闭开关：无上限的遍历等于没有资源闸（04-install.md §3.5.1）。',
+    );
+  }
+  return n;
 }
 
 /** 11-wire-contract.md §2：数字只允许非负整数，不允许前导零、浮点、指数、`-0`。 */
@@ -263,6 +300,14 @@ export function makeContext(globals, deps = {}) {
      *    照样可读，但那不是「用户正坐在终端前逐条看名单」。
      */
     stdin: deps.stdin ?? process.stdin,
+    /**
+     * 预检的扫描预算，直接喂给 `precheckTarget({ scan })`。
+     * 🔴 没给旋钮时这两项是 `undefined` —— `normalizeScan` 把 `undefined` 读成
+     *    「用默认值」。**不要**在这里填上默认值：填了以后默认值就有了两个出处
+     *    （这里一份、target.mjs 一份），改一处漏一处的那种漂移正好发生在
+     *    「上限是多少」这个用户会照着报错去调的数上。
+     */
+    scan: Object.freeze({ maxDepth: globals.scanMaxDepth, maxDirs: globals.scanMaxDirs }),
   });
   return ctx;
 }

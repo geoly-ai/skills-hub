@@ -46,9 +46,16 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
   --no-bundled / --pre / --json / --yes
   --yes-i-really-want-everything  仅 --all 在非交互下使用（--yes 不够）
   --keep-generations <N>      attic 保留代数，默认 3
+  --scan-max-depth <N>        嵌套 target 预检的扫描深度预算，默认 64（硬顶 1024）
+  --scan-max-dirs <N>         同上，目录数预算，默认 100000（硬顶 5000000）
+     报 target.nested-scan-incomplete 时，错误里会点名撞的是**哪一个**上限；
+     只有那一条说「深度上限到顶」/「目录数上限用尽」时抬这里才有用。
+     说「读不进去」的那种是权限问题，抬预算没有用。
 
-🔴 没有 --no-verify、--insecure、--force、--force-unlock、--assume-idle。
-   验签与摘要校验不可关闭；替换必须点名；陈旧/yank/全量各有独立开关。
+🔴 没有 --no-verify、--insecure、--force、--force-unlock、--assume-idle、
+   --skip-nested-scan。验签与摘要校验不可关闭；替换必须点名；
+   陈旧/yank/全量各有独立开关；扫描预算只能**抬高**，不能关掉 ——
+   关掉它就是把「无法证明没有嵌套 target」改写成「假设没有」（04-install.md §3.5）。
 
 埋点（docs/telemetry/00-spec.md）：
   🔴 上报**默认开**（有内置默认端点）。**install 成功收尾后**会静默发一次

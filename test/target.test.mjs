@@ -143,9 +143,17 @@ test('🔴 .geoly 本身是 symlink 也要抓（否则整套状态被重定向�
 
 test('scanStatePaths：.geoly 不存在时不报任何东西', () => {
   const { target } = fresh();
-  assert.deepEqual(scanStatePaths(join(target, '.geoly')), {
+  const r = scanStatePaths(join(target, '.geoly'));
+  assert.deepEqual({ symlinks: r.symlinks, notPlain: r.notPlain, complete: r.complete }, {
     symlinks: [], notPlain: [], complete: true,
   });
+  // 🔴 短路分支也要给出**同形状**的结果：调用方读 `stops` 前不该先判走了哪个分支。
+  // 少一个字段就多一处 `?.`，而 `?.` 正是把「没扫完」读成「没问题」的那种写法。
+  assert.deepEqual(r.stops, {
+    depth: { count: 0, samples: [] }, unreadable: { count: 0, samples: [] },
+    dirs: null, entries: null,
+  });
+  assert.equal(r.visited, 0);
 });
 
 // ── §3.4 挂载点 ──────────────────────────────────────────────────────────────
@@ -700,4 +708,211 @@ test('gitignoreHint 带上 git clean -xfd 的后果', () => {
   assert.match(h.warning, /审计历史/);
   assert.ok(renderGitignoreBlock(['claude']).includes('/.claude/skills/.geoly/'));
   assert.ok(!renderGitignoreBlock(['claude']).split('\n').includes('/.geoly/'));
+});
+
+// ── 扫描预算：撞的是**哪个**上限（回归 —— 深度 8 把真实机器全挡在门外）──────
+
+/**
+ * 造一棵指定深度的链：`root/d1/d2/…/dN`，并在中途挂几个旁支撑目录数。
+ * 返回最深的那条路径。
+ */
+function chain(root, depth, fanout = 0) {
+  let cur = root;
+  for (let i = 1; i <= depth; i += 1) {
+    cur = join(cur, `d${i}`);
+    mkdirSync(cur, { recursive: true });
+    for (let f = 0; f < fanout; f += 1) mkdirSync(join(cur, `f${f}`), { recursive: true });
+  }
+  return cur;
+}
+
+test('🔴 真实规模回归：657 目录 / 深度 12 的 skills 树，默认预算下必须扫得完', () => {
+  // 现场形状：一个 skill 里 vendored 了一个仓库 → 深度 12。
+  // 旧默认 maxDepth:8 会让**每一次** install 都报 nested-scan-incomplete 而退出。
+  const { base, target } = fresh();
+  chain(join(target, 'reddit-voc-volume'), 11); // target 之下 12 层
+  for (let i = 0; i < 60; i += 1) chain(join(target, `skill-${i}`), 3, 2); // 凑到几百个目录
+
+  const r = precheckTarget(target, { base, targetSet: [target] });
+  assert.ok(!codes(r).includes(V.SCAN_INCOMPLETE),
+    `默认预算下不该报扫不完：${JSON.stringify(r.violations, null, 2)}`);
+  assert.equal(r.ok, true, JSON.stringify(codes(r)));
+
+  // 🔴 变异自检：把深度预算调回旧值 8，同一棵树必须变红 ——
+  //    否则这条测试根本没碰到那道闸。
+  const old = precheckTarget(target, { base, targetSet: [target], scan: { maxDepth: 8 } });
+  assert.ok(codes(old).includes(V.SCAN_INCOMPLETE), '深度 8 下这棵树本该扫不完');
+});
+
+test('🔴 报错必须点名撞的是哪个上限、实际值多少、能做什么', () => {
+  const { base, target } = fresh();
+  chain(target, 6);
+
+  // ① 深度到顶
+  const rd = precheckTarget(target, { base, scan: { maxDepth: 2 } });
+  const vd = rd.violations.find((v) => v.code === V.SCAN_INCOMPLETE);
+  assert.ok(vd, JSON.stringify(codes(rd)));
+  assert.match(vd.message, /深度上限 2 到顶/);
+  assert.match(vd.message, /--scan-max-depth/);
+  assert.ok(!/目录数上限/.test(vd.message), `不该把没撞的上限也念一遍：${vd.message}`);
+  assert.equal(vd.detail.limits.maxDepth, 2);
+  assert.equal(vd.detail.stops.dirs, null);
+  assert.ok(vd.detail.stops.depth.count >= 1);
+  assert.ok(vd.detail.stops.depth.samples.length >= 1);
+  assert.equal(vd.detail.maxDepthSeen, 2);
+
+  // ② 目录数用尽
+  const rn = precheckTarget(target, { base, scan: { maxDirs: 2 } });
+  const vn = rn.violations.find((v) => v.code === V.SCAN_INCOMPLETE);
+  assert.match(vn.message, /目录数上限 2 用尽/);
+  assert.match(vn.message, /--scan-max-dirs/);
+  assert.ok(!/深度上限/.test(vn.message), `不该把没撞的上限也念一遍：${vn.message}`);
+  assert.equal(vn.detail.stops.dirs !== null, true);
+  assert.equal(vn.detail.stops.depth.count, 0);
+  assert.equal(vn.detail.visited, 2);
+
+  // ③ 目录项用尽 —— 一个目录**下**几百万条只算 1 个 visited，maxDirs 拦不住
+  const re = precheckTarget(target, { base, scan: { maxEntries: 1 } });
+  const ve = re.violations.find((v) => v.code === V.SCAN_INCOMPLETE);
+  assert.match(ve.message, /目录项上限 1 用尽/);
+  assert.equal(ve.detail.stops.entries !== null, true);
+});
+
+test('🔴 「读不进去」不能被说成「深度不够」—— 用户的下一步完全不同', () => {
+  if (process.getuid?.() === 0) return; // root 读得进去，这条造不出来
+  const { base, target } = fresh();
+  const locked = join(target, 'locked');
+  mkdirSync(join(locked, 'inner'), { recursive: true });
+  chmodSync(locked, 0o000);
+  try {
+    const r = precheckTarget(target, { base });
+    const v = r.violations.find((x) => x.code === V.SCAN_INCOMPLETE);
+    assert.ok(v, JSON.stringify(codes(r)));
+    assert.match(v.message, /读不进去/);
+    assert.match(v.message, /权限问题，提高扫描上限没有用/);
+    assert.equal(v.detail.stops.unreadable.count, 1);
+    assert.equal(v.detail.stops.unreadable.samples[0].path, locked);
+    assert.ok(/^E/.test(v.detail.stops.unreadable.samples[0].code));
+    // 🔴 权限问题不该借「深度」的名义报出来
+    assert.equal(v.detail.stops.depth.count, 0);
+  } finally {
+    chmodSync(locked, 0o755);
+  }
+});
+
+test('🔴 深度到顶那一层「读不了」也算读不了，不算「下面还有目录」', () => {
+  if (process.getuid?.() === 0) return;
+  const { base, target } = fresh();
+  const leaf = join(target, 'a', 'b');
+  mkdirSync(leaf, { recursive: true });
+  chmodSync(leaf, 0o000);
+  try {
+    // maxDepth:2 → b 正好在到顶那一层，hasSubdir(b) 会吃 EACCES
+    const r = precheckTarget(target, { base, scan: { maxDepth: 2 } });
+    const v = r.violations.find((x) => x.code === V.SCAN_INCOMPLETE);
+    assert.ok(v, JSON.stringify(codes(r)));
+    assert.equal(v.detail.stops.unreadable.count, 1, JSON.stringify(v.detail.stops));
+    assert.match(v.message, /权限问题/);
+    // 🔴 **互斥归因**：读不了的时候我们并没有确认下面有目录，不能同时记进 depth。
+    //    两边都记会让文案既劝你提高深度、又劝你修权限 —— 其中一半是编的。
+    assert.equal(v.detail.stops.depth.count, 0, JSON.stringify(v.detail.stops));
+    assert.ok(!/深度上限/.test(v.message), `不该同时劝人提高深度：${v.message}`);
+  } finally {
+    chmodSync(leaf, 0o755);
+  }
+});
+
+test('🔴 目录项预算 fail-open 回归：条目撑爆预算但没有子目录可推，不许宣称扫完了', () => {
+  // 回归（Codex 实测）：预算检查原本在**下一轮循环顶部**，于是
+  // 「924 个条目、一个子目录都没有」的目录会把预算撑爆之后直接把栈跑空 ——
+  // 返回 complete:true，预算超了却宣称扫完了。
+  const { target } = fresh();
+  for (let i = 0; i < 30; i += 1) writeFileSync(join(target, `f${i}`), 'x');
+  const r = findNestedTargets(target, { scan: { maxEntries: 1 } });
+  assert.equal(r.complete, false, `条目数 ${r.entries} 超了 maxEntries:1 却报扫完了`);
+  assert.equal(r.stops.entries, target, 'stop 要记在真正超预算的那个目录上');
+  assert.ok(r.entries > 1);
+
+  // 同一条也要覆盖 .geoly 内部的状态扫描
+  const s = makeState(target);
+  for (let i = 0; i < 30; i += 1) writeFileSync(join(s, `g${i}`), 'x');
+  const rs = scanStatePaths(s, { maxEntries: 1 });
+  assert.equal(rs.complete, false);
+  assert.equal(rs.stops.entries, s);
+});
+
+test('🔴 样例路径确定性：同一棵树两次扫描给出同一份样例', () => {
+  const { base, target } = fresh();
+  for (let i = 0; i < 12; i += 1) chain(join(target, `s${i}`), 4);
+  const one = precheckTarget(target, { base, scan: { maxDepth: 2 } })
+    .violations.find((v) => v.code === V.SCAN_INCOMPLETE).detail.stops;
+  const two = precheckTarget(target, { base, scan: { maxDepth: 2 } })
+    .violations.find((v) => v.code === V.SCAN_INCOMPLETE).detail.stops;
+  assert.deepEqual(one, two);
+  // 样例是**指路**，不是清单：留 5 条，但总数照记
+  assert.equal(one.depth.samples.length, 5);
+  assert.ok(one.depth.count > 5, `总数应大于样例数，得到 ${one.depth.count}`);
+  // 🔴 「两次一样」抓不住排序 —— 同一进程里 readdir 顺序本来就稳定，
+  //    不排序也会两次一样。真正的判据是**样例已排序**：遍历用的是 LIFO 栈，
+  //    不排序时拿到的是 readdir 尾部的逆序，跨 Node 版本／文件系统就会漂。
+  assert.deepEqual(one.depth.samples, [...one.depth.samples].sort(),
+    `样例必须排序，否则同一棵树在别的机器上给出别的 5 条：${JSON.stringify(one.depth.samples)}`);
+});
+
+test('🔴 预算旋钮有硬顶：抬到无限等于把资源闸删掉', () => {
+  const { base, target } = fresh();
+  for (const [k, v] of [['maxDepth', 1025], ['maxDirs', 5_000_001], ['maxEntries', 50_000_001]]) {
+    assert.throws(
+      () => precheckTarget(target, { base, scan: { [k]: v } }),
+      /超过硬顶/,
+      `${k}=${v} 该被硬顶挡住`,
+    );
+  }
+  assert.equal(precheckTarget(target, { base, scan: { maxDepth: 1024 } }).ok, true, '硬顶本身是合法值');
+});
+
+test('🔴 .geoly 不吃深度预算（事务目录不该把 target 顶出上限）', () => {
+  const { base, target } = fresh();
+  // .geoly/tx-1/stage/1/a/…/h —— 12 层，且是有效状态目录
+  chain(join(target, '.geoly', 'tx-1', 'stage', '1'), 8);
+  writeFileSync(join(target, '.geoly', 'ledger.json'), '{}');
+
+  const r = findNestedTargets(target, { targetSet: [], scan: { maxDepth: 2, maxDirs: 5000 } });
+  assert.equal(r.complete, true, `.geoly 之下不该被 walkBounded 走进去：${JSON.stringify(r.stops)}`);
+  assert.equal(r.visited, 1);
+  assert.deepEqual(r.nested, []);
+  // 🔴 变异自检的反面：同样深的**非** .geoly 目录必须撞上限
+  const { target: t2 } = fresh();
+  chain(join(t2, 'notgeoly', 'tx-1', 'stage', '1'), 8);
+  assert.equal(findNestedTargets(t2, { scan: { maxDepth: 2, maxDirs: 5000 } }).complete, false);
+});
+
+test('🔴 .geoly 内部的深树走的是 state 扫描，同样要能扫完并报清原因', () => {
+  const { base, target } = fresh();
+  // staged 的 skill 自己很深：.geoly/tx-1/stage/1/<skill>/… 12 层
+  chain(join(target, '.geoly', 'tx-1', 'stage', '1'), 8);
+  writeFileSync(join(target, '.geoly', 'ledger.json'), '{}');
+
+  assert.ok(!codes(precheckTarget(target, { base })).includes(V.STATE_SCAN_INCOMPLETE),
+    '默认预算下 .geoly 内部该扫得完');
+
+  const old = precheckTarget(target, { base, scan: { maxDepth: 8 } });
+  const v = old.violations.find((x) => x.code === V.STATE_SCAN_INCOMPLETE);
+  assert.ok(v, `深度 8 下 .geoly 内部本该扫不完：${JSON.stringify(codes(old))}`);
+  assert.match(v.message, /深度上限 8 到顶/);
+  assert.ok(v.detail.stops.depth.count >= 1);
+});
+
+test('🔴 complete:false 必须可归因 —— 说不出原因的拒绝没法修也没法审计', () => {
+  const { base, target } = fresh();
+  chain(target, 4);
+  for (const scan of [{ maxDepth: 1 }, { maxDirs: 1 }, { maxEntries: 1 }]) {
+    const r = precheckTarget(target, { base, scan });
+    const v = r.violations.find((x) => x.code === V.SCAN_INCOMPLETE);
+    assert.ok(v, `${JSON.stringify(scan)} 该报扫不完`);
+    const s = v.detail.stops;
+    assert.ok(s.depth.count || s.unreadable.count || s.dirs || s.entries,
+      `原因栏全空：${JSON.stringify(s)}`);
+    assert.notEqual(v.message.trim(), '', '文案不能是空的');
+  }
 });
