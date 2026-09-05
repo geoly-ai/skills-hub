@@ -29,6 +29,12 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
                                      把 pack 与全部成员物化成一棵目录树（不走安装账本）
   update [<spec>…] | --all           重解析账本里的 root：展示 diff、确认后在一个事务里应用
   remove <name>                      减引用；🔴 **引用归零才删目录**（why <name> 看谁在要它）
+  publish [path] [--dry-run]         投稿：本地过一遍服务端那批门 → 建 fork → 开 PR
+                                     🔴 用你**已有**的 GitHub token（GEOLY_GITHUB_TOKEN /
+                                     GH_TOKEN / GITHUB_TOKEN / \`gh auth token\`），CLI
+                                     **不持有、不存储**它，也没有 login / logout。
+                                     动手前会把 token 的权限面摆给你看并要求确认 ——
+                                     \`--yes\` 只表示**确认了那个风险**，不跳过任何校验。
 
   stats [--json] [--export <file>]   本地埋点报表
   telemetry <status|flush>           埋点/上报开关与队列
@@ -83,6 +89,7 @@ const COMMANDS = {
   remove: () => import('./commands/remove.mjs').then((m) => m.cmdRemove),
   update: () => import('./commands/update.mjs').then((m) => m.cmdUpdate),
   vendor: () => import('./commands/vendor.mjs').then((m) => m.cmdVendor),
+  publish: () => import('./commands/publish.mjs').then((m) => m.cmdPublish),
 };
 
 /**

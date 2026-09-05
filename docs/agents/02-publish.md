@@ -79,10 +79,16 @@ fail-closed、不静默改写）。那时顺序仍是「先开 PR → 拿号 →
 只有你知道，promote 无从得知 —— 缺省只会填 `original`。
 把一次搬运记成原创，是出处记录里最不该错的一格。
 
-⚠️ **skill 不能靠「不写，让 promote 填」绕过这一圈** —— `build-inputs.mjs` 在
-provenance 缺失时直接报「skill.json 必填它」。省掉回填只对 **pack** 与
-**`PROMOTION.json`** 成立（那两处刻意**拒绝**投稿者声明 PR 事实）。
-📌 同一件事在 skill 与 pack 上是**相反**的规则，这是本仓库最容易记反的一处。
+✅ **skill 也可以靠「不写，让 promote 填」省掉这一圈**（2026-09-05 起，commit `8b9741c`）。
+`build-inputs.mjs` 在 skill 的 provenance 缺失时会自己填
+`{kind:'original', author_github_id: <PR 作者>, submitted_by_pr: <PR 号>}` 并打一行提示。
+
+📌 **本段此前写的是相反的话**（「skill 不能靠不写绕过、缺了直接报必填」）——
+那是 `8b9741c` 之前的规则，2026-09-05 已作废。留这条记录是因为
+`skills-hub publish` 会直接引用本节，而一份说反了的操作手册比没有手册更坏。
+
+⚠️ 仍然**相反**的只剩一格：**pack** 的 provenance 缺了会被拒
+（`pack.json` 的键集里没有这个字段，只能由 `PROMOTION.json` 的 `--provenance-of` 给）。
 
 ### `PROMOTION.json`（首次注册 namespace **或任何 pack**）
 
@@ -245,8 +251,16 @@ node -e '
 **一律由 promote 填** —— 投稿者写了会被**直接拒**（不是忽略）：
 写它们等于自称是谁。
 
-⚠️ 这与 `skill.json` 的规则**正好相反**（skill 必须自己写 `submitted_by_pr`
-并在开 PR 后回填）。**同一个仓库里两套相反的规则，这是最容易记反的一处。**
+✅ **这与 `skill.json` 现在是同一条规则了**（2026-09-05 起，commit `8b9741c`）：
+skill 的 `provenance` 也是**可选**的，缺省同样由 promote 按 PR 事实填。
+两边都不必开 PR 拿号再回填。
+
+⚠️ 仍然不同的只有一格：**pack 缺了 provenance 会被拒**（`pack.json` 的键集里
+没有这个字段，只能由这份 `PROMOTION.json` 给），而 skill 缺了会被自动补上。
+
+📌 本段此前写的是「skill 必须自己写 `submitted_by_pr` 并在开 PR 后回填」——
+那是 `8b9741c` 之前的规则，已作废。`skills-hub publish` 会引用本文件，
+一份说反了的操作手册比没有手册更坏。
 
 ### 发之前自己验一遍（结构门只查形状）
 

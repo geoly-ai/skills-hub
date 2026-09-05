@@ -223,10 +223,11 @@ export function assertProvenanceMatchesPr({ provenance, review, where }) {
         + `但这张 PR 的事实是 ${JSON.stringify(want)}。\n`
         + '  🔴 provenance 里的「PR 事实」不能由投稿者说了算 —— 它是整条信任链\n'
         + '     要建立的那件事本身。\n'
-        + '  ✅ 正路：先开 PR 拿到号 → 写进 skill.json → 强推同一分支。\n'
-        + '  ⚠️ **不要「删掉让 promote 填」** —— skill 的 provenance 是必填的\n'
-        + '     （本文件下方：缺了直接报「skill.json 必填它」）。\n'
-        + '     那条建议只对 pack / PROMOTION.json 成立，对 skill 会换来另一个错误。\n'
+        + '  ✅ 最省事的正路：**把 provenance 整个删掉**。2026-09-05 起它对 skill 是\n'
+        + '     **可选**的（本文件下方：缺省时由 promote 按 PR 事实自己填），\n'
+        + '     于是「先开 PR 拿号 → 回填 → 强推」那一圈完全不必走。\n'
+        + '  ⚠️ 例外：`vendored` 必须自己声明 —— 「这是搬来的、上游在哪、license 凭什么」\n'
+        + '     只有你知道，promote 缺省只会填 `original`。\n'
         + '  ⚠️ 这里刻意不静默改写：写错了和试图伪造，都需要有人看见。');
     }
   };

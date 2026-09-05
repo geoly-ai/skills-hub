@@ -24,8 +24,8 @@
 | `vendor <pack-spec> --out <dir> [--layout flat]` | 物化 pack 成员为目录树 | M2 |
 | `update [<spec>] \| --all` | 受控地改 lockfile 并应用 | M4 |
 | `remove <name>` | 减引用；为空才删目录 | M4 |
-| `login` / `logout` | GitHub device flow | M3 |
-| `publish [path] [--pack]` | 投稿 | M3 |
+| ~~`login` / `logout`~~ | ~~GitHub device flow~~ —— 🔴 **不做**（2026-09-05 用户拍板，见 [`10-open-questions.md`](10-open-questions.md) Q4）：不注册 OAuth/GitHub App，`publish` 直接用用户已有的 token，CLI 不持有它，因此没有可登录/可注销的东西 | ~~M3~~ 取消 |
+| `publish [path] [--pack] [--dry-run]` | 投稿：本地跑一遍**服务端那批**结构门 → 披露 token 权限面并要求确认 → 建 fork → blob/tree/commit/ref → 开 PR。`--pack` 是**断言**（期望载荷是 pack，不符即失败），不是提示；`--dry-run` 只读、一个写请求都不发 | ✅ 已交付 |
 | `status [<submission>]` | 查投稿状态 | M3 |
 
 ### 1.1 `recover` 的子 flag

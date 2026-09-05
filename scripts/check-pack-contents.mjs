@@ -9,12 +9,38 @@
 //    （同 ERRATA E-6 的教训：工具列出来的内容不等于文件里的字节。）
 import { spawnSync } from 'node:child_process';
 
+/**
+ * `scripts/` 下**唯一**允许进包的那几个 —— 精确文件名，不是前缀。
+ *
+ * 🔴 为什么必须让它们进包：`skills-hub publish` 的本地预检跑的是**服务端 PR gate
+ *    跑的同一批校验器**（`validate-pr.yml` 从 base 那棵树调 `run-gates.mjs` /
+ *    `scan-text.mjs`）。为 CLI 另写一套路径 / mode / 字符 / manifest 的校验，
+ *    结局只有两个：「本地绿、CI 红」，或者两套规则各自演化然后分叉 ——
+ *    而分叉点正好是绕过点（R-11 反复出现的形状）。
+ *
+ * 🔴 为什么是**精确文件白名单**而不是把 `scripts/submission/` 整个放开：
+ *    同目录下的 `tier-gate.mjs` / `approval-policy.mjs` 依赖 `scripts/promote/*`，
+ *    整目录放行会把一个 **import 就抛** 的模块塞进用户的包里。
+ *    它们也确实不该分发 —— 审批策略是仓库侧的事，不是 CLI 的事。
+ *
+ * ⚠️ 这几个同时进 `REQUIRED`：漏掉任何一个，`publish` 在用户机器上会
+ *    `ERR_MODULE_NOT_FOUND`，而那是**装完之后才会发现**的失效。
+ */
+const SCRIPTS_ALLOWED = [
+  'scripts/submission/structural-gates.mjs',
+  'scripts/submission/run-gates.mjs',
+  'scripts/submission/promotion-file.mjs',
+  'scripts/submission/scan-text.mjs',
+];
+
 /** 必须在包里的路径（精确匹配）。 */
 const REQUIRED = [
   'package.json',
   'bin/skills-hub.mjs',
   'src/sigstore.mjs',
   'src/trust-roots/sigstore-public-good.json',
+  'src/commands/publish.mjs',
+  ...SCRIPTS_ALLOWED,
 ];
 
 /** 必须**不**在包里的路径前缀 —— 测试与规格文档不该分发给用户。 */
@@ -51,7 +77,11 @@ for (const need of REQUIRED) {
 }
 for (const f of files) {
   for (const p of FORBIDDEN_PREFIXES) {
-    if (f.startsWith(p)) errors.push(`不该进包的路径：${f}（前缀 ${p}）`);
+    // 🔴 `scripts/` 仍然整体禁止 —— 只有 SCRIPTS_ALLOWED 里**逐个点名**的那几个例外。
+    //    白名单写成精确文件名（不是前缀）：多混进任何一个 scripts/ 文件都会在这里红。
+    if (f.startsWith(p) && !SCRIPTS_ALLOWED.includes(f)) {
+      errors.push(`不该进包的路径：${f}（前缀 ${p}）`);
+    }
   }
   if (FORBIDDEN_EXACT.includes(f)) errors.push(`不该进包的文件：${f}`);
 }

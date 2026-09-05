@@ -24,7 +24,11 @@
   },
   "files": [
     "bin",
-    "src"
+    "src",
+    "scripts/submission/structural-gates.mjs",
+    "scripts/submission/run-gates.mjs",
+    "scripts/submission/promotion-file.mjs",
+    "scripts/submission/scan-text.mjs"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
