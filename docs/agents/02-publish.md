@@ -70,7 +70,14 @@ provenance 缺失时直接报「skill.json 必填它」。省掉回填只对 **p
 **`PROMOTION.json`** 成立（那两处刻意**拒绝**投稿者声明 PR 事实）。
 📌 同一件事在 skill 与 pack 上是**相反**的规则，这是本仓库最容易记反的一处。
 
-### `PROMOTION.json`（首次注册 namespace 才需要）
+### `PROMOTION.json`（首次注册 namespace **或任何 pack**）
+
+🔴 **每一个 pack 都要它，不只是首次注册 namespace。**
+`pack.json` 的键集里**没有** `provenance`（03-packs §2），所以 pack 的出处
+只能由投稿声明 —— 缺了会被结构门当场拒：
+「pack 必须有 PROMOTION.json」。
+⚠️ 本节标题此前写的是「首次注册 namespace 才需要」，**对 pack 是错的**
+（2026-09-04 发 `pack:plaud-theme/plaud-theme-matrix` 时被门拒了才发现）。
 
 ```json
 {
@@ -182,7 +189,61 @@ namespace 进 artifact id，**发布之后改不了**（换 owner 要走 §7 转
 pack 把多个 skill 绑成一个可整体安装的单元。
 
 🔴 **pack 只能等成员先发出去之后再发**：`pack.json` 的 `members` 要填每个成员的
-`tree_digest`，而摘要由发布器计算、投稿者写的一律不读。所以是两阶段。
+`tree_digest`，而摘要由发布器计算、投稿者写的一律不读。所以是两阶段 ——
+成员和 pack **不能同一批投**。
+
+### 投稿目录
+
+```
+submissions/<ns>/<pack-name>@<version>/
+├── pack.json         必需
+└── PROMOTION.json    🔴 **必需**（不是「首次注册才要」，见上）
+```
+
+### `pack.json`
+
+键集是**封闭**的（多一个少一个都拒）：`schema` `kind` `namespace` `name`
+`version` `description` `license` `members` `bundled` `conflicts`
+`contract_paths` `compatibility`。
+
+· `members[]` 只允许 `role: "matrix"`；`bundled[]` 只允许 `role: "tool"`
+· 每个成员要 `id` / `tree_digest` / `role`（`order` 可选）
+· `tree_digest` 从**已发布快照**里取那条记录的真值，不要自己算
+
+```sh
+# 从当前快照取成员摘要（照抄，别手敲）
+node -e '
+  const s=require("./registry/snapshots/hub-<N>.json");
+  const r=s.artifacts.find(a=>a.id==="skill:<ns>/<name>@<ver>");
+  console.log(r.tree_digest);'
+```
+
+### 这个 `PROMOTION.json` 该写什么
+
+```json
+{
+  "provenance": { "kind": "original" },
+  "schema": "geoly.skills.promotion-file/1"
+}
+```
+
+🔴 **就这么点。** `owner.id` / `author_github_id` / `submitted_by_pr`
+**一律由 promote 填** —— 投稿者写了会被**直接拒**（不是忽略）：
+写它们等于自称是谁。
+
+⚠️ 这与 `skill.json` 的规则**正好相反**（skill 必须自己写 `submitted_by_pr`
+并在开 PR 后回填）。**同一个仓库里两套相反的规则，这是最容易记反的一处。**
+
+### 发之前自己验一遍（结构门只查形状）
+
+```sh
+node --no-warnings scripts/submission/run-gates.mjs      # 结构门
+node -e '
+  const {validatePackManifest}=await import("./src/pack.mjs");
+  validatePackManifest(require("./submissions/<ns>/<name>@<ver>/pack.json"));'
+```
+再自己核一遍：**每个成员都在目标快照里**、`tree_digest` 逐个一致、
+成员 `status` 全是 `published`（有 `yanked` / `degraded` 会把整个 pack 拖下水）。
 
 ⚠️ 如果几个 skill 之间靠 `../<sibling>/…` 相对路径互相引用（prompt-map 那套
 就是），**单独装其中一个会拿到一个引用不到兄弟的坏 skill** —— 这种情况 pack

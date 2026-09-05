@@ -89,18 +89,40 @@ test('🔴 全新 db 上的并发争抢也要给 LockBusyError，不能漏裸 Er
   const dbPath = join(d, 'fresh.db');
   const barrier = join(d, 'go');
 
-  const kid = () =>
+  const N = 12;
+  const kid = (i) =>
     new Promise((res) => {
-      const c = spawn(process.execPath, [join(here, 'fixtures/lock-racer.mjs'), dbPath, barrier], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
+      const c = spawn(
+        process.execPath,
+        [join(here, 'fixtures/lock-racer.mjs'), dbPath, barrier, join(d, `ready-${i}`)],
+        { stdio: ['ignore', 'pipe', 'ignore'] },
+      );
       let o = '';
       c.stdout.on('data', (x) => (o += x));
       c.once('exit', () => res(o.trim()));
     });
 
-  const all = Promise.all(Array.from({ length: 12 }, kid));
-  await new Promise((r) => setTimeout(r, 800));
+  const all = Promise.all(Array.from({ length: N }, (_, i) => kid(i)));
+
+  // 🔴 **等所有子进程报到再放行**，不是 sleep 一个固定值。
+  //    早先是 `setTimeout(800)` —— 机器一忙就没起齐，**争抢根本没发生**，
+  //    于是下面那条「应有争抢者拿到 LockBusyError」假红。
+  //    2026-09-04 它在 CI 上卡住了一次 registry 发布（1426 里只红这一个），
+  //    而它与那次改动毫无关系；代价是线上有十几分钟「指针指向空气」。
+  //    ⚠️ 判据要钉的是「**发生争抢时**给的是 LockBusyError 而不是裸 Error」，
+  //    「争抢有没有发生」是**前提**，不该由 sleep 的长短来碰运气。
+  const { existsSync } = await import('node:fs');
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    const ready = Array.from({ length: N }, (_, i) => existsSync(join(d, `ready-${i}`)))
+      .filter(Boolean).length;
+    if (ready === N) break;
+    if (Date.now() > deadline) {
+      // 🔴 不静默放行：起不齐就说明这次根本测不到争抢，那时「绿」是假的。
+      assert.fail(`60 秒内只有 ${ready}/${N} 个子进程报到 —— 本次测不到争抢，不当成通过`);
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
   writeFileSync(barrier, 'go');
   const results = await all;
 

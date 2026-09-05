@@ -650,6 +650,37 @@ test('🔴 promote.yml 只由 push 到 main 的 submissions/** 触发 —— 一
   ], `promote.yml 的 on: 块（去注释后）必须**恰好**是这几行，实际：\n  ${on.join('\n  ')}`);
 });
 
+test('🔴🔴 timestamp 不许指向一个还没发出去的快照', () => {
+  // 2026-09-04 实测的线上故障：先刷 timestamp（指向快照 4）、后确认 hub-v4 ——
+  // 而 hub-v4 被一个**与本次改动无关**的假红测试挡下了。
+  // 于是线上有十几分钟「指针指向空气」：每一次 install 都 404，
+  // 而客户端手上的 timestamp 是**验过签的**，它看到的是「分发被投毒」，
+  // 不是「他们发漏了」——**最坏的那种错误形态**。
+  //
+  // 🔴 正确顺序是**资产先到位、指针最后动**，与 `src/preheat.mjs` 里
+  //    「timestamp 必须最后提升」同一条规则。那条写进了代码，
+  //    这一层此前只靠「人记得按顺序做」——**只靠人记得的顺序，迟早有人不按**。
+  const body = read('timestamp.yml');
+  // 🔴 数**两处**，不是「存在某处」。文件里有两个调用点（查存在性、查资产数），
+  //    写成 `assert.match` 的话改坏一处、另一处还在，断言照样绿 ——
+  //    2026-09-04 加这条变异时当场撞到，本文件此前已记过同一个形状两次。
+  const hits = body.match(/releases\/tags\/hub-v\$n/g) ?? [];
+  assert.equal(hits.length, 2,
+    `timestamp.yml 必须在**两处**查 hub-v<N>（存在性 + 资产数），实际 ${hits.length} 处`);
+  assert.match(body, /拒绝把指针指过去/,
+    'Release 不存在时必须**拒绝**，不是告警');
+  // 🔴 「在不在」不够，还要「全不全」：少挂几个资产的话，
+  //    客户端会在某几个制品上 404，而那更难查 —— 整体 404 至少一眼看得出。
+  // 🔴 钉**那行条件本身**，不是「文件里出现过 want + 2」——
+  //    错误信息里也写了 `应为 $((want + 2))`，只匹配字符串的话
+  //    把条件改成 `if false` 照样绿。**这是同一个形状在本文件里第三次出现。**
+  assert.match(body, /if \[ "\$got" != "\$\(\(want \+ 2\)\)" \]; then/,
+    '必须真的核对「资产数 == 快照制品数 + 2」（快照正文与 bundle）');
+  // 拿不到状态码 = 「不知道」，不能当成「在」
+  assert.match(body, /查不到 hub-v\$n 的状态/,
+    '拿不到 HTTP 状态码时必须硬失败 ——「不知道」不能当成「在」');
+});
+
 // 🔴 **collect 的输出不能就地写回 build-inputs 的输入。**
 //
 // 2026-09-01 第一次真跑 promote 时红在这里：`collect-promotion-inputs` 把首次
@@ -1042,6 +1073,10 @@ const MUTATIONS = [
   ['validate-pr.yml', '  pull_request:', '  pull_request_target:', '换成 pull_request_target', 'pull_request_target'],
   ['validate-pr.yml', 'permissions:', 'permissions: write-all #', 'permissions 写成 write-all', '块式子集'],
   ['promote.yml', "    paths: ['submissions/**']", "    paths: ['submissions/**']\n  workflow_dispatch:", 'promote 多一个触发', '只由 push'],
+  ['timestamp.yml', 'releases/tags/hub-v$n', 'releases/tags/nope-$n',
+    'timestamp 不再查 hub-v<N> 是否存在', '不许指向一个还没发出去的快照'],
+  ['timestamp.yml', 'if [ "$got" != "$((want + 2))" ]; then', 'if false; then',
+    'timestamp 不再核对 hub-v<N> 的资产数', '不许指向一个还没发出去的快照'],
   ['promote.yml', 'cancel-in-progress: false', 'cancel-in-progress: true', 'promote 允许取消', '串行且不许取消'],
   ['promote.yml', 'git push origin "$branch"', 'git push origin main', 'promote 直推 main', '不直推 main'],
   // 📌 2026-09-04：手段从 git diff 换成 GitHub API，变异跟着换到新实现上。

@@ -182,6 +182,8 @@ jobs:
       - name: 生成 timestamp.json
         env:
           MIN_CLI: ${{ inputs.min_cli_version }}
+          # 只读：查 hub-v<N> 这个 Release 在不在（下面那道「指针安全」门要用）。
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           args=(--snapshots registry/snapshots --repo "$GITHUB_REPOSITORY" --out timestamp.json)
@@ -191,6 +193,45 @@ jobs:
           args+=(--valid-days 7)
           [ -n "${MIN_CLI:-}" ] && args+=(--min-cli-version "$MIN_CLI")
           node --no-warnings scripts/release/build-timestamp.mjs "${args[@]}"
+
+          # 🔴🔴 **指针不许指向一个还没发出去的快照。**
+          #
+          # timestamp 说「当前最新是 N」，客户端就按 locator 去取
+          # `/releases/download/hub-v<N>/…`。那个 Release 不在的话，
+          # **每一次 install 都会 404** —— 而客户端手上的 timestamp 是验过签的，
+          # 它看到的是「分发被人动了手脚」，不是「我们发漏了」。
+          #
+          # ⚠️ 2026-09-04 我就是这么把线上弄坏的：先刷 timestamp（指向快照 4）、
+          #    后确认 `hub-v4` —— 而 `hub-v4` 被一个**与本次改动无关**的假红测试挡下了。
+          #    于是线上有十几分钟处在「指针指向空气」的状态。
+          #
+          # 🔴 正确顺序是**资产先到位、指针最后动** —— 这与 `src/preheat.mjs` 里
+          #    「timestamp 必须最后提升」是同一条规则。那条我写进了代码，
+          #    这一层却只靠「人记得按顺序做」。**只靠人记得的顺序，迟早有人不按。**
+          n=$(node -p "JSON.parse(require('fs').readFileSync('timestamp.json','utf8')).latest_snapshot")
+          want=$(node -p "JSON.parse(require('fs').readFileSync('registry/snapshots/hub-$n.json','utf8')).artifacts.length")
+          code=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/hub-v$n" \
+                   --silent --include 2>/dev/null | head -1 | awk '{print $2}' || true)
+          if [ -z "$code" ]; then
+            echo "::error::查不到 hub-v$n 的状态（拿不到 HTTP 状态码）—— **不**继续。"
+            echo "::error::  「不知道」不能当成「在」：签一份指向未知的 timestamp，"
+            echo "::error::  比不签更糟 —— 它是验得过签的，客户端会当成分发被投毒。"
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "::error::hub-v$n 这个 Release 不存在（HTTP $code）—— 拒绝把指针指过去。"
+            echo "::error::  先跑 release.yml（registry_only=true）把 hub-v$n 发出去，再刷 timestamp。"
+            exit 1
+          fi
+          got=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/tags/hub-v$n" \
+                  --jq '.assets | length')
+          # 制品 + 快照正文 + 快照 bundle
+          if [ "$got" != "$((want + 2))" ]; then
+            echo "::error::hub-v$n 挂着 $got 个资产，而快照 $n 记了 $want 个制品（应为 $((want + 2))）。"
+            echo "::error::  资产不全时把指针指过去，客户端会在某几个制品上 404。"
+            exit 1
+          fi
+          echo "::notice::hub-v$n 在线且资产齐全（$got 个）—— 可以把指针指过去 ✅"
 
       # 🔴 **回滚候选必须先被验成一对。** 不验的话，一次失败的发布会把一对
       #    **本来就坏**的资产重新传上去 —— 回滚变成了把坏状态固定下来（Codex 2026-08-31）。
