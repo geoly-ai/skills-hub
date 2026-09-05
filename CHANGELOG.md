@@ -16,9 +16,10 @@
 ### 修复
 
 🔴 **在真实的 skill 目录下可能一个都装不上。** 嵌套 target 扫描的深度上限是 8，
-而任何 vendor 了一个仓库的 skill 都会轻松超过它 —— 实测一位用户的
-`~/.claude/skills` 有 657 个目录、**最深 12 层**，于是三个 target 全部
-`[target.nested-scan-incomplete]` 失败。目录数上限（5000）**连一半都没碰到**。
+而任何 vendor 了一个仓库的 skill 都会轻松超过它 —— 一台开发机上实测：
+`~/.claude/skills` 有 657 个目录、**最深 17 层**（某个 skill 里 vendor 了
+一整个仓库）。于是三个 target 全部 `[target.nested-scan-incomplete]` 失败，
+而目录数上限（5000）**连八分之一都没碰到**。
 
 判据错在把**深度**当成预算：遍历成本是 O(目录数)，**与深度无关**。
 现在深度降级成防病态路径的 sanity guard（8 → 64），目录数才是真预算
