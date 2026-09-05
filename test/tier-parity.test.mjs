@@ -31,7 +31,7 @@ const REVIEW = {
 };
 
 /** 造一个声明 `none` 的 skill 制品；`payload` 决定载荷里放什么。 */
-function artifact(payload) {
+function artifact(payload, { provenance = 'default' } = {}) {
   const root = join(mk(), 'artifacts');
   const dir = join(root, 'skills', 'ns', 'demo', '1.0.0');
   mkdirSync(dir, { recursive: true });
@@ -41,7 +41,11 @@ function artifact(payload) {
     version: '1.0.0', description: 'd', license: 'MIT',
     clients: ['claude'], capabilities: ['none'],     // 🔴 声明的是最低档
     replaces: [], conflicts: [],
-    provenance: { kind: 'original', author_github_id: REVIEW.author, submitted_by_pr: REVIEW.pr },
+    ...(provenance === 'omit' ? {} : {
+      provenance: provenance === 'default'
+        ? { kind: 'original', author_github_id: REVIEW.author, submitted_by_pr: REVIEW.pr }
+        : provenance,
+    }),
   }));
   payload?.(dir);
   return root;
@@ -88,4 +92,47 @@ test('🔴 SKILL.md 里的 shell 代码块**不算** —— 否则这道门会�
   const out = run(artifact((dir) => writeFileSync(join(dir, 'SKILL.md'),
     '---\nname: demo\ndescription: d\n---\n# demo\n\n```sh\nrm -rf /\n```\n')));
   assert.equal(out.artifacts['skill:ns/demo@1.0.0'].review.capability_tier, 0);
+});
+
+// ── provenance 的时间循环（2026-09-05 拍板取消）─────────────────────────────
+
+test('🔴 skill.json 没有 provenance → promote 按 PR 事实填', () => {
+  // 取消这个字段的必填，是因为它构成**时间循环**：`submitted_by_pr` 要等于真实 PR，
+  // 而 PR 号只有开了 PR 才知道 —— 投稿者被要求在开 PR 之前写进一个之后才存在的值。
+  const out = run(artifact(null, { provenance: 'omit' }));
+  const p = out.artifacts['skill:ns/demo@1.0.0'].provenance;
+  assert.deepEqual(p, {
+    kind: 'original', author_github_id: REVIEW.author, submitted_by_pr: REVIEW.pr,
+  });
+});
+
+test('写对了照样通过 —— 老投稿不受影响', () => {
+  const out = run(artifact(null));
+  assert.equal(out.artifacts['skill:ns/demo@1.0.0'].provenance.submitted_by_pr, REVIEW.pr);
+});
+
+test('🔴 写错了必须拒绝，不静默改写 —— 写错和伪造都要有人看见', () => {
+  assert.throws(
+    () => run(artifact(null, {
+      provenance: { kind: 'original', author_github_id: REVIEW.author, submitted_by_pr: 999 },
+    })),
+    /submitted_by_pr/,
+  );
+});
+
+test('🔴 冒名也必须拒绝 —— author_github_id 不是投稿者说了算', () => {
+  assert.throws(
+    () => run(artifact(null, {
+      provenance: { kind: 'original', author_github_id: 'MDQ6_someone_else', submitted_by_pr: REVIEW.pr },
+    })),
+    /author_github_id/,
+  );
+});
+
+test('🔴 vendored 必须投稿者自己声明 —— promote 绝不默认成 original', () => {
+  // 「这是搬来的、上游在哪、license 凭什么」只有投稿者知道。
+  // 默默当成 original，会把一次搬运记成原创 —— 出处记录里最不该错的一格。
+  const out = run(artifact(null, { provenance: 'omit' }));
+  assert.equal(out.artifacts['skill:ns/demo@1.0.0'].provenance.kind, 'original',
+    '缺省只能填 original；vendored 不会被猜出来');
 });

@@ -181,7 +181,25 @@ export function verifyAndExtract({ bytes, record, parent = tmpdir() }) {
 
 const SKILL_MANIFEST_KEYS = {
   required: ['schema', 'kind', 'namespace', 'name', 'version', 'description', 'license',
-    'clients', 'capabilities', 'replaces', 'conflicts', 'provenance'],
+    'clients', 'capabilities', 'replaces', 'conflicts'],
+  // 🔴 **`provenance` 从必填改成可选**（2026-09-05 用户拍板）。
+  //
+  //    原因是它构成一个**时间循环**：`submitted_by_pr` 必须等于真实 PR 号，
+  //    而 PR 号只有开了 PR 才知道 —— 于是投稿者被要求在开 PR **之前**
+  //    写进一个开 PR 之后才存在的值。实际做法是「先开 PR → 回填 → 强推同一分支」，
+  //    而漏回填的投稿会**先进 main、再在 promote 卡死**。
+  //
+  //    ⚠️ 更能说明问题的是它与 `PROMOTION.json` **自相矛盾**：那边明确
+  //    **拒绝**投稿者声明 `author_github_id` / `submitted_by_pr`
+  //    （理由：投稿者只能声明只有他知道的事），而这边却要求他自己写同样两个字段。
+  //    同一个仓库里两套相反的规则 —— 我自己在两天里踩了它两次。
+  //
+  //    现在：缺省即由 promote 填（与 pack 一致）；**若投稿者写了，仍然逐字核对**
+  //    （`assertProvenanceMatchesPr`）—— 不静默改写，写错了要有人看见。
+  //
+  // 🔴 改成 optional 而不是删掉：已发布的 5 张快照里的制品**都带着这个字段**，
+  //    删掉会让它们验不过。可选是唯一向后兼容的形状。
+  optional: ['provenance'],
 };
 
 const PACK_MANIFEST_KEYS = {

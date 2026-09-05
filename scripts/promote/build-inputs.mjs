@@ -428,16 +428,34 @@ export function buildInputs({
       owners, namespace: a.namespace, claims: claimOwner ?? {}, authorId: review.author,
     });
 
-    // provenance：skill 在 manifest 里；pack 的 manifest 键集里**没有**这个字段
+    // provenance：skill 可以在 manifest 里给（可选）；pack 只能由 --provenance-of 给
     let provenance = a.kind === 'skill' ? manifest.provenance : provenanceOf[a.id];
     if (provenance === undefined) {
-      bad(
-        `${a.id} 没有 provenance。`
-        + (a.kind === 'pack'
-          ? 'pack.json 的键集里没有这个字段（03-packs.md §2），必须由 --provenance-of 提供。'
-          : 'skill.json 必填它。'),
+      if (a.kind === 'pack') {
+        bad(`${a.id} 没有 provenance。`
+          + 'pack.json 的键集里没有这个字段（03-packs.md §2），必须由 --provenance-of 提供。');
+      }
+      // 🔴 **skill 缺省时由 promote 自己填** —— 与 pack / PROMOTION.json 一致
+      //    （2026-09-05 用户拍板，见 `src/artifact.mjs` 的 SKILL_MANIFEST_KEYS 注释）。
+      //
+      //    这两个值是**只有 promote 能证明**的事实：`review.author` 来自
+      //    GitHub API 返回的 PR 作者 node id，`review.pr` 来自被合并的那张 PR。
+      //    让投稿者自己写它们，等于让他自称是谁 —— 而那正是整条信任链要建立的东西。
+      //
+      // ⚠️ 只填 `kind: 'original'`。**`vendored` 必须由投稿者显式声明** ——
+      //    「这是搬来的、上游在哪、license 凭什么」只有他知道，promote 无从得知。
+      //    默默当成 original 会把一次搬运记成原创，那是出处记录里最不该错的一格。
+      provenance = {
+        kind: 'original',
+        author_github_id: review.author,
+        submitted_by_pr: review.pr,
+      };
+      process.stderr.write(
+        `ℹ️ ${a.id}：skill.json 没有 provenance —— 由 promote 按 PR 事实填入`
+        + `（author=${review.author}, pr=${review.pr}）。\n`,
       );
     }
+    // 🔴 写了就仍然逐字核对，**不静默改写**：写错了和试图伪造都需要有人看见。
     provenance = assertProvenanceMatchesPr({ provenance, review, where: a.id });
 
     artifacts[a.id] = {

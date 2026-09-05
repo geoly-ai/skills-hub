@@ -61,9 +61,23 @@ submissions/<namespace>/<name>@<version>/
 
 🔴 **没有 `digest` 字段，永远不会有。** 摘要由发布器计算，投稿者声明的一律不读。
 
-🔴 **`submitted_by_pr` 必须等于触发 promote 的那张 PR。** 而 PR 号只有开了 PR
-才知道 —— 所以顺序是：**先开 PR → 拿到号 → 写进 skill.json → 强推同一分支**。
-写错会被 `assertProvenanceMatchesPr` 直接拒（fail-closed，不静默改写）。
+### 🔴 `provenance` 现在**可以不写**（2026-09-05 起）
+
+**最省事的做法：`skill.json` 里干脆不写 `provenance`**，由 promote 按 PR 事实填。
+
+原因是它构成一个**时间循环**：`submitted_by_pr` 必须等于真实 PR 号，
+而 PR 号只有开了 PR 才知道 —— 于是投稿者被要求在开 PR **之前**写进一个
+开 PR 之后才存在的值。漏回填的投稿会**先进 main、再在 promote 卡死**。
+
+⚠️ 它还与 `PROMOTION.json` **自相矛盾**：那边明确**拒绝**投稿者声明
+`author_github_id` / `submitted_by_pr`，而这边曾要求他自己写同样两个字段。
+
+**写了会怎样**：仍然逐字核对，写错就拒（`assertProvenanceMatchesPr`，
+fail-closed、不静默改写）。那时顺序仍是「先开 PR → 拿号 → 回填 → 强推同一分支」。
+
+🔴 **例外：`vendored` 必须自己声明。**「这是搬来的、上游在哪、license 凭什么」
+只有你知道，promote 无从得知 —— 缺省只会填 `original`。
+把一次搬运记成原创，是出处记录里最不该错的一格。
 
 ⚠️ **skill 不能靠「不写，让 promote 填」绕过这一圈** —— `build-inputs.mjs` 在
 provenance 缺失时直接报「skill.json 必填它」。省掉回填只对 **pack** 与
