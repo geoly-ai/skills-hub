@@ -70,14 +70,27 @@
 | `--yes-i-really-want-everything` | 关 | **仅** `--all` 在非交互下使用（§3） |
 | `--pre` | 关 | 允许预发布版本 |
 
-**没有** `--no-verify`、`--insecure`、`--force`、`--force-unlock`、`--assume-idle`、
-`--skip-nested-scan`。
+**没有** `--no-verify`、`--insecure`、`--force`、`--force-unlock`、`--clear-lock`、
+`--assume-idle`、`--skip-nested-scan`、`--allow-pending`。
+
+> 📌 这份清单由 `test/flag-doc-parity.test.mjs` 与 `context.mjs` 的
+> `REMOVED_FLAGS` **双向对照**：代码里点名拒绝却没写进这里 → 红；
+> 解析器认得却没在本文出现 → 也红。
+> ⚠️ 2026-09-05 加这条检查时当场抓到两处漂移（`--allow-pending`、`--clear-lock`）——
+> **一份说得出但做不到的 flag 表，比没有表更坏**：
+> 读者照着敲，得到的是「没有这个开关」。
 
 - 验签与摘要校验不可关闭；
 - 替换必须点名（`--replace`）；
 - 陈旧、yank、全量各有独立开关，不共用一个大锤；
 - 扫描预算只能**抬高**（`--scan-max-*`），不能关掉 —— 关掉它就是把
   「无法证明没有嵌套 target」改写成「假设没有」（[`04-install.md`](04-install.md) §3.5）。
+- 锁是 `node:sqlite` 的排他事务，**进程退出由内核释放** —— 崩溃后下一次运行
+  直接就能取到，没有可清的东西，所以既没有 `--force-unlock` 也没有 `--clear-lock`
+  （[`04-install.md`](04-install.md) §5.1）。
+- **Q12 是阻塞门，不是建议**：要开某一格就补那一格的**实测证据**，
+  而不是加一个 `--allow-pending` 把它绕过去
+  （[`../m1/01-residual-risks.md`](../m1/01-residual-risks.md) R-4）。
   抬高之后仍然是一次真扫描、仍然 fail-closed；
 - `--assume-idle` 随 D5 删除 —— 本工具**不检测也不阻断**正在运行的 agent
   （[`04-install.md`](04-install.md) §9）。
