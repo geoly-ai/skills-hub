@@ -247,7 +247,22 @@ workflow 的 shell 里一步都不做 —— shell 没有 `lstat` 语义。
 
 ---
 
-## R-19 · 首次注册 namespace 与所有 pack，promote 现在跑不通（2026-08-31）
+## R-19 · 首次注册 namespace 与所有 pack，promote 现在跑不通（✅ **已闭合**，2026-09-05）
+
+> ✅ **闭合方式是决策 ②：`submissions/<ns>/<name>@<ver>/PROMOTION.json`。**
+> `promote.yml` 的「收集 PROMOTION.json」那一步把两份 PR 侧事实取出来，
+> 再以 `--claim-owner` / `--provenance-of` 传给 `build-inputs.mjs`。
+>
+> 🔴 **实证，不是推断**：2026-09-05 `pack:plaud-theme/plaud-theme-matrix@0.4.0`
+> 走完整条流水线发布成功（投稿 #22 → promote → 快照 4 → `hub-v4`），
+> 它的 `PROMOTION.json` 里**只写了 `provenance.kind`** ——
+> `owner.id` / `author_github_id` / `submitted_by_pr` 全由 promote 填。
+>
+> ⚠️ 分工那条仍然要记牢，它与 `skill.json` **正好相反**：
+> pack 的 `PROMOTION.json` **拒绝**投稿者声明 PR 事实，而 `skill.json` **必填**
+> `submitted_by_pr` 且必须等于真实 PR。**这是本流程最容易记反的一处。**
+>
+> 以下原文保留，作为当时的判断记录。
 
 `build-inputs.mjs` 要两份**只有 PR 侧才有**的事实：
 

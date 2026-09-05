@@ -79,7 +79,14 @@
 ⚠️ **这不影响投稿流水线本身**：fork + 手动开 PR 走的是**完全一样**的门。
 `publish` 是省几下点击，不是唯一入口。
 
-### 3.2 promotion 现在只收「已注册 namespace 下的 skill 续版本」
+### 3.2 promotion 现在只收「已注册 namespace 下的 skill 续版本」 —— ✅ 2026-09-05 已闭合
+
+> ✅ `PROMOTION.json`（决策 ②）已接进 `promote.yml`，两份 PR 侧事实
+> （`--claim-owner` / `--provenance-of`）都有来处。
+> 🔴 实证：plaud 矩阵 pack 走完整条流水线发布成功，详见
+> [R-19](../m2/01-residual-risks.md#r-19) 的闭合说明。
+>
+> 以下原文保留。
 
 首次注册 namespace 要 `--claim-owner`、所有 pack 要 `--provenance-of`，
 而这两份「PR 侧的事实」从投稿的哪儿来，规格没定。见 [R-19](../m2/01-residual-risks.md#r-19)。

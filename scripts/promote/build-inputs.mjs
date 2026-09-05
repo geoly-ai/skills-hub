@@ -37,6 +37,8 @@ import { join } from 'node:path';
 import { stringify, parseStrict } from '../../src/canonical-json.mjs';
 import { parseArtifactId, contractPathsChanged } from '../../src/pack.mjs';
 import { approvalsWaived, effectiveApprovers, exclusionNote, waiverNotice } from '../submission/approval-policy.mjs';
+import { executableEvidence } from '../submission/structural-gates.mjs';
+import { collectTree } from '../../src/packer.mjs';
 
 export const INPUTS_SCHEMA = 'geoly.skills.promotion-inputs/1';
 export const OWNERS_SCHEMA = 'geoly.skills.owners/1';
@@ -372,12 +374,39 @@ export function buildInputs({
   };
 
   for (const a of newParsed) {
-    const { manifest } = readManifest(artifactsRoot, a);
+    const { manifest, dir } = readManifest(artifactsRoot, a);
 
     // §7：tier
     let tier;
     if (a.kind === 'skill') {
       tier = capabilityTier(manifest.capabilities);
+      // 🔴🔴 **载荷里的可执行迹象，声明压不住它** —— 与合并前的 `tier-gate.mjs`
+      //    用**同一个** `executableEvidence()`，否则两个阶段会算出不同的 tier。
+      //
+      //    ⚠️ 2026-09-05 Codex 指出这处分叉，实测属实：
+      //    合并前算 `max(声明, 证据→2)`，而这里**只看声明**（本文件此前
+      //    一次都没引用过 `executableEvidence`）。后果有两层：
+      //      ① 快照里记的 `review.capability_tier` **比实际审的那一档低** ——
+      //         而快照是权威记录，读它的人会以为这份载荷只按那一档审过；
+      //      ② `assertApprovalsSatisfyTier` 正是拿这个值判审批人数够不够，
+      //         于是前置门万一被绕过，promote 这一侧也会按较低档放行。
+      //
+      //    🔴 判据必须是**同一份代码**，不是「两处各写一遍相同的逻辑」——
+      //    后者看起来一致，改一处就分叉，而分叉不会有任何迹象。
+      let evidence = [];
+      try {
+        evidence = executableEvidence(collectTree(dir));
+      } catch (e) {
+        // 读不出载荷 → 按最高档，不按最低档。看不见不等于没有。
+        evidence = [`载荷读不出来（${e.message.split('\n')[0]}）`];
+      }
+      if (evidence.length > 0 && tier < MAX_TIER) {
+        process.stderr.write(
+          `⚠️ ${a.id}：载荷里有可执行迹象，Tier ${tier} → ${MAX_TIER}（声明压不住载荷）：`
+          + `${evidence.slice(0, 3).join('；')}${evidence.length > 3 ? `……共 ${evidence.length} 处` : ''}\n`,
+        );
+        tier = MAX_TIER;
+      }
     } else {
       // pack 的 Tier = 成员（含 bundled）capability 并集的最高档
       const union = new Set();
