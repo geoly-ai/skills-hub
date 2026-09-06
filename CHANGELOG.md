@@ -21,8 +21,13 @@
 ```sh
 skills-hub publish ./my-skill
 skills-hub publish ./my-pack --pack
-skills-hub publish ./my-skill --dry-run    # 只跑本地门，什么都不写
+skills-hub publish ./my-skill --dry-run    # 走完全部检查，但一个**写**请求都不发
 ```
+
+⚠️ **`--dry-run` 仍然需要 token**：它会真的去读上游基线、你的身份、
+以及「这个版本是不是已经躺在某个未合并的 PR 里」——
+那些是**只有问了服务端才知道**的事，本地门答不了。
+它跳过的是**写**：不建 fork、不建分支、不开 PR。
 
 **token 用你已有的**，本命令**不做 `login`、也不存储任何 token**：
 按 `GEOLY_GITHUB_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN` → `gh auth token` 找。
