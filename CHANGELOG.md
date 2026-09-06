@@ -11,6 +11,44 @@
 
 ---
 
+## [0.3.7] — 2026-09-06
+
+### 新增
+
+**`skills-hub publish`** —— 一条命令把 skill 或 pack 投稿进 registry。
+在此之前你要自己 fork 仓库、建目录、算 `tree_digest`、开 PR、回填 PR 号。
+
+```sh
+skills-hub publish ./my-skill
+skills-hub publish ./my-pack --pack
+skills-hub publish ./my-skill --dry-run    # 只跑本地门，什么都不写
+```
+
+**token 用你已有的**，本命令**不做 `login`、也不存储任何 token**：
+按 `GEOLY_GITHUB_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN` → `gh auth token` 找。
+撤销请去 GitHub 的 Settings → Developer settings，或 `gh auth logout`。
+
+🔴 **任何写操作之前，它会先告诉你这个 token 能做什么，并要你确认。**
+你已有的 token 往往是 classic `repo` PAT —— 它能读写你**所有**私有仓库，
+而本命令**无法收窄它**。`--yes` 只表示你确认了这个风险，**不跳过任何校验**。
+
+🔴 **一次 `git` 都不用**，全走 GitHub API。原因不是洁癖：带 token 的
+`git push` 会让本地 `pre-push` hook 拿到你的 token，而 hook 能执行任意代码。
+
+**本地跑的是服务端 PR gate 跑的同一批校验器** —— 不是另写一套。
+另写一套的结局只有两个：本地绿而 CI 红，或者两套规则各自演化然后分叉。
+
+### 明确没做到（照例逐条列）
+
+- **`npx github:` 守卫是尽力而为**：它靠自身 `package.json` 的 `gitHead` /
+  `_resolved` 判断，而 npm 写哪个字段没有正式契约。
+  **不要当成「只有签过名的 CLI 才能投稿」。**
+- **重复投稿检测只是扫描那一瞬间的事实**，不是并发正确性门 —— 扫完立刻
+  有人开新 PR，这里什么都不知道。最终裁决在服务端。
+- 没有 `status` 子命令。
+
+---
+
 ## [0.3.6] — 2026-09-05
 
 ### 修复
