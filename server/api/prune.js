@@ -62,15 +62,29 @@ export default async function handler(req, res) {
     // 🔴 **身份先清，再清事件。** 顺序反了的话，事件被 prune 掉时
     //    `on delete cascade` 会顺手把身份行也带走 —— 结果看起来一样，
     //    但那时「身份 90 天」这条线从来没有真正跑过，它是否有效无从验证。
-    //    先跑身份这一条，日志里才会有它自己的删除条数。
-    const idr = await store.pruneIdentity(idDays);
+    //
+    // 🔴 **但身份这一步失败不能连坐掉事件那一步。**
+    //    最现实的形态是**部署顺序**：新代码先上、迁移还没跑，
+    //    `telemetry_identity` 不存在 → 第一句就抛 → 事件保留期**也跟着停**，
+    //    而这是一条每天 04:00 的定时任务，没人盯着，可以静默停很多天。
+    //    所以：身份失败**记下来继续跑事件**，最后**整体报失败**（非 2xx，
+    //    定时任务那边看得见），而不是回 200 把错误藏在 body 里。
+    let idr = null;
+    let idError = null;
+    try {
+      idr = await store.pruneIdentity(idDays);
+    } catch (e) {
+      idError = e?.message ?? String(e);
+    }
     const r = await store.prune(days);
     await sql`update telemetry_meta set pruned_at = now() where id = 1`;
-    res.statusCode = 200;
+    res.statusCode = idError ? 500 : 200;
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.end(JSON.stringify({
-      ok: true, retentionDays: days, identityRetentionDays: idDays,
-      identityDeleted: idr.deleted, ...r,
+      ok: !idError, retentionDays: days, identityRetentionDays: idDays,
+      identityDeleted: idr?.deleted ?? null,
+      identityError: idError ?? undefined,
+      ...r,
     }));
   });
 }

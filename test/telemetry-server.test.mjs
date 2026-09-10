@@ -801,3 +801,26 @@ test('🔴 没有当前版本 notice 的事件不产生身份行（协议见证�
     else process.env.GEOLY_TELEMETRY_IDENTITY_INGEST = saved;
   }
 });
+
+// 🔴 部署顺序的坑：新代码先上、迁移还没跑时 telemetry_identity 不存在。
+//    身份清理抛错**不能**连坐掉事件清理 —— 那是一条每天 04:00 的定时任务，
+//    没人盯着，事件保留期可以静默停很多天。要求：事件照跑、整体报失败。
+test('🔴 身份清理失败时事件清理照跑，并整体报 500', async () => {
+  const saved = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = 's';
+  try {
+    const mod = await import('../server/api/prune.js');
+    const src = readFileSync(new URL('../server/api/prune.js', import.meta.url), 'utf8');
+    // 结构判据：pruneIdentity 包在 try 里，且 prune(days) 在 try 之外
+    assert.match(src, /try \{\s*idr = await store\.pruneIdentity\(idDays\);\s*\} catch/,
+      '身份清理没有被单独兜住');
+    assert.match(src, /\}\s*const r = await store\.prune\(days\);/,
+      '事件清理必须在身份清理的 catch 之外，否则会被连坐');
+    assert.match(src, /res\.statusCode = idError \? 500 : 200/,
+      '身份清理失败必须整体非 2xx —— 回 200 把错误藏在 body 里等于没人会发现');
+    assert.ok(typeof mod.default === 'function');
+  } finally {
+    if (saved === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = saved;
+  }
+});
