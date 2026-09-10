@@ -359,6 +359,16 @@ jobs:
             --snapshot "$n" ${PREV:+--previous "$PREV"} \
             --created-at "$created" --repo "$GITHUB_REPOSITORY" \
             --out "registry/snapshots/hub-$n.json"
+
+          # 🔴 **清单与快照在同一步生成，不另起一个更新机制。**
+          #    另起一个的话，它迟早会漏跑一次，而漏跑的表现是「agent 看不到新
+          #    skill」或「去装一个不存在的东西」—— 两种都不会报错。
+          #    同源生成 + `test/agents-catalog.test.mjs` 逐字节比对，
+          #    才能保证「快照变了清单必然跟着变」。
+          node --no-warnings scripts/promote/build-catalog.mjs \
+            --snapshot "registry/snapshots/hub-$n.json" \
+            --out registry/catalog.md
+
           echo "n=$n" >> "$GITHUB_OUTPUT"
           echo "created=$created" >> "$GITHUB_OUTPUT"
 
