@@ -114,7 +114,11 @@
       <code>client</code>（claude/cursor/codex/agents）、<code>scope</code>（global/project）、
       <code>ms</code>（耗时）、<code>reason</code>（我们自己的短代码）。
       <br>
-      <strong>没有</strong>路径、目录清单、文件内容、用户名、邮箱、命令行原文、异常栈。
+      开启身份采集时还有：<code>os_user</code>（登录名）、<code>host</code>（主机名）、
+      <code>notice</code>（看过的告知版本）。这三项<strong>默认关闭</strong>，
+      打开前会在首次运行时告知，`telemetry off` 可随时只关掉它们、匿名计数照发。
+      <br>
+      <strong>没有</strong>路径、目录清单、文件内容、邮箱、命令行原文、异常栈。
       <code>install_id</code> 是本机随机 UUID，与账号无映射，删掉即换身份。
     </div>
   </header>

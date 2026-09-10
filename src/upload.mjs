@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path';
 import {
   stateDir,
+  telemetryDir,
   readAll,
   uploadEnabled,
   offline,
@@ -300,7 +301,10 @@ export async function flush({ fetchImpl = globalThis.fetch, timeoutMs = 3000 } =
 
     // 🔴 stage 与 retire 必须在同一把锁下，否则两个 flush 会各 stage 一半、重复上报。
     // 锁是内核释放的，进程猝死也不留死锁。
-    mkdirSync(join(stateDir(), 'telemetry'), { recursive: true });
+    // 🔴 走 telemetryDir() 而不是裸 mkdirSync：目录必须是 0700。
+    //    裸 mkdirSync 会按 umask 建出 0755，于是「埋点目录 0700」这条保证
+    //    在**先跑 flush 的那台机器上**从来没生效过（Codex 2026-09-09 指出）。
+    telemetryDir();
     try {
       release = acquire(lockPath());
     } catch (e) {

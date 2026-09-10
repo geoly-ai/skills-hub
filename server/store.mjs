@@ -10,7 +10,9 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // interface TelemetryStore {
-//   put(events, receivedAtMs): { accepted, duplicate }   // 去重在 store 内完成
+//   put(events, receivedAtMs, identities?, ip?): { accepted, duplicate }
+//                                                        // 去重在 store 内完成
+//                                                        // 身份行只有 Postgres 版支持
 //   all(): Array<{ received_at: number, event: Event }>
 //   rollup(): Rollup                                     // 保留期外的聚合计数
 //   prune(cutoffMs): number                              // 返回丢弃的原始事件条数
@@ -106,7 +108,16 @@ export function openFileStore(dir, { maxRecords = 2_000_000 } = {}) {
      * ⚠️ 这与客户端「埋点不是账本、不 fsync」的取舍不冲突：客户端丢的是自己的一条
      * 埋点，而端点这一次 fsync 兑现的是「我 ACK 了就是我收下了」这句承诺。
      */
-    put(events, receivedAtMs) {
+    put(events, receivedAtMs, identities = []) {
+      // 🔴 **文件版不支持身份行，所以它拒绝，而不是悄悄丢掉。**
+      //    悄悄丢是这个仓库反复吃过亏的形态：调用方拿到 200、以为存下了，
+      //    直到某天去查才发现一条都没有。文件版只用于本地与测试，
+      //    真要收身份就得用 Postgres（那边才有分表、外键与独立保留期）。
+      //    ⚠️ 触发不了这条的原因是服务端身份采集默认关（validate.mjs 的
+      //    identityIngestEnabled），不是因为这里做了兼容。
+      if (identities.length > 0) {
+        throw new Error('telemetry-server: 文件版 store 不支持身份行，请用 Postgres');
+      }
       const fresh = [];
       // 批内也要去重，且用 Set 而不是「在 fresh 里线性找」：一批上限 10000 条，
       // 线性找就是 O(n²)，而 n 完全由攻击者决定 —— 校验通过的输入也能拿来烧 CPU。

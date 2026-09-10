@@ -40,9 +40,10 @@ export function openPostgresStore(sql) {
      *    反过来（先回 2xx 再落库）时客户端已经按 §5.2 把本地队列消费掉了 ——
      *    事件两边都不存在，静默丢失。
      */
-    async put(events, receivedAtMs) {
-      if (events.length === 0) return { accepted: 0, duplicate: 0 };
+    async put(events, receivedAtMs, identities = [], ip = null) {
+      if (events.length === 0) return { accepted: 0, duplicate: 0, identities: 0 };
       let inserted;
+      let identitiesWritten = 0;
       try {
         inserted = await sql.begin(async (tx) => {
           // 每个写事务显式钉死 —— 连接级默认值可能被别处改掉。
@@ -58,18 +59,47 @@ export function openPostgresStore(sql) {
           //    看不见 cast 写没写对。所以下面那条测试改成断言 SQL 文本里
           //    真的有 `::text::jsonb`。
           const payload = JSON.stringify(events.map((e) => ({ eid: e.eid, ev: e })));
-          return tx`
+          const rows = await tx`
             insert into telemetry_events (eid, received_at, ev)
             select x->>'eid', to_timestamp(${receivedAtMs}::bigint / 1000.0), x->'ev'
             from jsonb_array_elements(${payload}::text::jsonb) as x
             on conflict (eid) do nothing
             returning eid
           `;
+          // 🔴 **身份行与事件在同一个事务里写。** 分成两个事务的话，
+          //    崩在中间会留下「事件在、身份不在」或者更糟的「身份在、事件不在」——
+          //    后者连 FK 都挂不住，而 FK 正是保留期清理的依据。
+          //
+          // 🔴 **只给这一批真的插进去的事件写身份行。**（Codex 2026-09-09 指出：
+          //    上一版把整个 identities 都插了，只靠 `on conflict (eid) do nothing`
+          //    兜底 —— 那句只挡「身份行已存在」，挡不住「事件是旧的、身份行还没有」。
+          //    后者恰恰是要挡的那一种：一台机器今天开了身份、重发了半年前的队列，
+          //    半年前那些事件就会被**补上**今天观测到的 IP 与用户名。
+          //    注释当时写的是「跟着事件走」，实现并没有做到 —— 现在做到了。)
+          const freshIds = new Set(rows.map((r) => r.eid));
+          const idRows = identities.filter((x) => freshIds.has(x.eid));
+          identitiesWritten = idRows.length;
+          if (idRows.length > 0) {
+            const idPayload = JSON.stringify(idRows);
+            await tx`
+              insert into telemetry_identity (eid, received_at, os_user, host, notice, ip)
+              select x->>'eid', to_timestamp(${receivedAtMs}::bigint / 1000.0),
+                     x->>'os_user', x->>'host', x->>'notice', ${ip}::inet
+              from jsonb_array_elements(${idPayload}::text::jsonb) as x
+              on conflict (eid) do nothing
+            `;
+          }
+          return rows;
         });
       } catch (e) {
         throw new StoreUnavailableError(e);
       }
-      return { accepted: inserted.length, duplicate: events.length - inserted.length };
+      return {
+        accepted: inserted.length,
+        duplicate: events.length - inserted.length,
+        // 报的是**真的写进去的**条数，不是收到的条数
+        identities: identitiesWritten,
+      };
     },
 
     /**
@@ -117,6 +147,33 @@ export function openPostgresStore(sql) {
     },
 
     /**
+     * 身份字段的保留期清理 —— 90 天，**比事件的 180 天短**。
+     *
+     * 🔴 与 prune() 是两条独立的到期线，不能合成一条：身份先到期，
+     *    到期后那条事件仍然要以匿名形态活满 180 天。
+     * 🔴 这里**只删不折算**：身份不进 rollup。一个「按人的历史计数」正是
+     *    我们不想留下的东西 —— 留了它，删身份就成了一句空话。
+     * 🔴 同样要 NaN 闸：水位是 NaN 时 `received_at < to_timestamp(NaN)` 一行都不删，
+     *    保留期静默失效。
+     */
+    async pruneIdentity(retentionDays, nowMs = Date.now()) {
+      const cutoffMs = nowMs - retentionDays * 86_400_000;
+      if (!Number.isFinite(cutoffMs)) {
+        throw new Error(`telemetry-server: pruneIdentity 的水位不是有限数值：${cutoffMs}`);
+      }
+      try {
+        const del = await sql`
+          delete from telemetry_identity
+          where received_at < to_timestamp(${cutoffMs}::bigint / 1000.0)
+          returning 1
+        `;
+        return { deleted: del.length };
+      } catch (e) {
+        throw new StoreUnavailableError(e);
+      }
+    },
+
+    /**
      * 保留期清理 —— §5.3 的 180 天。
      *
      * 🔴 顺序：**先把要删的折进 rollup 并推水位、再删**。
@@ -126,6 +183,13 @@ export function openPostgresStore(sql) {
      */
     async prune(retentionDays, nowMs = Date.now()) {
       const cutoffMs = nowMs - retentionDays * 86_400_000;
+      // 🔴 与文件版 store.mjs:151 同一道闸，早先只有那边有。
+      //    NaN 进来时后果不是「删多了」而是**折算水位被写坏**：
+      //    `JSON.stringify({cutoff: NaN})` 出的是 `null`，下一轮读回来当 0，
+      //    于是**同一批历史被反复折算进 rollup**，计数只涨不停，且全程不报错。
+      if (!Number.isFinite(cutoffMs)) {
+        throw new Error(`telemetry-server: prune 的水位不是有限数值：${cutoffMs}`);
+      }
       return sql.begin(async (tx) => {
         await tx`set local synchronous_commit = on`;
         const [meta] = await tx`select doc from telemetry_rollup where id = 1 for update`;
@@ -136,10 +200,16 @@ export function openPostgresStore(sql) {
           where received_at >= to_timestamp(${since}::bigint / 1000.0)
             and received_at <  to_timestamp(${cutoffMs}::bigint / 1000.0)
         `;
-        foldInto(roll, doomed.map((r) => r.ev));
-        roll.cutoff = cutoffMs;
+        // 🔴 `foldInto` 是**纯函数**：它返回一份新的 rollup，不就地改入参
+        //    （aggregate.mjs 顶部那段注释说的正是这件事 —— 入参可能是 store 里
+        //    正在用的那一份）。这里早先写成 `foldInto(roll, …)` 丢掉返回值、
+        //    再把**没折算过**的 `roll` 写回去：水位照推、计数一条不涨，
+        //    于是每一次 prune 删掉的事件都从历史里彻底消失，而且**不报错**。
+        //    文件版 store.mjs:154 一直是 `const next = foldInto(…)`，只有这里漏了。
+        const folded = foldInto(roll, doomed.map((r) => r.ev));
+        folded.cutoff = cutoffMs;
         await tx`
-          insert into telemetry_rollup (id, doc) values (1, ${JSON.stringify(roll)}::jsonb)
+          insert into telemetry_rollup (id, doc) values (1, ${JSON.stringify(folded)}::jsonb)
           on conflict (id) do update set doc = excluded.doc
         `;
         const del = await tx`

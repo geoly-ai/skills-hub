@@ -1,4 +1,4 @@
-import { DISPLAYABLE_FIELDS, EVENT_FIELDS } from '../lib/whitelist.mjs';
+import { DISPLAYABLE_FIELDS, EVENT_FIELDS, IDENTITY_FIELDS } from '../lib/whitelist.mjs';
 import { MIN_INSTALLS } from '../lib/suppress.mjs';
 
 /**
@@ -11,7 +11,14 @@ import { MIN_INSTALLS } from '../lib/suppress.mjs';
  *    **加字段不改文案就会红**。
  */
 export function PrivacyNotice() {
-  const hidden = EVENT_FIELDS.filter((f) => !DISPLAYABLE_FIELDS.includes(f));
+  // 采集了但不在这一页上出现的，分成两类，理由完全不同：
+  //   · 结构类（schema / eid / install_id）—— 展示它们就是给再识别递抓手
+  //   · 身份类（os_user / host / notice）—— 它们归另一条通道，不是「藏起来」，
+  //     而是**这一页根本不接那条线**
+  const identityHidden = EVENT_FIELDS.filter((f) => IDENTITY_FIELDS.includes(f));
+  const hidden = EVENT_FIELDS.filter(
+    (f) => !DISPLAYABLE_FIELDS.includes(f) && !IDENTITY_FIELDS.includes(f),
+  );
   return (
     <section className="privacy" aria-labelledby="privacy-h">
       <p className="label">collection surface · docs/telemetry/00-spec.md §2</p>
@@ -19,7 +26,7 @@ export function PrivacyNotice() {
 
       <p className="note">
         采集面是一张<strong>穷举白名单</strong>：一个事件只能有这些字段，每个字段的值都有校验器。
-        表外的东西<strong>根本没有被采集</strong> —— 没有用户名、没有路径、没有项目名、
+        表外的东西<strong>根本没有被采集</strong> —— 没有路径、没有项目名、
         没有地理位置、没有 referrer、没有命令行原文、没有异常栈。
         所以「加一个指标」在这里从来不是前端的事，而是先要去改采集面并过评审。
       </p>
@@ -28,7 +35,7 @@ export function PrivacyNotice() {
       </div>
 
       <div className="never">
-        <p className="label-cn">这三个字段被采集了，但永远不出现在这一页上</p>
+        <p className="label-cn">这几个字段被采集了，但永远不出现在这一页上</p>
         <div className="fieldlist">
           {hidden.map((f) => <code key={f} className="mono">{f}</code>)}
         </div>
@@ -49,6 +56,27 @@ export function PrivacyNotice() {
         端点侧已经用「不记 IP、不记 UA」掐掉了 IP 那一半；
         <strong>时间线那一半在这个平台手里</strong>。
       </p>
+      <div className="never" style={{ marginTop: 'var(--sp-3)' }}>
+        <p className="label-cn">身份字段：采集面里有，这一页一个都不接</p>
+        <div className="fieldlist">
+          {identityHidden.map((f) => <code key={f} className="mono">{f}</code>)}
+        </div>
+        <p className="note" style={{ marginTop: 'var(--sp-2)' }}>
+          <strong>默认关闭。</strong>打开前会在首次运行时告知，用户可以随时只关掉这三项
+          —— 匿名计数照发（2026-09-09 用户拍板）。
+          <code className="mono"> os_user</code> 与 <code className="mono">host</code> 是
+          <strong>客户端自报</strong>的，服务端无从核实，所以任何地方都不能把它们叫做
+          「真实归属」，只能叫<strong>自报归属</strong>。
+        </p>
+        <p className="note" style={{ marginTop: 'var(--sp-2)' }}>
+          🔴 <strong>它们走的是另一条通道</strong>：另一个 API、另一套 normalizer、
+          按人登录、单独授权、每一次查看（包括被拒绝的）都写审计。
+          这一页与那条通道<strong>不共用 token、不在同一个响应里返回数据</strong>。
+          给同一个归一化函数加一个「要不要剥身份」的开关，迟早会被错误地调用一次，
+          而那一次不会有任何迹象。
+        </p>
+      </div>
+
       <p className="note">
         所以：<code className="mono">install_id</code> 只用来<strong>去重计数</strong>，
         界面上不出现具体值、不提供按它筛选或下钻；

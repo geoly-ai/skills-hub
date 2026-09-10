@@ -25,7 +25,20 @@ test('隐私说明覆盖了字段表里的每一个字段', () => {
   for (const f of ['install_id', 'eid', 'schema']) {
     assert.ok(src.includes(f), `隐私说明里必须点名 ${f} 并说明它为什么不展示`);
   }
-  assert.ok(EVENT_FIELDS.length === 16, '采集面字段数变了，回去核对规格 §2 与这段文案');
+  // 🔴 这个数字是**故意写死**的：它不是「有几个字段」，是「文案与规格对过账了」。
+  //    2026-09-09 从 16 变成 19（加了 os_user / host / notice）。
+  //    再变的时候请连着这段文案一起看，不要只把数字改大。
+  assert.ok(EVENT_FIELDS.length === 19, '采集面字段数变了，回去核对规格 §2 与这段文案');
+  // 🔴 这里**不能**写成 `src.includes(f) || src.includes('IDENTITY_FIELDS')` ——
+  //    import 行里就有 IDENTITY_FIELDS，右边恒真，整条断言空转。
+  //    （Codex 2026-09-09 揪出来的：这正是本仓库最常犯的「看起来守住了」。）
+  //    判据改成**渲染出来的东西**：组件必须真的把身份字段渲染成一份清单。
+  assert.match(src, /identityHidden\.map/,
+    '身份字段必须被渲染成一份清单，而不是只在 import 里出现过');
+  assert.match(src, /IDENTITY_FIELDS\.includes/,
+    '清单必须从白名单推导，不许手抄');
+  assert.match(src, /自报/, '不许把客户端自报的用户名/主机名说成「真实归属」');
+  assert.match(src, /默认关闭/, '必须写明身份字段默认是关的');
 });
 
 test('🔴 隐私说明必须写清「为什么不能加下钻」，而不只是「我们没做」', () => {

@@ -7,6 +7,7 @@
 //      读了就迟早会有人顺手写进日志。
 //   3. **响应不回显任何输入。** 回显是最省事的调试手段，也是最省事的反射型注入面。
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { isIP } from 'node:net';
 import { ACK_SCHEMA, BadBatchError, MAX_BODY_BYTES, parseBatch } from './validate.mjs';
 import { StoreFullError } from './store.mjs';
 import { summarize } from './aggregate.mjs';
@@ -83,6 +84,75 @@ function bearerMatches(header, token) {
 }
 
 /** `application/json`，允许带参数（`; charset=utf-8`），别的一律 415。 */
+/**
+ * 观测客户端 IP —— **只在真的要存身份行时调用**。
+ *
+ * 🔴 **没配信任跳数就返回 null，不猜。** `x-forwarded-for` 是一个任何人都能
+ *    伪造的请求头：直连打这个端点时，整串 XFF 都是攻击者写的。
+ *    「取最左一跳」在受信代理后面才对 —— 在那之前它取到的是**攻击者填的值**，
+ *    而一个填错的 IP 比没有 IP 更糟：它看起来像证据。
+ *
+ * 🔴 判据是**从右往左数第 N 跳**，N = `GEOLY_TRUSTED_PROXY_HOPS`。
+ *    右边那几跳是我们自己的代理写的（每一跳追加一个），所以从右数才数得准；
+ *    从左数会数到客户端自己塞进去的那些。Vercel 单层代理时 N = 1。
+ *
+ * ⚠️ **应用层不记 IP ≠ 系统里没有 IP。** Vercel 的访问日志、边缘层与任何 APM
+ *    仍然会看到它。这个函数管的是「我们自己的库里存不存」，不是整条链路。
+ *
+ * 🔴 `isIP()` 校验 + IPv4-mapped IPv6 归一：`::ffff:10.8.14.62` 与 `10.8.14.62`
+ *    是同一台机器，不归一就会在归属页上排成两行。
+ */
+export function clientIp(req) {
+  const hops = Number(process.env.GEOLY_TRUSTED_PROXY_HOPS);
+  if (!Number.isInteger(hops) || hops < 1 || hops > 8) return null;
+
+  // 🔴 **必须先确认这个请求真的是从我们的代理来的。**（Codex 2026-09-09 的 P0）
+  //    只按 XFF 取值的话，任何能直接连到源站的人发一个
+  //    `X-Forwarded-For: <受害者 IP>` 就会被当成受害者 —— 那不是「取错了一跳」，
+  //    是整条链路**没有任何认证**。信任跳数只回答「链子里哪一格是客户端」，
+  //    它回答不了「这串链子是不是我们自己写的」。
+  //
+  //    两种闭合方式，二选一，**都没配就返回 null**：
+  //      · GEOLY_TRUSTED_PROXY_PEERS —— 逐个列出代理的对端 IP，逐字比对。
+  //        自建部署用这个。
+  //      · GEOLY_TRUSTED_PROXY_PLATFORM=vercel —— 声明「平台在边缘覆写 XFF、
+  //        且源站不可直连」。Vercel 是这种形态：函数只能经由它的边缘到达，
+  //        XFF 由边缘写，客户端塞的那份到不了这里。
+  //        ⚠️ 这是一句**关于部署形态的断言**，不是一次检查。源站要是能被直连，
+  //        这条就是假的 —— 所以它必须被显式写出来，而不是当默认值。
+  //
+  //    ⚠️ `remoteAddress` 只在这里当场比对，**从不写进任何地方**。
+  //    §5.3「不记 IP」说的是不记录，不是不能看一眼来判断可信度。
+  const peers = (process.env.GEOLY_TRUSTED_PROXY_PEERS ?? '')
+    .split(',').map((x) => x.trim()).filter(Boolean);
+  if (peers.length > 0) {
+    let peer = req.socket?.remoteAddress ?? '';
+    const pm = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(peer);
+    if (pm) peer = pm[1];
+    if (!peers.includes(peer)) return null;
+  } else if (process.env.GEOLY_TRUSTED_PROXY_PLATFORM !== 'vercel') {
+    return null;
+  }
+
+  const raw = req.headers?.['x-forwarded-for'];
+  if (typeof raw !== 'string' || raw === '') return null;
+  const chain = raw.split(',').map((x) => x.trim()).filter(Boolean);
+  // 链子比信任跳数还短 = 这个请求没经过我们以为的那些代理。
+  if (chain.length < hops) return null;
+  // 🔴 **索引是 `len - hops`，这一条被质疑过，这里把推导写下来。**
+  //    XFF 的规矩是：每一跳代理追加**它自己收到请求的那个对端地址**，
+  //    它不追加自己。所以 N 层我们自己的代理下，链子是
+  //      [客户端塞的任意内容…, 客户端真实 IP, 代理1, …, 代理N-1]
+  //    最后一格由最外层代理写，值是它的对端 —— 也就是代理 N-1。
+  //    hops=1（只有一层我们自己的代理）时链子末尾那格就是客户端真实 IP，
+  //    `len - 1` 命中它；hops=2 时客户端在倒数第二格，`len - 2` 命中。
+  //    ⚠️ 换成 `len - hops - 1` 会**多退一格**，取到客户端自己塞进去的内容。
+  let ip = chain[chain.length - hops];
+  const m = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+  if (m) ip = m[1];
+  return isIP(ip) ? ip : null;
+}
+
 function jsonContentType(raw) {
   if (typeof raw !== 'string') return false;
   return raw.split(';')[0].trim().toLowerCase() === 'application/json';
@@ -124,8 +194,10 @@ export function createHandler({
   }
 
   return async function handle(req, res) {
-    // 🔴 这里**故意不读** req.socket.remoteAddress 与 req.headers['user-agent']：
-    //    §5.3 不允许记录它们，而「先读进变量、以后再说」正是它们进日志的方式。
+    // 🔴 **`user-agent` 至今一个字都不读，也不许读。** 2026-09-09 加的是 IP，
+    //    不是「放开了这一段」—— UA 原文是一条高熵指纹，采集面里从来没有它。
+    // 🔴 IP 只在 clientIp() 里当场取用、当场用完，**绝不先读进一个变量留着**：
+    //    「先读进来以后再说」正是它进日志的方式。
     const path = (req.url ?? '').split('?')[0];
 
     if (path === SUMMARY_PATH) return handleSummary(req, res);
@@ -144,10 +216,15 @@ export function createHandler({
     inFlight++;
     try {
       const text = await readBody(req, maxBodyBytes);
-      const { events, rejected } = parseBatch(text);
+      const { events, identities, rejected } = parseBatch(text);
+      // 🔴 只有真的要存身份行时才去看 IP。没有身份行时**连取都不取** ——
+      //    这样「不采身份」这条路径上，IP 从头到尾没有出现在任何一个变量里。
+      const ip = identities.length > 0 ? clientIp(req) : null;
       // put 先落盘 fsync 再返回 —— ACK 出去就意味着「收下了」，见 store.mjs
-      const { accepted, duplicate } = await store.put(events, now());
-      // 🔴 只回计数，不回显任何输入（连被拒事件的 eid 都不回）
+      const { accepted, duplicate } = await store.put(events, now(), identities, ip);
+      // 🔴 只回计数，不回显任何输入（连被拒事件的 eid 都不回）。
+      //    ⚠️ **也不回「身份存了几条」**：那会把「服务端开没开身份采集」变成
+      //    一个任何人都能探测的信号。
       return send(res, 200, {
         schema: ACK_SCHEMA, accepted, duplicate, rejected,
       });

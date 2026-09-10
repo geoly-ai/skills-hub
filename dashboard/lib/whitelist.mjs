@@ -19,7 +19,20 @@
 export const EVENT_FIELDS = Object.freeze([
   'schema', 'eid', 'at', 'install_id', 'cli', 'os', 'arch', 'node',
   'kind', 'result', 'artifact', 'version', 'client', 'scope', 'ms', 'reason',
+  // 身份三项（2026-09-09 用户拍板加采）。它们**在这个匿名控制台上一个都不展示** ——
+  // 见下面的 DISPLAYABLE_FIELDS。列在这里只是为了让两张表逐字对得上。
+  'os_user', 'host', 'notice',
 ]);
+
+/**
+ * 🔴 身份字段：**采集面里有，这个控制台上一个都不出现。**
+ *
+ * 它们归另一条通道（身份 API + 按人登录 + 全量审计），不是这一条。
+ * 两条通道**不共用 normalizer、不共用 token、不在同一个响应里返回**
+ * —— Codex 2026-09-09 的评审结论：给同一个 normalizer 加一个「要不要剥」的开关，
+ * 迟早会被错误地调用一次，而那一次不会有任何迹象。
+ */
+export const IDENTITY_FIELDS = Object.freeze(['os_user', 'host', 'notice', 'ip']);
 
 /**
  * 🔴 **可以出现在界面上的字段**（EVENT_FIELDS 减去三个）：
@@ -27,9 +40,11 @@ export const EVENT_FIELDS = Object.freeze([
  *   · `schema` —— 常量，对读者零信息量
  *   · `eid`    —— 事件唯一 ID。它把「同一条事件」钉死，是再识别的抓手
  *   · `install_id` —— 🔴 **本平台最要紧的一条**，见下面的长注释
+ *   · `os_user` / `host` / `notice` —— 身份字段，归另一条通道（见上）
  */
 export const DISPLAYABLE_FIELDS = Object.freeze(
-  EVENT_FIELDS.filter((f) => f !== 'schema' && f !== 'eid' && f !== 'install_id'),
+  EVENT_FIELDS.filter((f) => f !== 'schema' && f !== 'eid' && f !== 'install_id'
+    && !IDENTITY_FIELDS.includes(f)),
 );
 
 /*
