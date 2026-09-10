@@ -130,17 +130,23 @@ export const neededFor = (tier) => (tier >= 2 ? 2 : 1);
  */
 export function assertTierApprovals({ tier, reviews, prHeadSha, maintainerIds, authorId = null }) {
   const need = neededFor(tier);
-  // 🔴 审批豁免：名单上的人自己投的稿跳过人数门。**只跳过人数**，
-  //    这个函数之外的所有门（结构、字符扫描、白名单、版本占用、复算）照跑。
+  // 🔴 **先算当前有效票，再判豁免。** 2026-09-10 起豁免有第二条路
+  //    （名单上的人在本 PR 上投了 approve），而那条路的判据必须是
+  //    **当前有效**的票 —— 用历史票的话，一张被 push 冲掉的旧 approve
+  //    还能继续放行，那正是本仓库 validate-pr.yml 里记着的那个坑。
+  const allApprovers = currentApprovers({ reviews, prHeadSha, maintainerIds });
+  // 🔴 审批豁免：**只跳过人数**，这个函数之外的所有门
+  //    （结构、字符扫描、白名单、版本占用、复算）照跑。
   //    ⚠️ 放行必须**出声** —— 静默的豁免和坏掉的门，事后看起来一模一样。
-  if (approvalsWaived({ authorId })) {
-    process.stderr.write(waiverNotice({ where: 'tier-gate（合并前）', authorId, need }));
+  const waived = approvalsWaived({ authorId, approvers: allApprovers });
+  if (waived) {
+    process.stderr.write(waiverNotice({ where: 'tier-gate（合并前）', authorId, need, reason: waived }));
     return [];
   }
   // 🔴 复用 promote 侧那一份 —— approve 是否挂在当前 head 上、是不是维护者、
   //    一个人只算最新一条，这些判据两处必须**完全一致**，否则会出现
   //    「合并前过了、promote 时不过」这种最难查的分叉。
-  const all = currentApprovers({ reviews, prHeadSha, maintainerIds });
+  const all = allApprovers;
   // 🔴 作者算不算数由 `approval-policy.mjs` 一处说了算 —— 见那里的长注释。
   const effective = effectiveApprovers({ all, authorId });
   if (effective.length < need) {

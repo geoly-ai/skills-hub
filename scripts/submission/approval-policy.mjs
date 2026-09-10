@@ -13,8 +13,10 @@
  *
  * ⚠️ 关掉它**并不等于**「一个人什么都能发」，别据此再放宽别的门：
  *   · Tier 0/1 需要 1 票 → 维护者投自己的稿，确实可以独自发布；
- *   · Tier 2 仍需 **2 个不同的人**，作者只能算其中 1 个 —— 带可执行迹象的
- *     投稿照旧需要第二双眼睛。这条**没有**被这次改动削弱。
+ *   · Tier 2 原本仍需 **2 个不同的人**。
+ *     ⚠️ **2026-09-10 起这句不再普遍成立**：豁免名单里的人在 PR 上投出当前有效的
+ *     approve 时，Tier 2 也放行到 1 票（见下面 `approvalsWaived` 的 `approver` 路径）。
+ *     这里保留原文是为了让改动可读 —— 别把上面那句当成现状。
  *
  * 改回来只要把这个常量翻成 `true`，两处判定同时生效。
  *
@@ -69,20 +71,51 @@ export const APPROVAL_BYPASS_IDS = Object.freeze([
 ]);
 
 /**
- * 这次投稿的审批人数门要不要放行。
+ * 这次投稿的审批人数门要不要放行，以及**因为哪条**放行。
+ *
+ * 两条路：
+ *   · `author`   —— 名单上的人**自己投的稿**（2026-09-01 拍板）
+ *   · `approver` —— 名单上的人**在这张 PR 上投了当前有效的 approve**（2026-09-10 拍板）
+ *
+ * 🔴 **第二条是一次实质扩大，不是第一条的自然延伸。** 第一条覆盖的是
+ *    「我发我自己的东西」，那本来就在我控制之下；第二条覆盖的是
+ *    **替别人放行** —— 一张外部 Tier 2 投稿（声明了 shell / 凭据 / 写仓库能力，
+ *    装到每台机器上都能执行任意命令）原本要两双眼睛，现在名单上的人一票即可。
+ *    ⚠️ **残余风险**：名单上的账号被接管 = 对方可以让**任意外部投稿**过审批门。
+ *    这是用户 2026-09-10 在明知代价的前提下选的形态，不是疏漏。
+ *
+ * 🔴 传进来的 `approvers` **必须是当前有效票**（`currentApprovers()` 的结果：
+ *    已按 PR head sha 过滤、已按维护者名单过滤）。传"历史上所有 approve"
+ *    会让一张被 push 冲掉的旧票继续放行 —— 那正是 validate-pr.yml 里
+ *    写着的那条「第二票被 dismiss 之后 §7 的两名就这么没了」。
  *
  * @param {object} a
  * @param {string|null} a.authorId
- * @returns {boolean}
+ * @param {string[]} [a.approvers]  当前有效的维护者 approve id 列表
+ * @returns {'author'|'approver'|null}
  */
-export function approvalsWaived({ authorId }) {
-  return typeof authorId === 'string' && authorId !== '' && APPROVAL_BYPASS_IDS.includes(authorId);
+export function approvalsWaived({ authorId, approvers = [] }) {
+  if (typeof authorId === 'string' && authorId !== '' && APPROVAL_BYPASS_IDS.includes(authorId)) {
+    return 'author';
+  }
+  if (Array.isArray(approvers) && approvers.some((x) => APPROVAL_BYPASS_IDS.includes(x))) {
+    return 'approver';
+  }
+  return null;
 }
 
-/** 放行时打在 stderr 上的那句话 —— 两处共用，措辞不许各写各的。 */
-export function waiverNotice({ where, authorId, need }) {
-  return `⚠️ 🔴 ${where}：作者 id=${authorId} 在审批豁免名单里，`
-    + `跳过「需要 ${need} 名维护者 approve」这道门。\n`
+/**
+ * 放行时打在 stderr 上的那句话 —— 两处共用，措辞不许各写各的。
+ *
+ * 📌 **必须说清是哪条路放行的**：两条路的风险面完全不同（自己发 vs 替别人放行），
+ *    事后翻日志时「豁免了」这三个字不够用。
+ */
+export function waiverNotice({ where, authorId, need, reason = 'author' }) {
+  const who = reason === 'approver'
+    ? `豁免名单里的维护者在本 PR 上投了当前有效的 approve（作者 id=${authorId ?? '未知'}）`
+    : `作者 id=${authorId} 在审批豁免名单里`;
+  return `⚠️ 🔴 ${where}：${who}，`
+    + `跳过「需要 ${need} 名维护者 approve」这道门（reason=${reason}）。\n`
     + '   ⚠️ 只跳过审批人数 —— 结构门、字符扫描、路径白名单、版本号占用、'
     + '确定性复算**都仍然跑过了**。\n';
 }

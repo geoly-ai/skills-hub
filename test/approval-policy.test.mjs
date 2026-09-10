@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   APPROVAL_BYPASS_IDS, EXCLUDE_AUTHOR, approvalsWaived, effectiveApprovers, exclusionNote,
+  waiverNotice,
 } from '../scripts/submission/approval-policy.mjs';
 import { assertTierApprovals } from '../scripts/submission/tier-gate.mjs';
 import { assertApprovalsCurrent } from '../scripts/promote/verify-merged-pr.mjs';
@@ -86,14 +87,48 @@ test('🔴 三处审批判定都必须调用 effectiveApprovers', () => {
 });
 
 // ── 审批豁免：名单上的人自己投的稿跳过人数门 ──────────────────────────────
-test('豁免名单里的作者：审批人数门放行', () => {
-  assert.equal(approvalsWaived({ authorId: 'U_kgDODu4RvA' }), true);
+// 🔴 返回的是**哪条路**放行，不是布尔 —— 两条路的风险面完全不同
+//    （自己发 vs 替别人放行），日志里必须分得开。
+test('豁免名单里的作者：审批人数门放行，reason=author', () => {
+  assert.equal(approvalsWaived({ authorId: 'U_kgDODu4RvA' }), 'author');
 });
 
 // 🔴 三条一起构成「豁免不会漏给别人」：空值、别人、以及**login 而不是 id**。
 test('🔴 豁免不许扩散：空值、他人、login 形态一律不放行', () => {
   for (const bad of [null, undefined, '', 'chovizzz', 'U_OTHER', 0, {}]) {
-    assert.equal(approvalsWaived({ authorId: bad }), false, `authorId=${JSON.stringify(bad)} 不该被豁免`);
+    assert.equal(approvalsWaived({ authorId: bad }), null, `authorId=${JSON.stringify(bad)} 不该被豁免`);
+  }
+});
+
+// ── 第二条路：名单上的人在本 PR 上 approve（2026-09-10 用户拍板）──────────
+//
+// 🔴 这是一次**实质扩大**：第一条覆盖「我发我自己的」，第二条覆盖**替别人放行**。
+//    一张外部 Tier 2 投稿原本要两双眼睛，现在名单上的人一票即可。
+test('名单上的维护者 approve 了外部投稿：放行，reason=approver', () => {
+  assert.equal(
+    approvalsWaived({ authorId: 'U_EXTERNAL', approvers: ['U_OTHER', 'U_kgDODu4RvA'] }),
+    'approver',
+  );
+});
+
+test('🔴 approve 的人不在名单里就不放行 —— 人数门照旧', () => {
+  assert.equal(approvalsWaived({ authorId: 'U_EXTERNAL', approvers: ['U_OTHER', 'U_THIRD'] }), null);
+  assert.equal(approvalsWaived({ authorId: 'U_EXTERNAL', approvers: [] }), null);
+  assert.equal(approvalsWaived({ authorId: 'U_EXTERNAL' }), null, '缺省参数不该放行');
+});
+
+test('🔴 approvers 里放 login 而不是 id 一样不放行', () => {
+  assert.equal(approvalsWaived({ authorId: 'U_EXTERNAL', approvers: ['chovizzz'] }), null);
+});
+
+test('🔴 放行的那句话必须说清是哪条路 —— 「豁免了」三个字不够用', () => {
+  const a = waiverNotice({ where: 'x', authorId: 'U_kgDODu4RvA', need: 1, reason: 'author' });
+  const b = waiverNotice({ where: 'x', authorId: 'U_EXTERNAL', need: 2, reason: 'approver' });
+  assert.match(a, /reason=author/);
+  assert.match(b, /reason=approver/);
+  assert.match(b, /投了当前有效的 approve/, '替别人放行时必须写清是谁放的行');
+  for (const t of [a, b]) {
+    assert.match(t, /只跳过审批人数/, '必须重申别的门照跑');
   }
 });
 
