@@ -3,7 +3,7 @@
 //   · 只收「哪个制品、什么结果」，不收路径、不收内容、不收用户名、不收目录清单
 //   · 事件先落本地，上报是**独立**动作；关掉上报不影响本地统计
 //   · install_id 是随机 UUID，与账号/机器名/用户名**无任何映射**
-import { randomUUID } from 'node:crypto';
+import { randomUUID, generateKeyPairSync, createPublicKey } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, readdirSync, mkdirSync, openSync, closeSync, statSync, unlinkSync, renameSync, rmSync, fstatSync, linkSync, fsyncSync, chmodSync, fchmodSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir, platform, arch, userInfo, hostname } from 'node:os';
@@ -195,6 +195,69 @@ export function installId() {
   return randomUUID();
 }
 
+/**
+ * 删除所有权密钥 —— Ed25519 私钥，只存本机。
+ *
+ * 🔴 **与 `install_id` 同一套「先写满、再让名字出现」**（见上面那段长注释）：
+ *    `wx` 抢占看着原子，其实文件一建就存在而内容还没写，抢输的进程读到空串。
+ *    这里的代价比 install_id 更大 —— 并发首采若生成两把密钥、只落盘一把，
+ *    另一批已经带着公钥发出去的身份数据就**永久删不掉**
+ *    （Codex 2026-09-10 指出）。
+ *
+ * 🔴 **不在这里做「没有就生成」以外的任何事。** 特别是：读不出来时**不重新生成** ——
+ *    重新生成等于把旧公钥对应的那批数据永久孤立。读不出来就返回 null，
+ *    让调用方如实说「这台机器没有可用的密钥，删不了」。
+ */
+const deleteKeyPath = () => join(stateDir(), 'telemetry', 'delete-key');
+
+export function deleteKey({ create = false } = {}) {
+  const p = deleteKeyPath();
+  const readValid = () => {
+    try {
+      const pem = readFileSync(p, 'utf8');
+      if (!pem.includes('BEGIN PRIVATE KEY')) return null;
+      const pub = createPublicKey(pem);
+      const { x } = pub.export({ format: 'jwk' });
+      return RE_PUBKEY.test(x) ? { pem, pubkey: x } : null;
+    } catch { return null; }
+  };
+
+  const existing = readValid();
+  if (existing) {
+    // 权限迁移与 install-id 同理：只在新建时给 0600 等于永远迁不到老机器
+    try {
+      telemetryDir();
+      if ((statSync(p).mode & 0o777) !== 0o600) chmodSync(p, 0o600);
+    } catch (err) { _permWarn = `delete-key 收不到 0600：${err?.message ?? err}`; }
+    return existing;
+  }
+  if (!create) return null;
+
+  telemetryDir();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const pem = privateKey.export({ format: 'pem', type: 'pkcs8' });
+    const tmp = `${p}.${process.pid}.${attempt}.tmp`;
+    try {
+      const fd = openSync(tmp, 'w', 0o600);
+      try { appendFileSync(fd, pem); fsyncSync(fd); } finally { closeSync(fd); }
+      try {
+        linkSync(tmp, p);                 // 原子 no-replace：抢到了
+        return readValid();
+      } catch {
+        const winner = readValid();       // 别人抢先，此刻内容必然完整
+        if (winner) return winner;
+      }
+    } catch {
+      const winner = readValid();
+      if (winner) return winner;
+    } finally {
+      try { unlinkSync(tmp); } catch { /* 没建成 */ }
+    }
+  }
+  return null;   // 抢不到又读不出：如实返回 null，绝不「再生成一把」
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 严格 schema：这是隐私契约的**唯一**执行点
 //
@@ -209,6 +272,9 @@ export function installId() {
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const RE_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const RE_SEMVERISH = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
+// Ed25519 公钥的 JWK `x`：32 字节 → base64url 恰好 43 字符，无 padding。
+// 🔴 **定长**，不是「长度不超过」：可变长度会让一个塞了别的东西的字段混进来。
+const RE_PUBKEY = /^[A-Za-z0-9_-]{43}$/;
 const RE_ARTIFACT = /^(skill|pack):[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*@[0-9A-Za-z.+-]{1,32}$/;
 
 export const CLIENTS = new Set(['claude', 'cursor', 'codex', 'agents']);
@@ -300,6 +366,13 @@ const FIELDS = {
   // 🔴 `identity: true` 是**唯一**的身份标记来源。早先身份字段名是另写的一个
   //    手写数组，加字段时忘了同步那边，正向 pick 就会把新字段当匿名字段放出去
   //    —— 而且不报错（Codex 2026-09-09 的硬化建议）。现在两张名单都从这里派生。
+  // 🔴 `pubkey` 也是身份类字段，理由和 install_id 一样：**它是一个高熵且稳定的
+  //    标识符**。为了让「删除」能证明所有权，我们不得不多收一个这样的东西 ——
+  //    「能删」与「少收」在这件事上是对立的（Codex 2026-09-10 复核过这个取舍）。
+  //    能接受的原因只有两条：它跟身份三项同期 90 天到期，
+  //    且只在身份**已经开启**时才存在（身份没开就没有可删的东西）。
+  //    定长 43 字符 base64url = 32 字节 Ed25519 公钥的 JWK `x`。
+  pubkey: { required: false, identity: true, ok: str(RE_PUBKEY) },
   os_user: { required: false, identity: true, ok: identityOk(MAX_OS_USER) },
   host: { required: false, identity: true, ok: identityOk(MAX_HOST) },
   notice: { required: false, identity: true, ok: oneOf(NOTICES) },
@@ -388,6 +461,11 @@ export function buildEvent({ kind, artifact, version, client, scope, result, ms,
     if (u !== null) ev.os_user = u;
     if (h !== null) ev.host = h;
     ev.notice = IDENTITY_NOTICE;
+    // 🔴 公钥在**第一条带身份的事件**上就要带上，不能等到删除时才发：
+    //    删除要能指认「这批数据是我的」，而指认靠的正是每条数据上都有这把公钥。
+    //    生成失败时不发 —— 那台机器的这批数据将删不掉，CLI 会如实告诉用户。
+    const k = deleteKey({ create: true });
+    if (k) ev.pubkey = k.pubkey;
   }
   if (artifact !== undefined) ev.artifact = artifact;
   if (version !== undefined) ev.version = version;

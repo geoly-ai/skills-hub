@@ -586,3 +586,79 @@ test('状态目录不存在时 delete 什么都不建', async () => {
   assert.deepEqual(r, { removed: 0, remaining: [] });
   assert.equal(existsSync(join(d, 'telemetry')), false, '为了删而先把目录建出来了');
 });
+
+// ── 删除所有权密钥（2026-09-10）──────────────────────────────────────────────
+
+test('🔴 默认不生成密钥 —— 身份没开就没有可删的东西，也就不需要它', async () => {
+  const d = iso();
+  const { existsSync } = await import('node:fs');
+  const tm = await fresh();
+  tm.record({ kind: 'install', result: 'ok' });
+  assert.equal(existsSync(join(d, 'telemetry', 'delete-key')), false);
+  assert.equal(tm.deleteKey(), null, '没有密钥时必须返回 null');
+});
+
+test('身份开启后第一条事件就带公钥，且密钥落盘 0600', async () => {
+  const d = iso();
+  process.env.GEOLY_TELEMETRY_IDENTITY = 'on';
+  try {
+    const { mkdirSync, writeFileSync: wf, statSync } = await import('node:fs');
+    mkdirSync(join(d, 'telemetry'), { recursive: true });
+    wf(join(d, 'telemetry', 'identity-notice.v2'), `shown-at=${new Date().toISOString()}\n`);
+    const tm = await fresh();
+    const ev = tm.buildEvent({ kind: 'install', result: 'ok' });
+    assert.match(ev.pubkey, /^[A-Za-z0-9_-]{43}$/, '公钥不是 43 字符 base64url');
+    assert.equal(statSync(join(d, 'telemetry', 'delete-key')).mode & 0o777, 0o600);
+    // 同一台机器上必须稳定，否则旧数据会被孤立
+    const again = tm.buildEvent({ kind: 'check', result: 'ok' });
+    assert.equal(again.pubkey, ev.pubkey, '公钥换了 —— 之前发出去的数据就删不掉了');
+    assert.equal(tm.deleteKey().pubkey, ev.pubkey);
+  } finally { delete process.env.GEOLY_TELEMETRY_IDENTITY; }
+});
+
+test('🔴 密钥读不出来时返回 null，绝不「再生成一把」', async () => {
+  const d = iso();
+  const { mkdirSync, writeFileSync: wf } = await import('node:fs');
+  mkdirSync(join(d, 'telemetry'), { recursive: true });
+  wf(join(d, 'telemetry', 'delete-key'), '这不是一把密钥\n');
+  const tm = await fresh();
+  // create:true 也不许覆盖 —— 覆盖等于把旧公钥对应的那批数据永久孤立
+  assert.equal(tm.deleteKey({ create: true }), null);
+  const { readFileSync: rf } = await import('node:fs');
+  assert.equal(rf(join(d, 'telemetry', 'delete-key'), 'utf8'), '这不是一把密钥\n',
+    '损坏的密钥文件被覆盖了');
+});
+
+test('🔴 公钥是身份类字段：不进匿名事件，也不进导出', async () => {
+  const d = iso();
+  process.env.GEOLY_TELEMETRY_IDENTITY = 'on';
+  try {
+    const { mkdirSync, writeFileSync: wf } = await import('node:fs');
+    mkdirSync(join(d, 'telemetry'), { recursive: true });
+    wf(join(d, 'telemetry', 'identity-notice.v2'), `shown-at=${new Date().toISOString()}\n`);
+    const tm = await fresh();
+    tm.record({ kind: 'install', result: 'ok', artifact: 'skill:geoly/a@1.0.0' });
+    const pub = tm.deleteKey().pubkey;
+    const text = tm.exportJson();
+    assert.ok(!text.includes(pub), '导出的字节里出现了公钥');
+    assert.ok(!Object.hasOwn(JSON.parse(text).events[0], 'pubkey'));
+    assert.ok(tm.IDENTITY_FIELD_NAMES.includes('pubkey'), 'pubkey 没被标成身份字段');
+    assert.ok(!tm.ANONYMOUS_FIELD_NAMES.includes('pubkey'));
+  } finally { delete process.env.GEOLY_TELEMETRY_IDENTITY; }
+});
+
+test('🔴 pubkey 是定长的：长一位短一位都不许过', async () => {
+  iso();
+  const { assertValidEvent } = await fresh();
+  const base = {
+    schema: 'geoly.skills.telemetry/1', eid: '00000000-0000-4000-8000-000000000000',
+    at: '2026-01-01T00:00:00Z', install_id: '00000000-0000-4000-8000-000000000000',
+    cli: '0.1.0', os: 'darwin', arch: 'arm64', node: '22.13.0', kind: 'install', result: 'ok',
+  };
+  const ok43 = 'a'.repeat(43);
+  assert.ok(assertValidEvent({ ...base, pubkey: ok43 }));
+  assert.throws(() => assertValidEvent({ ...base, pubkey: 'a'.repeat(42) }), /pubkey/);
+  assert.throws(() => assertValidEvent({ ...base, pubkey: 'a'.repeat(44) }), /pubkey/);
+  assert.throws(() => assertValidEvent({ ...base, pubkey: `${'a'.repeat(42)}+` }), /pubkey/,
+    'base64（含 + /）不是 base64url');
+});

@@ -19,9 +19,10 @@
 export const EVENT_FIELDS = Object.freeze([
   'schema', 'eid', 'at', 'install_id', 'cli', 'os', 'arch', 'node',
   'kind', 'result', 'artifact', 'version', 'client', 'scope', 'ms', 'reason',
-  // 身份三项（2026-09-09 用户拍板加采）。它们**在这个匿名控制台上一个都不展示** ——
-  // 见下面的 DISPLAYABLE_FIELDS。列在这里只是为了让两张表逐字对得上。
-  'os_user', 'host', 'notice',
+  // 身份字段（2026-09-09 用户拍板加采，2026-09-10 因删除通道加了 pubkey）。
+  // 它们**在这个匿名控制台上一个都不展示** —— 见下面的 DISPLAYABLE_FIELDS。
+  // 列在这里只是为了让两张表逐字对得上。
+  'pubkey', 'os_user', 'host', 'notice',
 ]);
 
 /**
@@ -32,7 +33,7 @@ export const EVENT_FIELDS = Object.freeze([
  * —— Codex 2026-09-09 的评审结论：给同一个 normalizer 加一个「要不要剥」的开关，
  * 迟早会被错误地调用一次，而那一次不会有任何迹象。
  */
-export const IDENTITY_FIELDS = Object.freeze(['os_user', 'host', 'notice', 'ip']);
+export const IDENTITY_FIELDS = Object.freeze(['pubkey', 'os_user', 'host', 'notice', 'ip']);
 
 /**
  * 🔴 **可以出现在界面上的字段**（EVENT_FIELDS 减去三个）：

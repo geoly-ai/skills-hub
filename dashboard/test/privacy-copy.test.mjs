@@ -26,9 +26,10 @@ test('隐私说明覆盖了字段表里的每一个字段', () => {
     assert.ok(src.includes(f), `隐私说明里必须点名 ${f} 并说明它为什么不展示`);
   }
   // 🔴 这个数字是**故意写死**的：它不是「有几个字段」，是「文案与规格对过账了」。
-  //    2026-09-09 从 16 变成 19（加了 os_user / host / notice）。
+  //    2026-09-09 从 16 变成 19（加了 os_user / host / notice）；
+  //    2026-09-10 变成 20（加了 pubkey —— 删除时用来证明「这批数据是我的」）。
   //    再变的时候请连着这段文案一起看，不要只把数字改大。
-  assert.ok(EVENT_FIELDS.length === 19, '采集面字段数变了，回去核对规格 §2 与这段文案');
+  assert.ok(EVENT_FIELDS.length === 20, '采集面字段数变了，回去核对规格 §2 与这段文案');
   // 🔴 这里**不能**写成 `src.includes(f) || src.includes('IDENTITY_FIELDS')` ——
   //    import 行里就有 IDENTITY_FIELDS，右边恒真，整条断言空转。
   //    （Codex 2026-09-09 揪出来的：这正是本仓库最常犯的「看起来守住了」。）
