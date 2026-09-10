@@ -8,9 +8,36 @@
 //    最容易在部署时漏掉、又最没有迹象的一种失败。
 export const config = { api: { bodyParser: false } };
 
-import { runtime, guarded } from '../vercel-runtime.mjs';
+// 🔴 **不在顶层 import `vercel-runtime.mjs`。** 它拉的是 `postgres` 驱动，
+//    而那个依赖只装在 `server/node_modules`；仓库根的测试一 import 本模块就炸
+//    `ERR_MODULE_NOT_FOUND`，本地有 server/node_modules 所以绿、CI 只装根依赖所以红
+//    —— 「本地绿 CI 红」的经典形态，2026-09-10 实测复现（把 server/node_modules
+//    改名后本地立刻同样红）。
+//    改成在 handler 里动态 import：本模块导出的纯函数（retentionDays 等）
+//    因此可以被单测直接拿来用，而不必把整条数据库依赖拖进来。
+//    ⚠️ 这不是为测试让步的写法 —— 一个路由模块本来就不该在**导入时**
+//    就把数据库驱动拉起来。
 
-const RETENTION_DAYS = Number(process.env.GEOLY_TELEMETRY_RETENTION_DAYS ?? 180);
+// 🔴 **保留期读不出数就拒绝服务，不要回落到默认值。**
+//    `Number('180 days')` 是 NaN，而 `NaN * 86_400_000` 也是 NaN ——
+//    cutoff 成了 NaN，`received_at < to_timestamp(NaN)` 一行都删不掉：
+//    保留期静默失效，数据无限期留着，而端点照样回 200 ok。
+//    「配错 = 不清理」是最没有迹象的一种失败，所以配错就 503。
+function identityRetentionDays() {
+  const raw = process.env.GEOLY_TELEMETRY_IDENTITY_RETENTION_DAYS;
+  if (raw === undefined || raw === '') return 90;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 3650) return null;
+  return n;
+}
+
+export function retentionDays() {
+  const raw = process.env.GEOLY_TELEMETRY_RETENTION_DAYS;
+  if (raw === undefined || raw === '') return 180;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 3650) return null;
+  return n;
+}
 
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
@@ -23,13 +50,57 @@ export default async function handler(req, res) {
     res.statusCode = 401;
     return res.end(JSON.stringify({ error: 'unauthorized' }));
   }
+  const days = retentionDays();
+  const idDays = identityRetentionDays();
+  if (days === null || idDays === null) {
+    res.statusCode = 503;
+    return res.end(JSON.stringify({ error: 'retention_days_invalid' }));
+  }
+  // 🔴 身份的保留期必须**短于**事件：反过来配的话，身份行会一直等到事件
+  //    过期被 cascade 带走，「身份 90 天」就成了「身份跟事件一样久」。
+  //    这种配置错误没有任何迹象，所以在这里挡住。
+  if (idDays > days) {
+    res.statusCode = 503;
+    return res.end(JSON.stringify({ error: 'identity_retention_longer_than_events' }));
+  }
+  const { runtime, guarded } = await import('../vercel-runtime.mjs');
   await guarded(req, res, async () => {
     const { sql } = runtime();
     const { openPostgresStore } = await import('../store-postgres.mjs');
-    const r = await openPostgresStore(sql).prune(RETENTION_DAYS);
+    const store = openPostgresStore(sql);
+    // 🔴 **身份先清，再清事件。** 顺序反了的话，事件被 prune 掉时
+    //    `on delete cascade` 会顺手把身份行也带走 —— 结果看起来一样，
+    //    但那时「身份 90 天」这条线从来没有真正跑过，它是否有效无从验证。
+    //
+    // 🔴 **但身份这一步失败不能连坐掉事件那一步。**
+    //    最现实的形态是**部署顺序**：新代码先上、迁移还没跑，
+    //    `telemetry_identity` 不存在 → 第一句就抛 → 事件保留期**也跟着停**，
+    //    而这是一条每天 04:00 的定时任务，没人盯着，可以静默停很多天。
+    //    所以：身份失败**记下来继续跑事件**，最后**整体报失败**（非 2xx，
+    //    定时任务那边看得见），而不是回 200 把错误藏在 body 里。
+    let idr = null;
+    let idError = null;
+    let idsr = null;
+    try {
+      idr = await store.pruneIdentity(idDays);
+      // 🔴 `install_id` 与身份三项**同一条到期线**（用户 2026-09-09 选 1A）：
+      //    身份行删了但 install_id 还在，配上时间线仍然能串回同一台机器。
+      idsr = await store.pruneInstallIds(idDays);
+    } catch (e) {
+      idError = e?.message ?? String(e);
+    }
+    const r = await store.prune(days);
     await sql`update telemetry_meta set pruned_at = now() where id = 1`;
-    res.statusCode = 200;
+    res.statusCode = idError ? 500 : 200;
     res.setHeader('content-type', 'application/json; charset=utf-8');
-    res.end(JSON.stringify({ ok: true, retentionDays: RETENTION_DAYS, ...r }));
+    res.end(JSON.stringify({
+      ok: !idError, retentionDays: days, identityRetentionDays: idDays,
+      identityDeleted: idr?.deleted ?? null,
+      installIdsStripped: idsr?.stripped ?? null,
+      // 撞上限要说出来：这一轮只剥了一部分，下一轮接着剥
+      installIdsCapped: idsr?.capped ? true : undefined,
+      identityError: idError ?? undefined,
+      ...r,
+    }));
   });
 }

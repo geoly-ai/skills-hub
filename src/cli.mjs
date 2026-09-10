@@ -37,7 +37,8 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
                                      \`--yes\` 只表示**确认了那个风险**，不跳过任何校验。
 
   stats [--json] [--export <file>]   本地埋点报表
-  telemetry <status|flush>           埋点/上报开关与队列
+  telemetry <status|flush|on|off|delete>
+                                     埋点开关、队列、身份三项的退出与本机清空
 
 全局 flag（09-cli.md §2）：
   --clients <list>            默认 = 本机已存在的全部；含未安装 client 是硬错误
@@ -156,9 +157,19 @@ export async function main(argv, deps = {}) {
     return EXIT.OK;
   }
 
-  // 埋点两个子命令是纯本地的，不需要快照/锁/target
+  // 埋点两个子命令是纯本地的，不需要快照/锁/target。
+  // 🔴 **但它们照样要守输出契约**：早先 telemetry 那条在顶层 try/catch 之外，
+  //    于是 `telemetry delete --json` 在状态目录不存在时抛 ERR_SQLITE_ERROR，
+  //    stdout / stderr 双双为空 —— 调用方拿到一个非零退出码和零个字节
+  //    （Codex 2026-09-09 实测复现）。这里补一层：异常按 §7 的错误形状出。
   if (cmd === 'stats') return cmdStats(rest.slice(1), globals, stdout, stderr);
-  if (cmd === 'telemetry') return cmdTelemetry(rest.slice(1), stdout, stderr);
+  if (cmd === 'telemetry') {
+    try {
+      return await cmdTelemetry(rest.slice(1), globals, out, stdout, stderr);
+    } catch (err) {
+      return out.emitError('telemetry', classify(err), err);
+    }
+  }
 
   const load = COMMANDS[cmd];
   if (!load) {
@@ -235,6 +246,9 @@ async function noticeOnce(stderr) {
     let url = null;
     try { url = endpoint(); } catch { return; }         // 端点配坏了 = 不会出网
     tm.maybeNoticeUpload((s) => stderr.write(s), url);
+    // 🔴 身份告知是**另一段**：只有在有人显式打开身份采集时才打。
+    //    它同时是 identityEnabled() 的硬前置 —— 没打过就一项都不采。
+    tm.maybeNoticeIdentity((s) => stderr.write(s), url);
   } catch { /* 告知不是主命令的一部分（T-5） */ }
 }
 
@@ -278,13 +292,35 @@ async function cmdStats(args, globals, stdout, stderr) {
   return EXIT.OK;
 }
 
-async function cmdTelemetry(args, stdout, stderr) {
+// `--json` 是**全局** flag，解析后放在 globals 里、已经从 args 里摘走了 ——
+// 所以这里读 globals.json，不是 args.includes('--json')。
+// ⚠️ 我第一版就是写成后者，跑出来一点反应都没有：flag 根本不在 args 里。
+async function cmdTelemetry(args, globals, out, stdout, stderr) {
   const tm = await import('./telemetry.mjs');
   const up = await import('./upload.mjs');
   switch (args[0]) {
     case 'status': {
       let ep;
       try { ep = up.endpoint(); } catch (e) { ep = `无效（${e.message}）`; }
+      // 🔴 身份与匿名计数分两行显示。合成一行「上报：开」的话，
+      //    关掉身份的用户看不出「我关的那个到底关了没有」。
+      const identity = tm.identityEnabled() ? '开'
+        : tm.enabled() ? '关（身份三项不发，匿名计数照发）' : '关（埋点整体已关）';
+      if (globals.json) {
+        stdout.write(`${JSON.stringify({
+          schema: 'geoly.skills.telemetry-status/1',
+          telemetry: tm.enabled(),
+          upload: tm.uploadEnabled(),
+          identity: tm.identityEnabled(),
+          endpoint: ep ?? null,
+          endpointIsDefault: ep ? up.isDefaultEndpoint() : null,
+          permWarning: tm.permWarning(),
+          queued: tm.readAll().length,
+          history: tm.readHistory().length,
+          stateDir: tm.stateDir(),
+        })}\n`);
+        return EXIT.OK;
+      }
       const uploadOff = !tm.enabled() ? '关（埋点整体已关）'
         : tm.offline() ? '关（--offline）'
           : '关（GEOLY_TELEMETRY_UPLOAD=0）';
@@ -293,13 +329,23 @@ async function cmdTelemetry(args, stdout, stderr) {
       // 🔴 端点默认开（2026-09-01 拍板），所以「这是内置默认值」必须写在脸上：
       //    用户有权知道数据默认发去哪，而不是去翻源码才发现有个默认端点。
       stdout.write(`端点      ${ep ?? '无'}${ep && up.isDefaultEndpoint() ? '（内置默认值 —— 未配 GEOLY_TELEMETRY_ENDPOINT）' : ''}\n`);
+      stdout.write(`身份三项  ${identity}\n`);
       stdout.write(`待上报    ${tm.readAll().length} 条\n`);
       stdout.write(`报表历史  ${tm.readHistory().length} 条（上报不消费它）\n`);
       stdout.write(`状态目录  ${tm.stateDir()}\n`);
+      // 🔴 权限收不紧要**说出来**：悄悄地继续写，意味着没人知道这台机器上的
+      //    埋点目录是所有人可读的 —— 而里面可能有登录名与主机名。
+      const pw = tm.permWarning();
+      if (pw) stdout.write(`⚠️ 权限    ${pw}\n`);
       return EXIT.OK;
     }
     case 'flush': {
       const r = await up.flush();
+      if (globals.json) {
+        const bad = r.skipped && (r.reason === 'bad-endpoint' || r.reason?.startsWith('error:'));
+        return out.emit('telemetry', { action: 'flush', sent: r.sent ?? 0, skipped: !!r.skipped, reason: r.reason ?? null },
+          bad ? EXIT.USAGE : EXIT.OK);
+      }
       stdout.write(r.skipped
         ? `未上报：${r.reason}${r.detail ? `（${r.detail}）` : ''}\n`
         : `已上报 ${r.sent} 条\n`);
@@ -309,8 +355,84 @@ async function cmdTelemetry(args, stdout, stderr) {
       const bad = r.skipped && (r.reason === 'bad-endpoint' || r.reason?.startsWith('error:'));
       return bad ? EXIT.USAGE : EXIT.OK;
     }
+    case 'off': {
+      const all = args.includes('--all');
+      // 🔴 **`--all` 做不到它字面的意思，所以它不许假装做到了。**
+      //    「什么都不发」等价于 GEOLY_TELEMETRY=0，而那个开关承诺的是
+      //    「本地一个字节都不写」—— 一个要先写标记文件才能生效的持久开关，
+      //    与那句承诺自相矛盾。所以这里只关身份，并**如实说**全关要走环境变量。
+      //    早先这条的文案写着「什么都不发」而实现只关了身份（Codex 指出）。
+      // 🔴 埋点整体已关时**什么都不写**：那种状态下建目录、落标记，
+      //    本身就违反了那句承诺。
+      if (!tm.enabled()) {
+        const msg = '埋点整体已经是关的（GEOLY_TELEMETRY=0），没有可关的东西，也不写任何文件。';
+        if (globals.json) return out.emit('telemetry', { action: 'off', changed: false, identity: false }, EXIT.OK);
+        stdout.write(`${msg}\n`);
+        return EXIT.OK;
+      }
+      tm.identityOff();
+      if (globals.json) {
+        return out.emit('telemetry', {
+          action: 'off', all, changed: true, identity: tm.identityEnabled(),
+          note: all ? '全关需要环境变量 GEOLY_TELEMETRY=0' : undefined,
+        }, EXIT.OK);
+      }
+      stdout.write('已关闭身份三项（登录名 / 主机名 / 来源 IP）。\n');
+      stdout.write('匿名计数照发 —— 装了什么、成不成功、耗时。\n');
+      if (all) {
+        stdout.write('\n⚠️ `--all` 只关掉了身份三项。要连匿名计数一起停，请设\n');
+        stdout.write('   GEOLY_TELEMETRY=0 —— 它必须是环境变量：那个开关承诺的是\n');
+        stdout.write('   「本地一个字节都不写」，而一个要先写标记文件才生效的持久开关\n');
+        stdout.write('   与这句承诺自相矛盾。\n');
+      }
+      stdout.write('已经发出去的身份记录不会自动删除：skills-hub telemetry delete\n');
+      return EXIT.OK;
+    }
+    case 'on': {
+      if (!tm.enabled()) {
+        if (globals.json) return out.emit('telemetry', { action: 'on', changed: false }, EXIT.OK);
+        stdout.write('埋点整体已关（GEOLY_TELEMETRY=0），不写任何文件。\n');
+        return EXIT.OK;
+      }
+      tm.identityOn();
+      if (globals.json) {
+        return out.emit('telemetry', { action: 'on', changed: true, identity: tm.identityEnabled() }, EXIT.OK);
+      }
+      stdout.write('已撤销「关闭身份」的标记。\n');
+      // 🔴 说清楚它**没有**打开身份采集：还要过环境变量与告知两道门。
+      //    不写这句的话，用户会以为 `telemetry on` 就是开了。
+      stdout.write(`当前身份三项：${tm.identityEnabled() ? '开' : '仍然是关的'}\n`);
+      if (!tm.identityEnabled()) {
+        stdout.write('要真正打开还需要 GEOLY_TELEMETRY_IDENTITY=on，并看过一次身份告知。\n');
+      }
+      return EXIT.OK;
+    }
+    case 'delete': {
+      const r = tm.purgeLocal();
+      if (globals.json) {
+        return out.emit('telemetry', {
+          action: 'delete', removed: r.removed, remaining: r.remaining, scope: 'local-only',
+          note: '服务端删除通道尚未上线',
+        }, EXIT.OK);
+      }
+      stdout.write(`本机埋点数据已清空（删了 ${r.removed} 个文件，含 install-id 与上报墓碑）。\n`);
+      // 🔴 删不掉的要**说出来**：「已清空」和「清了一部分」是两件事。
+      if (r.remaining.length > 0) {
+        stdout.write(`⚠️ 这些没删掉：${r.remaining.join('、')}\n`);
+      }
+      // 🔴 **不假装能远程删。** 服务端删除要有所有权证明，那条通道还没建；
+      //    在没有证明的情况下开一个「按 install_id 删」的入口，等于让任何人
+      //    删掉别人的数据（Codex 2026-09-09 指出）。
+      stdout.write('⚠️ 这只清了本机。已经发到服务端的记录需要另外申请删除，\n');
+      stdout.write('   带所有权证明的删除通道还没上线 —— 在那之前请联系维护者。\n');
+      return EXIT.OK;
+    }
     default:
-      stderr.write('用法：skills-hub telemetry <status|flush>\n');
+      if (globals.json) {
+        return out.emitError('telemetry', classify(new UsageError('x')),
+          new Error('用法：skills-hub telemetry <status|flush|on|off [--all]|delete>'));
+      }
+      stderr.write('用法：skills-hub telemetry <status|flush|on|off [--all]|delete>\n');
       return EXIT.USAGE;
   }
 }

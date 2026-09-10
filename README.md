@@ -230,7 +230,10 @@ client 生成，`test/adapters.test.mjs` 用真 git 仓库验证过它确实忽�
 只写本地，不出网。也可以随时 `skills-hub telemetry flush` 手动发。
 
 事件只含制品坐标、客户端、操作、结果、耗时、CLI/OS/Node 版本和一个本机随机 ID，
-**不含路径、目录清单、文件内容、用户名、命令行原文、异常栈**；
+**不含路径、目录清单、文件内容、命令行原文、异常栈**；
+登录名 / 主机名 / 来源 IP 属于**身份三项**，**默认不采** —— 要开会在首次运行时
+单独告知一次，之后 `skills-hub telemetry off` 可以只关它、匿名计数照发
+（详见 [`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md) §2.3）；
 这条契约由 `assertValidEvent()` 在落盘/读回/上报/导出四个边界执行，
 **端点侧跑的是同一个校验器**（不另写一份，两份必然分叉）。
 

@@ -120,11 +120,16 @@ export function assertApprovalsCurrent({ reviews, prHeadSha, maintainerIds, need
   if (!Number.isInteger(needed) || needed < 1) bad('E_VERIFY_INPUT', `needed 必须是正整数，得到 ${needed}`);
   // 🔴 与 tier-gate **同步**放行 —— 两处不同步的后果是「合并前过了、promote 时
   //    不过」：PR 已经进了 main，发布却卡住，而两边日志各说各有理。
-  if (approvalsWaived({ authorId })) {
-    process.stderr.write(waiverNotice({ where: 'verify-merged-pr（promote 时）', authorId, need: needed }));
+  // 先算当前有效票再判豁免 —— 理由同 tier-gate（豁免的第二条路要用当前有效票）
+  const allApprovers = currentApprovers({ reviews, prHeadSha, maintainerIds });
+  const waived = approvalsWaived({ authorId, approvers: allApprovers });
+  if (waived) {
+    process.stderr.write(waiverNotice({
+      where: 'verify-merged-pr（promote 时）', authorId, need: needed, reason: waived,
+    }));
     return [];
   }
-  const all = currentApprovers({ reviews, prHeadSha, maintainerIds });
+  const all = allApprovers;
   // 🔴 与 tier-gate 共用同一份策略 —— 分叉的后果是「合并前过了、promote 时不过」。
   const effective = effectiveApprovers({ all, authorId });
   if (effective.length < needed) {

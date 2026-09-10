@@ -6,6 +6,7 @@
 //    并让测试断言那些参数是**驱动能接受的形状**（JSON 字符串而不是数组）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { openPostgresStore, MAX_SCAN_ROWS, StoreUnavailableError } from '../server/store-postgres.mjs';
 
 /** 造一个模板标签函数；`plan` 决定每次调用返回什么。 */
@@ -18,7 +19,18 @@ function fakeSql(plan = []) {
     if (next instanceof Error) return Promise.reject(next);
     return Promise.resolve(next ?? []);
   };
-  sql.begin = async (fn) => fn(sql);
+  // 🔴 记录事务边界。上一版的 fake `begin()` 直接把同一个 sql 传下去，
+  //    于是「两条 insert 在不在同一个事务里」根本测不出来 —— 拆成两个事务
+  //    照样绿（Codex 2026-09-09 指出）。这里在前后各记一个标记，
+  //    测试就能断言两条 insert 落在同一对标记之间。
+  sql.begin = async (fn) => {
+    calls.push({ text: '<<BEGIN>>', args: [] });
+    try {
+      return await fn(sql);
+    } finally {
+      calls.push({ text: '<<COMMIT>>', args: [] });
+    }
+  };
   sql.calls = calls;
   return sql;
 }
@@ -26,7 +38,7 @@ function fakeSql(plan = []) {
 test('put 空数组不打库', async () => {
   const sql = fakeSql();
   const r = await openPostgresStore(sql).put([], Date.now());
-  assert.deepEqual(r, { accepted: 0, duplicate: 0 });
+  assert.deepEqual(r, { accepted: 0, duplicate: 0, identities: 0 });
   assert.equal(sql.calls.length, 0);
 });
 
@@ -58,7 +70,7 @@ test('🔴 accepted 取 RETURNING 的行数，重复的算 duplicate', async () 
   const r = await openPostgresStore(sql).put(
     [{ eid: 'a' }, { eid: 'b' }, { eid: 'a' }], Date.now(),
   );
-  assert.deepEqual(r, { accepted: 2, duplicate: 1 });
+  assert.deepEqual(r, { accepted: 2, duplicate: 1, identities: 0 });
 });
 
 test('🔴 每个写事务显式 set local synchronous_commit = on', async () => {
@@ -100,4 +112,155 @@ test('rollup 表为空时给 emptyRollup，不是 undefined', async () => {
   const r = await openPostgresStore(fakeSql([[]])).rollup();
   assert.equal(typeof r, 'object');
   assert.ok(r !== null);
+});
+
+// 🔴 **prune 必须把折算结果写回去。**（Codex 2026-09-09 在身份字段评审里翻出来的）
+//    `foldInto` 是纯函数、返回新对象；这里早先写成 `foldInto(roll, …)` 丢掉返回值，
+//    再把**没折算过**的 roll 写回：水位照推、计数一条不涨，被删掉的事件从历史里
+//    彻底消失，而且**不报错、不掉测试**。文件版 store.mjs 一直是对的，只有这条路径漏了。
+//    ⚠️ 它平时看不出来：live 事件还在库里时页面数字是对的，只有**过了保留期**才露馅。
+test('🔴 prune 把 foldInto 的返回值写回 rollup（不是丢掉返回值写回原对象）', async () => {
+  const ev = (eid) => ({
+    schema: 'geoly.skills.telemetry/1', eid, at: '2026-01-01T00:00:00Z',
+    install_id: '00000000-0000-4000-8000-000000000000', cli: '0.1.0',
+    os: 'darwin', arch: 'arm64', node: '22.13.0',
+    kind: 'install', result: 'ok', artifact: 'skill:geoly/a@1.0.0',
+  });
+  const sql = fakeSql([
+    [],                                   // set local synchronous_commit
+    [{ doc: { schema: 'geoly.skills.telemetry-rollup/1', cutoff: 0, total: 0, byArtifact: {} } }],
+    [{ ev: ev('e1') }, { ev: ev('e2') }], // doomed
+    [],                                   // insert rollup
+    [1, 1],                               // delete returning
+  ]);
+  const r = await openPostgresStore(sql).prune(180, 1_800_000_000_000);
+  assert.deepEqual(r, { folded: 2, deleted: 2 });
+
+  const ins = sql.calls.find((c) => c.text.includes('insert into telemetry_rollup'));
+  assert.ok(ins, '没发出 rollup upsert');
+  const doc = JSON.parse(ins.args.find((a) => typeof a === 'string' && a.startsWith('{')));
+  assert.equal(doc.total, 2, '折算后的总数没写回去 —— 被删掉的事件从历史里消失了');
+  assert.equal(doc.byArtifact['skill:geoly/a@1.0.0']?.n, 2, '按制品的计数没写回去');
+  assert.equal(doc.cutoff, 1_800_000_000_000 - 180 * 86_400_000, '水位没推');
+});
+
+// 🔴 与文件版同一道闸 —— Postgres 这条路径早先没有。
+test('🔴 prune 的水位不是有限数值时抛错，不写坏 rollup', async () => {
+  const store = openPostgresStore(fakeSql());
+  await assert.rejects(() => store.prune(NaN), /有限数值/);
+  await assert.rejects(() => store.prune(Number('180 days')), /有限数值/);
+});
+
+// ── 身份行（2026-09-09）──────────────────────────────────────────────────
+test('🔴 身份行与事件在同一个事务里写，且 eid 冲突时 do nothing', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }]]);
+  const r = await openPostgresStore(sql).put(
+    [{ eid: 'a', kind: 'install' }], 1_700_000_000_000,
+    [{ eid: 'a', os_user: 'zhang.wei', host: 'MBP-14-zw', notice: 'v2' }],
+    '10.8.14.62',
+  );
+  assert.equal(r.identities, 1);
+  const ins = sql.calls.find((c) => c.text.includes('insert into telemetry_identity'));
+  assert.ok(ins, '没发出身份行 insert');
+  assert.match(ins.text, /::text::jsonb/, '与事件同一条纪律：先过 ::text 再 ::jsonb');
+  assert.match(ins.text, /on conflict \(eid\) do nothing/, '重发一批不该覆盖已存的身份');
+  assert.match(ins.text, /::inet/, 'ip 必须按 inet 存，不是自由文本');
+  // 🔴 同一个事务：两条 insert 之间**不能有** COMMIT/BEGIN。
+  //    判据是事务标记的位置，不是「谁先谁后」—— 后者拆成两个事务照样成立。
+  const idxEvents = sql.calls.findIndex((c) => c.text.includes('insert into telemetry_events'));
+  const idxId = sql.calls.findIndex((c) => c.text.includes('insert into telemetry_identity'));
+  assert.ok(idxEvents >= 0 && idxId > idxEvents, '身份行必须在事件之后');
+  const between = sql.calls.slice(idxEvents, idxId).map((c) => c.text);
+  assert.ok(!between.includes('<<COMMIT>>'), '两条 insert 之间提交了 —— 不是同一个事务');
+  assert.ok(!between.includes('<<BEGIN>>'), '两条 insert 之间又开了一个事务');
+});
+
+// 🔴 事件是旧的（eid 冲突没插进去）时，身份行**不许补写**。
+//    形态：一台机器今天开了身份、重发了半年前的队列 ——
+//    半年前那些事件会被补上今天观测到的 IP 与用户名。
+//    上一版只靠 `on conflict (eid) do nothing` 兜底，那句挡的是另一件事。
+test('🔴 重发旧事件不会给它补上身份行', async () => {
+  // 事件 insert 的 RETURNING 回空 = 这一批全是重复
+  const sql = fakeSql([[], []]);
+  const r = await openPostgresStore(sql).put(
+    [{ eid: 'old', kind: 'install' }], Date.now(),
+    [{ eid: 'old', os_user: 'zhang.wei', host: 'MBP-14-zw', notice: 'v2' }],
+    '10.8.14.62',
+  );
+  assert.equal(r.accepted, 0);
+  assert.equal(r.duplicate, 1);
+  assert.equal(r.identities, 0, '给一条旧事件补上了身份');
+  assert.ok(!sql.calls.some((c) => c.text.includes('insert into telemetry_identity')),
+    '压根不该发出这条 insert');
+});
+
+test('一批里只给新插进去的那些事件写身份行', async () => {
+  // 两条事件，只有 'a' 是新的
+  const sql = fakeSql([[], [{ eid: 'a' }]]);
+  const r = await openPostgresStore(sql).put(
+    [{ eid: 'a' }, { eid: 'b' }], Date.now(),
+    [{ eid: 'a', os_user: 'li.na' }, { eid: 'b', os_user: 'chen.yu' }],
+    null,
+  );
+  assert.equal(r.identities, 1);
+  const ins = sql.calls.find((c) => c.text.includes('insert into telemetry_identity'));
+  const payload = JSON.parse(ins.args.find((x) => typeof x === 'string' && x.startsWith('[')));
+  assert.deepEqual(payload.map((x) => x.eid), ['a']);
+});
+
+test('没有身份行时不发那条 insert', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }]]);
+  await openPostgresStore(sql).put([{ eid: 'a' }], Date.now());
+  assert.ok(!sql.calls.some((c) => c.text.includes('telemetry_identity')));
+});
+
+test('🔴 身份保留期是独立的一条线，且只删不折算', async () => {
+  const sql = fakeSql([[1, 1, 1]]);
+  const r = await openPostgresStore(sql).pruneIdentity(90, 1_800_000_000_000);
+  assert.deepEqual(r, { deleted: 3 });
+  const del = sql.calls.find((c) => c.text.includes('delete from telemetry_identity'));
+  assert.ok(del, '没发出身份清理');
+  // 🔴 身份不进 rollup —— 一份「按人的历史计数」会让删除变成空话
+  assert.ok(!sql.calls.some((c) => c.text.includes('telemetry_rollup')),
+    'pruneIdentity 不该碰 rollup');
+});
+
+test('🔴 pruneIdentity 也有 NaN 闸', async () => {
+  const store = openPostgresStore(fakeSql());
+  await assert.rejects(() => store.pruneIdentity(NaN), /有限数值/);
+});
+
+// ── install_id 纳入 90 天身份生命周期（用户 2026-09-09 选 1A）──────────────
+//
+// 🔴 身份行 90 天后删了，但 install_id 还在事件 JSON 里躺到 180 天 ——
+//    它配上时间线仍能把同一台机器串起来，再与新数据一关联就重新指回人。
+test('🔴 到期剥掉 install_id：用 jsonb_exists，不用 ? 操作符', async () => {
+  const sql = fakeSql([[1, 1, 1]]);
+  const r = await openPostgresStore(sql).pruneInstallIds(90, 1_800_000_000_000);
+  assert.deepEqual(r, { stripped: 3, capped: false });
+  const up = sql.calls.find((c) => c.text.includes('telemetry_events'));
+  assert.ok(up, '没发出剥离语句');
+  assert.match(up.text, /jsonb_exists\(ev, 'install_id'\)/,
+    "必须用 jsonb_exists —— `?` 在很多驱动里是参数占位符，写进模板是自找的歧义");
+  assert.match(up.text, /set ev = e\.ev - 'install_id'/, '剥的必须是这一个键');
+  assert.ok(!up.text.includes('delete from'), '这一步只剥键，不删事件');
+});
+
+test('🔴 每轮有上限，撞上限要说出来（悄悄剥一半是最糟的）', async () => {
+  const sql = fakeSql([[1, 1]]);
+  const r = await openPostgresStore(sql).pruneInstallIds(90, 1_800_000_000_000, 2);
+  assert.equal(r.stripped, 2);
+  assert.equal(r.capped, true, '撞上限没有说出来');
+  const up = sql.calls.find((c) => c.text.includes('limit'));
+  assert.ok(up, '没有封顶 —— 第一次跑会把定时任务拖成长事务');
+});
+
+test('🔴 pruneInstallIds 同样有 NaN 闸', async () => {
+  await assert.rejects(() => openPostgresStore(fakeSql()).pruneInstallIds(NaN), /有限数值/);
+});
+
+test('🔴 install_id 与身份三项走同一条到期线', async () => {
+  const src = readFileSync(new URL('../server/api/prune.js', import.meta.url), 'utf8');
+  assert.match(src, /pruneInstallIds\(idDays\)/,
+    'install_id 必须用身份那条保留期（idDays），不是事件那条');
 });

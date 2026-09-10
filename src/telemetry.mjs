@@ -3,10 +3,10 @@
 //   · 只收「哪个制品、什么结果」，不收路径、不收内容、不收用户名、不收目录清单
 //   · 事件先落本地，上报是**独立**动作；关掉上报不影响本地统计
 //   · install_id 是随机 UUID，与账号/机器名/用户名**无任何映射**
-import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, mkdirSync, openSync, closeSync, statSync, unlinkSync, renameSync, fstatSync, linkSync, fsyncSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir, platform, arch } from 'node:os';
+import { randomUUID, generateKeyPairSync, createPublicKey } from 'node:crypto';
+import { appendFileSync, existsSync, readFileSync, readdirSync, mkdirSync, openSync, closeSync, statSync, unlinkSync, renameSync, rmSync, fstatSync, linkSync, fsyncSync, chmodSync, fchmodSync } from 'node:fs';
+import { join, basename } from 'node:path';
+import { homedir, platform, arch, userInfo, hostname } from 'node:os';
 import { writeAtomic, fsyncParentAfter } from './atomic-fs.mjs';
 import { stringify, encodeString, parseStrict } from './canonical-json.mjs';
 import { acquire } from './lock.mjs';
@@ -20,9 +20,50 @@ export const KINDS = new Set([
 ]);
 export const RESULTS = new Set(['ok', 'skipped', 'failed', 'corrupt']);
 
+let _lastError = null;
+export const lastError = () => _lastError;
+
+/**
+ * 权限收紧失败的告警。**与 `_lastError` 分开存**。
+ *
+ * 🔴 `record()` 成功一次就把 `_lastError` 清成 null（那是对的：它说的是
+ *    「上一次记录出没出错」）。把 chmod 失败塞进同一个变量，等于**下一条事件
+ *    就把它擦掉了** —— 于是「记进 lastError 供诊断」这句话在实际运行里从来不成立
+ *    （Codex 2026-09-09 指出）。权限是一个**持续状态**，不是一次操作的结果，
+ *    所以它要自己的变量，而且只增不清。
+ */
+let _permWarn = null;
+export const permWarning = () => _permWarn;
+
 export function stateDir() {
   return process.env.GEOLY_STATE_DIR ?? join(homedir(), '.local', 'state', 'geoly-skills');
 }
+/**
+ * 埋点状态目录 —— **0700，并且每次都把已存在的目录纠正回 0700**。
+ *
+ * 🔴 判据不能是「建的时候给了 mode」：`mkdirSync(…, { mode })` 只对**这次真的创建**
+ *    生效，而且还要减去 umask；目录早就存在（老版本按默认 0755 建的）时它一声不吭。
+ *    所以这里无条件 chmod 一次 —— 幂等、便宜，且能把老机器上的目录迁移过来。
+ *
+ * 🔴 为什么是 0700 而不是 0755：这里面是 queue / history / sending / install-id。
+ *    同机的**其他账户**本来就能读它们；一旦事件里出现自报的用户名与主机名，
+ *    那就是把身份信息摊在一个所有人可读的目录里。目录一收紧，里面所有文件
+ *    （包括 writeAtomic 的临时文件）一起被保护，不用逐个文件去追。
+ */
+export function telemetryDir() {
+  const d = join(stateDir(), 'telemetry');
+  mkdirSync(d, { recursive: true, mode: 0o700 });
+  try {
+    chmodSync(d, 0o700);
+  } catch (err) {
+    // 🔴 **吞掉但要留痕。** 收不紧权限时继续写是有意的（T-5：埋点不得让主命令挂），
+    //    但「悄悄地继续写」意味着没人知道这台机器上的埋点目录是所有人可读的。
+    //    `telemetry status` 会把它显示出来。
+    _permWarn = `目录 ${d} 收不到 0700：${err?.message ?? err}`;
+  }
+  return d;
+}
+
 const queuePath = () => join(stateDir(), 'telemetry', 'queue.ndjson');
 const idPath = () => join(stateDir(), 'telemetry', 'install-id');
 
@@ -33,6 +74,58 @@ export function enabled() {
 }
 /** M0 的全局 `--offline`：置位后本 CLI 不得有任何网络出口，埋点也不例外 */
 export const offline = () => process.env.GEOLY_OFFLINE === '1';
+
+/**
+ * 是否采集**身份三项**（`os_user` / `host`，以及服务端观测的 `ip`）。
+ *
+ * 🔴 **默认关，而且必须显式打开。** 2026-09-09 用户拍板要采身份字段，但 Codex 在
+ *    方案评审里把三件事列为阻断项：服务端还没把身份与事件分表（现在会直接写进
+ *    `telemetry_events.ev`）、dashboard 还是共享口令没有按人审计、删除通道还没有。
+ *    在那三件事落地之前把默认打开，等于先把身份数据灌进一个管不住它的库。
+ *    ⚠️ **翻这个默认值是一次独立的、要过评审的动作**，不要顺手改掉。
+ *
+ * 🔴 **先告知、后采集,由代码强制,不只是文档里的一句话。** 即使显式打开，
+ *    没展示过身份告知（`identity-notice.v2` 标记不在）也一律不采 —— 与 §4.3
+ *    「先打印、后落标记」是同一个取向：漏掉一次告知比多看一次严重得多。
+ *
+ * 关的两条路：`GEOLY_TELEMETRY_IDENTITY=off`（环境变量），或 `telemetry off`
+ * 落下的本地标记。**关掉身份不影响匿名计数**（用户 2026-09-09 拍板）——
+ * 想连计数一起停是 `GEOLY_TELEMETRY=0`（`enabled()`）。
+ */
+const OFFISH = new Set(['0', 'off', 'false']);
+const ONISH = new Set(['1', 'on', 'true']);
+const identityOffPath = () => join(stateDir(), 'telemetry', 'identity-off');
+const identityNoticePath = () => join(stateDir(), 'telemetry', 'identity-notice.v2');
+
+/** 当前身份告知的版本号。改采集面就要发新版本并重新告知（规格 §4.3）。 */
+export const IDENTITY_NOTICE = 'v2';
+
+export function identityEnabled() {
+  if (!enabled()) return false;
+  const v = process.env.GEOLY_TELEMETRY_IDENTITY;
+  if (typeof v === 'string' && OFFISH.has(v)) return false;
+  try { if (existsSync(identityOffPath())) return false; } catch { return false; }
+  if (!(typeof v === 'string' && ONISH.has(v))) return false;   // 默认关，见上
+  return identityNoticeShown();
+}
+
+/**
+ * 身份告知是不是**真的展示过**。
+ *
+ * 🔴 判据不能是「这个名字存在」（Codex 2026-09-09 指出）：预先建一个同名**目录**
+ *    或者一个指向别处的 symlink，就能在没看过告知的情况下把身份采集打开。
+ *    这正是 §5.2.4 那条 —— 「文件在不在」永远不是判据 —— 的又一个实例，
+ *    而且这次它守的是「先告知后采集」，比队列那次更贵。
+ *    ⚠️ 上报告知那个标记是另一回事：它的内容确实没人读，存在性就是全部语义。
+ *    这里不同，这里的存在性要用来**放行一件事**，所以必须验到内容。
+ */
+export function identityNoticeShown() {
+  try {
+    const st = statSync(identityNoticePath());   // 不跟随不存在的目标，坏 symlink 直接抛
+    if (!st.isFile()) return false;
+    return /^shown-at=\d{4}-/m.test(readFileSync(identityNoticePath(), 'utf8'));
+  } catch { return false; }
+}
 
 /** 是否上报：默认开；`GEOLY_TELEMETRY_UPLOAD=0` 或 `--offline` 只留本地 */
 export function uploadEnabled() {
@@ -51,9 +144,21 @@ export function installId() {
   };
 
   const existing = readValid();
-  if (existing) return existing;
+  if (existing) {
+    // 🔴 **提前返回这条路径也要迁移权限。** 老机器上 install-id 早就存在、
+    //    而且是 0644 建的；只在「新建」那条路径上给 0600，等于**永远迁移不到**
+    //    那些真正需要迁移的机器（Codex 2026-09-09 指出）。
+    //    ⚠️ 目录本身由 telemetryDir() 收到 0700，这里是第二道。
+    try {
+      telemetryDir();
+      if ((statSync(p).mode & 0o777) !== 0o600) chmodSync(p, 0o600);
+    } catch (err) {
+      _permWarn = `install-id 收不到 0600：${err?.message ?? err}`;
+    }
+    return existing;
+  }
 
-  mkdirSync(join(stateDir(), 'telemetry'), { recursive: true });
+  telemetryDir();
 
   // 🔴 **先写满，再让名字出现。**
   //
@@ -70,7 +175,7 @@ export function installId() {
     const id = randomUUID();
     const tmp = `${p}.${process.pid}.${attempt}.tmp`;
     try {
-      const fd = openSync(tmp, 'w', 0o644);
+      const fd = openSync(tmp, 'w', 0o600);
       try { appendFileSync(fd, id + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
       try {
         linkSync(tmp, p);          // 抢到了
@@ -90,6 +195,69 @@ export function installId() {
   return randomUUID();
 }
 
+/**
+ * 删除所有权密钥 —— Ed25519 私钥，只存本机。
+ *
+ * 🔴 **与 `install_id` 同一套「先写满、再让名字出现」**（见上面那段长注释）：
+ *    `wx` 抢占看着原子，其实文件一建就存在而内容还没写，抢输的进程读到空串。
+ *    这里的代价比 install_id 更大 —— 并发首采若生成两把密钥、只落盘一把，
+ *    另一批已经带着公钥发出去的身份数据就**永久删不掉**
+ *    （Codex 2026-09-10 指出）。
+ *
+ * 🔴 **不在这里做「没有就生成」以外的任何事。** 特别是：读不出来时**不重新生成** ——
+ *    重新生成等于把旧公钥对应的那批数据永久孤立。读不出来就返回 null，
+ *    让调用方如实说「这台机器没有可用的密钥，删不了」。
+ */
+const deleteKeyPath = () => join(stateDir(), 'telemetry', 'delete-key');
+
+export function deleteKey({ create = false } = {}) {
+  const p = deleteKeyPath();
+  const readValid = () => {
+    try {
+      const pem = readFileSync(p, 'utf8');
+      if (!pem.includes('BEGIN PRIVATE KEY')) return null;
+      const pub = createPublicKey(pem);
+      const { x } = pub.export({ format: 'jwk' });
+      return RE_PUBKEY.test(x) ? { pem, pubkey: x } : null;
+    } catch { return null; }
+  };
+
+  const existing = readValid();
+  if (existing) {
+    // 权限迁移与 install-id 同理：只在新建时给 0600 等于永远迁不到老机器
+    try {
+      telemetryDir();
+      if ((statSync(p).mode & 0o777) !== 0o600) chmodSync(p, 0o600);
+    } catch (err) { _permWarn = `delete-key 收不到 0600：${err?.message ?? err}`; }
+    return existing;
+  }
+  if (!create) return null;
+
+  telemetryDir();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const pem = privateKey.export({ format: 'pem', type: 'pkcs8' });
+    const tmp = `${p}.${process.pid}.${attempt}.tmp`;
+    try {
+      const fd = openSync(tmp, 'w', 0o600);
+      try { appendFileSync(fd, pem); fsyncSync(fd); } finally { closeSync(fd); }
+      try {
+        linkSync(tmp, p);                 // 原子 no-replace：抢到了
+        return readValid();
+      } catch {
+        const winner = readValid();       // 别人抢先，此刻内容必然完整
+        if (winner) return winner;
+      }
+    } catch {
+      const winner = readValid();
+      if (winner) return winner;
+    } finally {
+      try { unlinkSync(tmp); } catch { /* 没建成 */ }
+    }
+  }
+  return null;   // 抢不到又读不出：如实返回 null，绝不「再生成一把」
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 严格 schema：这是隐私契约的**唯一**执行点
 //
@@ -104,6 +272,9 @@ export function installId() {
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const RE_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const RE_SEMVERISH = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
+// Ed25519 公钥的 JWK `x`：32 字节 → base64url 恰好 43 字符，无 padding。
+// 🔴 **定长**，不是「长度不超过」：可变长度会让一个塞了别的东西的字段混进来。
+const RE_PUBKEY = /^[A-Za-z0-9_-]{43}$/;
 const RE_ARTIFACT = /^(skill|pack):[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*@[0-9A-Za-z.+-]{1,32}$/;
 
 export const CLIENTS = new Set(['claude', 'cursor', 'codex', 'agents']);
@@ -124,6 +295,39 @@ export const REASONS = new Set([
   'journal-corrupt', 'ledger-corrupt', 'assertion-corrupt', 'user-abort',
   'unknown',
 ]);
+
+/**
+ * 身份字段的清洗。**它同时是校验器和构造器** —— 两边用同一个函数，
+ * 「能构造出来的」与「能通过校验的」按定义相等，不会有一边宽一边窄。
+ *
+ * 🔴 不用一条宽正则。用户名与主机名是**操作系统给的**，不是我们能约束的输入：
+ *    Windows 的用户名可以带空格与中文，容器里的主机名可以是 64 位十六进制，
+ *    被改过的环境里它可以是任意字节。所以这里逐条收：
+ *      · NFC 归一 —— 同一个名字的两种 Unicode 写法必须折成同一个值，
+ *        否则「同一个人」会在聚合里被数成两个
+ *      · 拒绝所有控制字符与行分隔符（`\p{C}`）—— 换行会把一条 NDJSON 撕成两条，
+ *        那是注入，不是脏数据
+ *      · 长度上限 —— 一个超长的名字既是存储放大，也是指纹
+ *    清洗不过就**整个字段不发**（返回 null），绝不发一个截断过的名字：
+ *    截断后的名字看起来仍然像一个真名，但它谁都不是。
+ */
+const MAX_OS_USER = 64;
+const MAX_HOST = 128;
+const RE_UNSAFE_IDENTITY = /[\p{C}\p{Zl}\p{Zp}]/u;
+
+export function sanitizeIdentity(raw, max) {
+  if (typeof raw !== 'string') return null;
+  let v;
+  try { v = raw.normalize('NFC'); } catch { return null; }
+  v = v.trim();
+  if (v === '' || v.length > max) return null;
+  if (RE_UNSAFE_IDENTITY.test(v)) return null;
+  return v;
+}
+const identityOk = (max) => (v) => typeof v === 'string' && sanitizeIdentity(v, max) === v;
+
+/** 告知版本是**有限代码表**，与 `reason` 同理：一个自由字符串迟早会被拿来塞信息。 */
+export const NOTICES = new Set(['v2']);
 
 const str = (re) => (v) => typeof v === 'string' && re.test(v);
 const oneOf = (set) => (v) => typeof v === 'string' && set.has(v);
@@ -150,6 +354,28 @@ const FIELDS = {
   scope: { required: false, ok: oneOf(SCOPES) },
   ms: { required: false, ok: (v) => Number.isInteger(v) && v >= 0 && v <= 86_400_000 },
   reason: { required: false, ok: oneOf(REASONS) },
+
+  // ── 身份三项中的两项（第三项 `ip` 由服务端观测，客户端不采：见规格 §5.3）──
+  //
+  // 🔴 三个都是 `required: false`，而且**必须**是可选的：队列里躺着的老事件
+  //    （身份开关打开之前记的、以及关掉身份之后记的）没有这些键，
+  //    设成必填会让它们在下一次 flush 时**整批**校验不过，永久卡在队列里。
+  //
+  // 🔴 `os_user` / `host` 是**客户端自报**的，服务端无从核实。任何把它们叫做
+  //    「真实归属」的措辞都是错的 —— 页面上只能说「自报归属」。
+  // 🔴 `identity: true` 是**唯一**的身份标记来源。早先身份字段名是另写的一个
+  //    手写数组，加字段时忘了同步那边，正向 pick 就会把新字段当匿名字段放出去
+  //    —— 而且不报错（Codex 2026-09-09 的硬化建议）。现在两张名单都从这里派生。
+  // 🔴 `pubkey` 也是身份类字段，理由和 install_id 一样：**它是一个高熵且稳定的
+  //    标识符**。为了让「删除」能证明所有权，我们不得不多收一个这样的东西 ——
+  //    「能删」与「少收」在这件事上是对立的（Codex 2026-09-10 复核过这个取舍）。
+  //    能接受的原因只有两条：它跟身份三项同期 90 天到期，
+  //    且只在身份**已经开启**时才存在（身份没开就没有可删的东西）。
+  //    定长 43 字符 base64url = 32 字节 Ed25519 公钥的 JWK `x`。
+  pubkey: { required: false, identity: true, ok: str(RE_PUBKEY) },
+  os_user: { required: false, identity: true, ok: identityOk(MAX_OS_USER) },
+  host: { required: false, identity: true, ok: identityOk(MAX_HOST) },
+  notice: { required: false, identity: true, ok: oneOf(NOTICES) },
 };
 
 /**
@@ -158,6 +384,26 @@ const FIELDS = {
  * 🔴 导出的是键名不是 FIELDS 本身 —— 校验器不该被外面拿去改。
  */
 export const FIELD_NAMES = Object.freeze(Object.keys(FIELDS));
+
+/**
+ * 身份字段的键名。**这是唯一的定义处**，服务端摄入层按它把一条事件拆成
+ * 「匿名事件」与「身份行」两半（`server/validate.mjs` 的 splitIdentity）。
+ *
+ * 🔴 为什么不让服务端自己列一份：那就成了第二张表，两张表迟早分叉，
+ *    而分叉的方向一定是**服务端那份漏掉新字段**，于是新身份字段直接落进
+ *    匿名事件的 jsonb 里 —— 不报错、没迹象，只有在某天导出的时候才看见。
+ *    与「事件校验器只有 assertValidEvent 一个」是同一条纪律。
+ *
+ * ⚠️ `ip` 不在这里：它由服务端观测，从来不是客户端事件的一个键。
+ */
+export const IDENTITY_FIELD_NAMES = Object.freeze(
+  FIELD_NAMES.filter((k) => FIELDS[k].identity === true),
+);
+
+/** 匿名事件的键名 = 全部键减去身份键。存进 `telemetry_events.ev` 的只能是这些。 */
+export const ANONYMOUS_FIELD_NAMES = Object.freeze(
+  FIELD_NAMES.filter((k) => FIELDS[k].identity !== true),
+);
 
 /**
  * 🔴 隐私契约的执行点。落盘、读队列、上报、导出 —— 四个边界都走这一个函数。
@@ -203,6 +449,24 @@ export function buildEvent({ kind, artifact, version, client, scope, result, ms,
     os: platform(), arch: arch(), node: process.versions.node,
     kind, result,
   };
+  // 🔴 身份三项只在 identityEnabled() 为真时才**存在**，不是「填一个空值」。
+  //    缺席就是缺席 —— 一个 `os_user: ''` 会让服务端以为「这台机器开了身份、
+  //    只是名字为空」，那是两件不同的事。
+  //    ⚠️ `userInfo()` 在没有 passwd 条目的容器里会抛（uid 不在 /etc/passwd）；
+  //    hostname() 在极端环境里也可能失败。**取不到就不发那一项，绝不让主命令挂**。
+  if (identityEnabled()) {
+    let u = null, h = null;
+    try { u = sanitizeIdentity(userInfo().username, MAX_OS_USER); } catch { /* 无 passwd 条目 */ }
+    try { h = sanitizeIdentity(hostname(), MAX_HOST); } catch { /* 拿不到主机名 */ }
+    if (u !== null) ev.os_user = u;
+    if (h !== null) ev.host = h;
+    ev.notice = IDENTITY_NOTICE;
+    // 🔴 公钥在**第一条带身份的事件**上就要带上，不能等到删除时才发：
+    //    删除要能指认「这批数据是我的」，而指认靠的正是每条数据上都有这把公钥。
+    //    生成失败时不发 —— 那台机器的这批数据将删不掉，CLI 会如实告诉用户。
+    const k = deleteKey({ create: true });
+    if (k) ev.pubkey = k.pubkey;
+  }
   if (artifact !== undefined) ev.artifact = artifact;
   if (version !== undefined) ev.version = version;
   if (client !== undefined) ev.client = client;
@@ -261,14 +525,31 @@ export const queueFiles = () => [sendingPath(), prevQueuePath(), queuePath()];
  * 能把**已经通过校验的对象**换成别的东西再写盘/上报。
  * 事件的值只有受限字符集的字符串和整数，手写既安全又不复杂。
  */
-export function serializeEvent(ev) {
+function serializeKeys(ev, keys) {
   const parts = [];
-  for (const k of Object.keys(FIELDS)) {
+  for (const k of keys) {
     if (!Object.hasOwn(ev, k)) continue;
     const v = ev[k];
     parts.push(`${encodeString(k)}:${typeof v === 'number' ? String(v) : encodeString(v)}`);
   }
   return `{${parts.join(',')}}`;
+}
+
+/**
+ * 🔴 **保持一元。** 早先这里图省事写成 `serializeEvent(ev, keys = …)`，
+ *    结果 `pending.map(serializeEvent)` 把**数组下标**当成 keys 传了进来
+ *    （`Array.prototype.map` 给回调三个参数），`for…of` 一个数字直接 TypeError，
+ *    上报整个静默失败 —— flush 只回一个 `error:TypeError`，没人看得出发生了什么。
+ *    ⚠️ 一个「有默认值的可选第二参数」在 map / forEach 回调里从来不是可选的。
+ *    要另一种键集就另开一个函数名，不要加位置参数。
+ */
+export function serializeEvent(ev) {
+  return serializeKeys(ev, Object.keys(FIELDS));
+}
+
+/** 只输出匿名字段 —— 服务端摄入层用它，保证身份字段进不了事件存储。 */
+export function serializeAnonymousEvent(ev) {
+  return serializeKeys(ev, ANONYMOUS_FIELD_NAMES);
 }
 
 /**
@@ -281,14 +562,11 @@ export function serializeEvent(ev) {
  * 不 fsync：丢掉最后几条埋点无所谓，让主命令等一次 fsync 才是真的有害。
  * 追加走 O_APPEND，单行远小于 PIPE_BUF，并发追加不会交错。
  */
-let _lastError = null;
-export const lastError = () => _lastError;
-
 export function record(input) {
   if (!enabled()) return null;
   try {
     const ev = buildEvent(input);
-    mkdirSync(join(stateDir(), 'telemetry'), { recursive: true });
+    telemetryDir();
     const line = serializeEvent(ev) + '\n';
     // 🔴 open 与 append 之间，别的进程可能把这个文件 unlink 掉（换代删上一代、
     // retire 删 sending）。那样这一行就写进了一个没有目录项的 inode —— 谁都读不到，
@@ -318,11 +596,21 @@ export function record(input) {
  */
 export function appendDurable(path, line) {
   for (let attempt = 0; attempt < 4; attempt++) {
-    const fd = openSync(path, 'a', 0o644);
+    const fd = openSync(path, 'a', 0o600);
     let orphaned;
     try {
       appendFileSync(fd, line);
-      orphaned = fstatSync(fd).nlink === 0;
+      // 这一次 fstat 本来就是为了查 nlink（见上面那段注释），顺带把老版本用 0644
+      // 建出来的队列/历史迁移成 0600 —— 走 fd 而不是路径，避免 TOCTOU 换靶。
+      const st = fstatSync(fd);
+      if ((st.mode & 0o777) !== 0o600) {
+        try {
+          fchmodSync(fd, 0o600);
+        } catch (err) {
+          _permWarn = `${path} 收不到 0600：${err?.message ?? err}`;
+        }
+      }
+      orphaned = st.nlink === 0;
     } finally { closeSync(fd); }
     if (!orphaned) return;
   }
@@ -417,8 +705,10 @@ skills-hub 会上报匿名使用埋点（首次运行提示，只显示这一次
   收什么      装了哪个制品、哪个 client、成功还是失败、耗时，
               以及 CLI / OS / arch / Node 版本和一个「本机随机 ID」
               （随机 UUID，与账号、机器名、用户名、MAC 无任何映射，删了就换一个）
-  不收什么    路径、目录清单、文件内容、用户名、命令行原文、异常栈
+  不收什么    路径、目录清单、文件内容、命令行原文、异常栈
               —— 采集面是穷举白名单，整张表见 docs/telemetry/00-spec.md §2
+  身份三项    登录名 / 主机名 / 来源 IP —— **默认不采**。
+              要开的话会**单独再告知一次**，并且可以只关它、匿名计数照发
   发到哪      ${url}
   什么时候发  一次 install 成功收尾之后，最多每 24 小时静默发一次
               （超时 1 秒；发不出去就算了，不会影响安装结果）；
@@ -431,6 +721,127 @@ skills-hub 会上报匿名使用埋点（首次运行提示，只显示这一次
   本机记了什么：skills-hub stats      当前开关与端点：skills-hub telemetry status
 ${bar}
 `;
+}
+
+/**
+ * 身份采集的告知文案（notice v2）。
+ *
+ * 🔴 **与上报告知是两段，不是一段。** 上报告知回答「会不会出网」，
+ *    这一段回答「出网的东西里有没有你是谁」。把它们合成一段的话，
+ *    早就看过上报告知的老用户在身份开启时**一个字都不会再看到**。
+ */
+export function identityNoticeText(url) {
+  const bar = '─'.repeat(74);
+  return `${bar}
+skills-hub 从这次起会上报**身份信息**（只显示这一次）
+
+  新增采集    你的登录名、主机名，以及服务端看到的来源 IP
+  仍然不收    路径、目录清单、文件内容、命令行原文、异常栈
+  发到哪      ${url}
+  留多久      身份三项 90 天后清除；匿名计数保留 180 天
+  怎么只关它  skills-hub telemetry off        身份不发了，匿名计数照发
+              GEOLY_TELEMETRY_IDENTITY=off    同上，环境变量写法
+  怎么全关    skills-hub telemetry off --all  什么都不发
+              GEOLY_TELEMETRY=0               同上，环境变量写法
+
+  关掉之后功能完全不受影响。当前状态：skills-hub telemetry status
+${bar}
+`;
+}
+
+/**
+ * 身份采集的首次告知。与上报告知同一套纪律：**先打印、后落标记**。
+ *
+ * 🔴 这段告知是 `identityEnabled()` 的**硬前置**：标记不在就一项都不采
+ *    （见那个函数的注释）。所以这里不是「顺手提示一下」，
+ *    它是那条开关能打开的唯一途径。
+ * 🔴 只有在**有人显式打开身份采集**时才打 —— 默认关的时候打这段，
+ *    等于吓唬一个我们根本没在采的用户。
+ */
+export function maybeNoticeIdentity(write, url) {
+  try {
+    if (!enabled() || !uploadEnabled() || !url) return false;
+    const v = process.env.GEOLY_TELEMETRY_IDENTITY;
+    if (!(typeof v === 'string' && ONISH.has(v))) return false;
+    if (existsSync(identityOffPath())) return false;      // 用户关过就是关过
+    const p = identityNoticePath();
+    if (existsSync(p)) return false;
+    telemetryDir();
+    write(identityNoticeText(url));
+    try {
+      const fd = openSync(p, 'wx', 0o600);
+      try { appendFileSync(fd, `shown-at=${new Date().toISOString()}\nendpoint=${url}\n`); } finally { closeSync(fd); }
+    } catch { /* 别人抢先建了 —— 告知已经打过，不影响主命令 */ }
+    return true;
+  } catch (err) {
+    _lastError = err;
+    return false;
+  }
+}
+
+/**
+ * 只关身份（第一档退出）。匿名计数照发。
+ *
+ * 🔴 落的是一个**标记文件**而不是改环境变量：环境变量只对当前进程有效，
+ *    而用户说的「关掉」是一个持久的决定。标记优先级高于 `GEOLY_TELEMETRY_IDENTITY=on`
+ *    （见 identityEnabled）—— 用户关过就是关过，配置不该把它掀回来。
+ */
+export function identityOff() {
+  telemetryDir();
+  try {
+    const fd = openSync(identityOffPath(), 'wx', 0o600);
+    try { appendFileSync(fd, `off-at=${new Date().toISOString()}\n`); } finally { closeSync(fd); }
+  } catch { /* 已经关过了 */ }
+  return true;
+}
+
+/** 撤销上面那个决定。**不会**自动打开身份采集 —— 还要过环境变量与告知两道门。 */
+export function identityOn() {
+  try { unlinkSync(identityOffPath()); } catch { /* 本来就没关过 */ }
+  return true;
+}
+
+/**
+ * 清空本机所有埋点数据。
+ *
+ * 🔴 **在上报锁下做**，否则正在 flush 的那个进程会把 sending 里的事件发出去，
+ *    「删掉了」变成「删掉了但还是发出去了」。
+ * 🔴 `install-id` 也一起删：留着它，下一条事件仍然接得回同一条时间线，
+ *    那样「删除」只是删了一半（Codex 2026-09-09 指出）。
+ * 🔴 **只管本机。** 已经发出去的记录要服务端删，而那条通道还没建 ——
+ *    所以这里如实说「本机已清空、服务端另说」，不假装自己能远程删。
+ */
+export function purgeLocal() {
+  const dir = join(stateDir(), 'telemetry');
+  // 目录都不在 = 本来就没有数据。**不为了删而先建目录**（那会在
+  // `GEOLY_TELEMETRY=0` 的机器上凭空写出东西来）。
+  if (!existsSync(dir)) return { removed: 0, remaining: [] };
+
+  const release = acquire(lockPath());
+  try {
+    // 🔴 **删的是目录里除锁以外的全部文件，不是一张手写清单。**
+    //    手写清单漏过 `sending.tomb.ndjson` 与 `sending.tomb.mark`
+    //    （Codex 2026-09-09 指出）—— 墓碑里没被 mark 覆盖的尾部，
+    //    下一次 flush 会**扫回队列并发出去**：用户以为删干净了，
+    //    结果删完还发了一批。告知里还写着「删除」，那就是一句假话。
+    //    清单式删除的问题不是这次漏了哪个，是**它会一直漏**：
+    //    每加一个新的状态文件都要有人记得回来改这里。
+    //    ⚠️ 例外只有锁本身：它此刻正被我们持有，且里面没有任何埋点数据。
+    const lock = lockPath();
+    let removed = 0;
+    const remaining = [];
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (p === lock || name.startsWith(basename(lock))) { remaining.push(name); continue; }
+      try {
+        rmSync(p, { recursive: true, force: true });
+        removed++;
+      } catch {
+        remaining.push(name);   // 删不掉要说出来，不能算「已清空」
+      }
+    }
+    return { removed, remaining };
+  } finally { release(); }
 }
 
 /**
@@ -454,14 +865,14 @@ export function maybeNoticeUpload(write, url) {
     if (!enabled() || !uploadEnabled() || !url) return false;
     const p = noticeMarkPath();
     if (existsSync(p)) return false;
-    mkdirSync(join(stateDir(), 'telemetry'), { recursive: true });
+    telemetryDir();
     write(uploadNoticeText(url));
     // 'wx' = 原子 no-replace：并发首跑只有一个能建成，别的走 catch，
     // 但那时告知已经打过了，重复的只是打印，不是漏打。
     // 不 fsync：丢了标记的后果只是多打一次告知，为它在**每个用户的第一条命令**上
     // 加一次同步 fsync 不划算（T-5：埋点不得让主命令变慢）。
     try {
-      const fd = openSync(p, 'wx', 0o644);
+      const fd = openSync(p, 'wx', 0o600);
       try { appendFileSync(fd, `shown-at=${new Date().toISOString()}\nendpoint=${url}\n`); } finally { closeSync(fd); }
     } catch { /* 别人抢先建了，或建不了 —— 都不影响主命令 */ }
     return true;
@@ -546,7 +957,7 @@ export function claimAutoUploadSlot(now = Date.now(), intervalMs = AUTO_UPLOAD_I
   const p = autoUploadStampPath();
   let release;
   try {
-    mkdirSync(join(stateDir(), 'telemetry'), { recursive: true });
+    telemetryDir();
     release = acquire(lockPath());
   } catch (err) {
     // busy = 别人正在发；别的错（盘满、db 坏）也一样 —— 都按「这一轮不发」处理。
@@ -585,6 +996,21 @@ export function claimAutoUploadSlot(now = Date.now(), intervalMs = AUTO_UPLOAD_I
 
 /** 导出 canonical JSON（给静态页读）。导出也是一个出口，同样过校验。 */
 export function exportJson(events = readHistory()) {
-  const clean = events.filter(isValidEvent);
+  // 🔴 **导出一律剥掉身份三项。**（Codex 2026-09-09 在 diff 复查里揪出来的 P0）
+  //    `stats --export data.json` 出来的文件正是拖进 `docs/dashboard/index.html`
+  //    那个匿名页面的东西，而那个页面把整个 events 数组交给浏览器。
+  //    「页面不渲染这几个字段」挡不住任何事：文件里有、devtools 里就有。
+  //    ⚠️ 摄入端有 serializeAnonymousEvent，**那是另一条路径**，
+  //    覆盖不到本地导出 —— 出口不止一个，每一个都要自己剥。
+  const clean = events.filter(isValidEvent).map(anonymize);
   return stringify({ schema: 'geoly.skills.telemetry-export/1', count: clean.length, events: clean });
+}
+
+/** 只保留匿名字段的一份拷贝。正向 pick，不是「删掉那三个」—— 加字段时不会漏。 */
+function anonymize(ev) {
+  const out = {};
+  for (const k of ANONYMOUS_FIELD_NAMES) {
+    if (Object.hasOwn(ev, k)) out[k] = ev[k];
+  }
+  return out;
 }

@@ -251,3 +251,50 @@ test('干净的 Tier 0 投稿不会被误抬', () => {
   writeFileSync(join(dir, 'references.md'), '# 参考\n');
   assert.equal(quiet(() => batchTier(root)).tier, 0, '误抬的话，所有投稿都要两名 —— 门会被关掉');
 });
+
+// ── 豁免的第二条路：名单上的维护者 approve（2026-09-10 用户拍板）──────────
+//
+// 🔴 这里钉的是最容易漏的那个口子：**被 push 冲掉的旧 approve 不许放行**。
+//    本仓库 validate-pr.yml 里就记着这个形态 ——「两票拿到、pr-gate 跑绿之后
+//    第二票被 dismiss，于是 PR 能合，§7 的两名就这么没了」。
+//    豁免的判据换成"谁 approve 了"之后，同一个形态会以新面貌回来。
+const BYPASS = 'U_kgDODu4RvA';   // 与 APPROVAL_BYPASS_IDS 里的一致
+
+test('🔴 豁免名单里的维护者 approve → Tier 2 一票即可', () => {
+  const r = quiet(() => assertTierApprovals({
+    tier: 2, reviews: [rv(BYPASS)], prHeadSha: HEAD,
+    maintainerIds: [BYPASS, M2], authorId: AUTHOR,
+  }));
+  assert.deepEqual(r, [], '走豁免时返回空数组（与作者豁免同形状）');
+});
+
+test('🔴 那一票是**旧 sha** 上的（已被 push 冲掉）→ 不放行', () => {
+  const STALE = 'b'.repeat(40);
+  quiet(() => expectCode('E_TIER_APPROVALS', () => assertTierApprovals({
+    tier: 2, reviews: [rv(BYPASS, 'APPROVED', STALE)], prHeadSha: HEAD,
+    maintainerIds: [BYPASS, M2], authorId: AUTHOR,
+  })));
+});
+
+test('🔴 那一票不是 APPROVED（COMMENTED / CHANGES_REQUESTED）→ 不放行', () => {
+  for (const state of ['COMMENTED', 'CHANGES_REQUESTED', 'DISMISSED']) {
+    quiet(() => expectCode('E_TIER_APPROVALS', () => assertTierApprovals({
+      tier: 2, reviews: [rv(BYPASS, state)], prHeadSha: HEAD,
+      maintainerIds: [BYPASS, M2], authorId: AUTHOR,
+    })));
+  }
+});
+
+test('🔴 名单上的人**不在维护者名单里**时不放行', () => {
+  quiet(() => expectCode('E_TIER_APPROVALS', () => assertTierApprovals({
+    tier: 2, reviews: [rv(BYPASS)], prHeadSha: HEAD,
+    maintainerIds: [M1, M2], authorId: AUTHOR,   // BYPASS 不是维护者
+  })));
+});
+
+test('别人 approve 的外部 Tier 2 仍要两票', () => {
+  quiet(() => expectCode('E_TIER_APPROVALS', () => assertTierApprovals({
+    tier: 2, reviews: [rv(M1)], prHeadSha: HEAD,
+    maintainerIds: [M1, M2], authorId: AUTHOR,
+  })));
+});

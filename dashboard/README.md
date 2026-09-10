@@ -22,7 +22,7 @@ schema  eid  at  install_id  cli  os  arch  node
 kind  result  artifact  version  client  scope  ms  reason
 ```
 
-**表外的东西根本没有被采集** —— 没有用户名、没有路径、没有项目名、没有地理位置、
+**表外的东西根本没有被采集** —— 没有路径、没有项目名、没有地理位置、
 没有 referrer、没有命令行原文、没有异常栈。所以「加一个指标」在这里从来不是前端的事，
 而是先要去改采集面并过评审。
 
@@ -32,6 +32,12 @@ kind  result  artifact  version  client  scope  ms  reason
 ---
 
 ## 🔴🔴 平台自己会变成隐私问题 —— 这一条最要紧
+
+⚠️ **采集面 2026-09-09 加了身份三项**（`os_user` / `host` / `notice`，外加服务端
+观测的 `ip`）：默认关、告知后才采、可以只关它而保留匿名计数。
+**它们一个都不出现在这个控制台上** —— 身份数据归另一条通道（另一个 API、
+另一套 normalizer、按人登录、全量审计），这一页与那条通道不共用 token，
+也不在同一个响应里返回数据。
 
 `install_id` 是本机随机 UUID，与账号、机器名、用户名都没有映射，**单看它不指向人**。
 

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  DIMENSIONS, DISPLAYABLE_FIELDS, EVENT_FIELDS, REASONS as DASH_REASONS,
+  DIMENSIONS, DISPLAYABLE_FIELDS, EVENT_FIELDS, IDENTITY_FIELDS, REASONS as DASH_REASONS,
 } from '../lib/whitelist.mjs';
 
 /*
@@ -20,6 +20,18 @@ import {
  * ⚠️ 加字段的顺序：先改 `src/telemetry.mjs`，再改 `dashboard/lib/whitelist.mjs`，
  *    最后改 `components/privacy.jsx` 的文案（那一条由 privacy-copy.test.mjs 管）。
  */
+
+function walk(dir, prefix) {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${e.name}` : e.name;
+    if (e.isDirectory()) {
+      if (e.name === 'node_modules' || e.name === '.next' || e.name.startsWith('.')) continue;
+      out.push(...walk(resolve(dir, e.name), rel));
+    } else out.push(rel);
+  }
+  return out;
+}
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const TELEMETRY = resolve(REPO, 'src/telemetry.mjs');
@@ -61,9 +73,45 @@ test('🔴 KINDS / RESULTS / CLIENTS / SCOPES 与 dashboard 的枚举逐个对�
   }
 });
 
-test('三个不展示的字段就是 schema / eid / install_id，改动要有意识', () => {
-  const hidden = EVENT_FIELDS.filter((f) => !DISPLAYABLE_FIELDS.includes(f));
+// 🔴 这一条原来是「不展示的字段就是 schema / eid / install_id」。2026-09-09 加了身份
+//    三项之后，它必然会红 —— 但**不能靠放宽它来修**（Codex 在那次评审里点名了这一点：
+//    现有断言不能简单删掉，要拆成正向测试）。所以拆成两条，各自钉一件事：
+//    ① 结构类隐藏字段仍然**恰好**是那三个（多一个少一个都要有人有意识地来改这行）
+//    ② 身份字段**一个都不许**进这个匿名控制台的展示面
+test('结构类不展示字段仍是 schema / eid / install_id，改动要有意识', () => {
+  const hidden = EVENT_FIELDS
+    .filter((f) => !DISPLAYABLE_FIELDS.includes(f) && !IDENTITY_FIELDS.includes(f));
   assert.deepEqual(hidden.sort(), ['eid', 'install_id', 'schema']);
+});
+
+test('🔴 身份字段一个都不出现在匿名控制台的展示面上', () => {
+  for (const f of IDENTITY_FIELDS) {
+    assert.ok(!DISPLAYABLE_FIELDS.includes(f), `身份字段 ${f} 混进了可展示字段`);
+  }
+  // 反过来也钉住：采集面里确实有它们（否则这条断言会因为「字段压根不存在」而空转通过）
+  for (const f of ['os_user', 'host', 'notice']) {
+    assert.ok(EVENT_FIELDS.includes(f), `采集面里没有 ${f} —— 这条断言正在空转`);
+  }
+});
+
+test('🔴 匿名控制台不许 import 身份通道的任何东西', () => {
+  // 身份数据归另一个 API、另一套 normalizer。这条挡的是「顺手在这边加个开关」。
+  // 🔴 **扫目录，不写固定文件名单**：写死名单的话，新加一个模块就绕过去了，
+  //    而绕过去这件事没有任何迹象（Codex 2026-09-09 指出）。
+  //    白名单与隐私说明是**定义处**，它们当然要提到身份字段，所以排除掉。
+  const EXCLUDE = new Set(['lib/whitelist.mjs', 'components/privacy.jsx']);
+  const files = walk(resolve(REPO, 'dashboard'), '')
+    .filter((f) => /\.(mjs|jsx|js)$/.test(f))
+    .filter((f) => !f.startsWith('node_modules/') && !f.startsWith('test/') && !f.startsWith('.next/'))
+    .filter((f) => !EXCLUDE.has(f));
+  assert.ok(files.length >= 8, `只扫到 ${files.length} 个文件，扫描器八成没工作`);
+  for (const f of files) {
+    const text = readFileSync(resolve(REPO, 'dashboard', f), 'utf8');
+    assert.ok(!/\bIDENTITY_FIELDS\b/.test(text),
+      `${f} 引用了 IDENTITY_FIELDS —— 匿名通道不该知道身份字段的存在`);
+    assert.ok(!/\bos_user\b|\bhost\b\s*[:,]/.test(text),
+      `${f} 里出现了身份字段名`);
+  }
 });
 
 test('🔴 每一个维度的 field 都必须在采集白名单里 —— 不许凭空发明维度', () => {
