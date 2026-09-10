@@ -1,0 +1,17 @@
+{
+  "capabilities": [
+    "external-tool"
+  ],
+  "clients": [
+    "codex"
+  ],
+  "conflicts": [],
+  "description": "Find locally retained Codex tasks that disappeared after switching accounts or Providers, inventory and deduplicate them, then safely copy completed task history into tasks visible under the current Codex session by forking. Use whenever the user mentions missing Codex chats, old Provider conversations, another-account local records, restoring the Codex sidebar, or bulk-migrating local tasks.",
+  "kind": "skill",
+  "license": "MIT",
+  "name": "codex-thread-migrator",
+  "namespace": "geoly-ai",
+  "replaces": [],
+  "schema": "geoly.skills.skill/1",
+  "version": "0.1.0"
+}

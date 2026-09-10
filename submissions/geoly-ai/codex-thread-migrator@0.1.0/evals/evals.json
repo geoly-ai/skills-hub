@@ -1,0 +1,23 @@
+{
+  "skill_name": "codex-thread-migrator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我从第三方 Provider 切到 ChatGPT 后，左侧栏以前的 Codex 任务都不见了。先帮我列出本机还保留的记录，不要迁移。",
+      "expected_output": "只读盘点本地任务，按任务 ID 去重，不创建 fork，并说明只能发现本地保留的数据。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把本地记录里的‘GEO系统搭建’迁移到当前账号，并帮我打开迁移后的任务。",
+      "expected_output": "定位正确源任务，创建 same-directory fork，验证并打开新任务，同时保留源任务。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "本地旧会话全部一并迁过来，重复的不要再建，某一条失败也继续处理剩下的。",
+      "expected_output": "完整发现、按源 ID 去重、分批 fork、逐项记录结果、继续处理失败后的任务，并汇总成功失败与限制。",
+      "files": []
+    }
+  ]
+}
