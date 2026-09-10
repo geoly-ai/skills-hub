@@ -8,7 +8,15 @@
 //    最容易在部署时漏掉、又最没有迹象的一种失败。
 export const config = { api: { bodyParser: false } };
 
-import { runtime, guarded } from '../vercel-runtime.mjs';
+// 🔴 **不在顶层 import `vercel-runtime.mjs`。** 它拉的是 `postgres` 驱动，
+//    而那个依赖只装在 `server/node_modules`；仓库根的测试一 import 本模块就炸
+//    `ERR_MODULE_NOT_FOUND`，本地有 server/node_modules 所以绿、CI 只装根依赖所以红
+//    —— 「本地绿 CI 红」的经典形态，2026-09-10 实测复现（把 server/node_modules
+//    改名后本地立刻同样红）。
+//    改成在 handler 里动态 import：本模块导出的纯函数（retentionDays 等）
+//    因此可以被单测直接拿来用，而不必把整条数据库依赖拖进来。
+//    ⚠️ 这不是为测试让步的写法 —— 一个路由模块本来就不该在**导入时**
+//    就把数据库驱动拉起来。
 
 // 🔴 **保留期读不出数就拒绝服务，不要回落到默认值。**
 //    `Number('180 days')` 是 NaN，而 `NaN * 86_400_000` 也是 NaN ——
@@ -55,6 +63,7 @@ export default async function handler(req, res) {
     res.statusCode = 503;
     return res.end(JSON.stringify({ error: 'identity_retention_longer_than_events' }));
   }
+  const { runtime, guarded } = await import('../vercel-runtime.mjs');
   await guarded(req, res, async () => {
     const { sql } = runtime();
     const { openPostgresStore } = await import('../store-postgres.mjs');
