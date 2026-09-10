@@ -10,11 +10,21 @@ import { readFileSync } from 'node:fs';
 import { openPostgresStore, MAX_SCAN_ROWS, StoreUnavailableError } from '../server/store-postgres.mjs';
 
 /** 造一个模板标签函数；`plan` 决定每次调用返回什么。 */
-function fakeSql(plan = []) {
+function fakeSql(plan = [], tombstoned = []) {
   const calls = [];
   const sql = (strings, ...args) => {
     const text = strings.join('?');
     calls.push({ text, args });
+    // 🔴 **基础设施语句自动应答，不消耗 plan。**
+    //    advisory lock 与查墓碑是 2026-09-10 才加进摄入路径的；假 sql 原本
+    //    严格按调用顺序发结果，于是「加了两条查询」把所有既有测试的计划整个冲乱。
+    //    ⚠️ 这不是把测试改松：这两条的**返回值**不参与任何断言
+    //    （锁没有返回值；墓碑为空是默认情形，非空的那一支由专门的测试用
+    //    `tombstoned` 显式打开）。真正被断言的仍然是插入语句的参数与顺序。
+    if (/pg_advisory_xact_lock/.test(text)) return Promise.resolve([]);
+    if (/from telemetry_delete_tombstone/.test(text)) {
+      return Promise.resolve(tombstoned.map((t) => ({ pubkey_tag: t })));
+    }
     const next = plan.shift();
     if (next instanceof Error) return Promise.reject(next);
     return Promise.resolve(next ?? []);
@@ -263,4 +273,61 @@ test('🔴 install_id 与身份三项走同一条到期线', async () => {
   const src = readFileSync(new URL('../server/api/prune.js', import.meta.url), 'utf8');
   assert.match(src, /pruneInstallIds\(idDays\)/,
     'install_id 必须用身份那条保留期（idDays），不是事件那条');
+});
+
+// ── 墓碑与串行化（Codex 2026-09-10 的第一条阻断项）─────────────────────────
+//
+// 🔴 没有那把锁时的竞态：摄入查墓碑没命中 → 删除写墓碑并删身份 → 摄入把身份插回去。
+//    结果是「删完之后身份又回来了」，而两边各自看都没错。
+test('🔴 写身份行之前按 tag 上事务锁 —— 不是会话锁', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }]]);
+  await openPostgresStore(sql).put(
+    [{ eid: 'a' }], Date.now(),
+    [{ eid: 'a', os_user: 'zhang.wei', pubkey_tag: 'tag-1' }], null,
+  );
+  const lock = sql.calls.find((c) => c.text.includes('pg_advisory_xact_lock'));
+  assert.ok(lock, '没上锁 —— 删除与摄入之间的竞态是开着的');
+  assert.deepEqual(lock.args, ['tag-1'], '锁的必须是这一批的 tag');
+  assert.ok(!sql.calls.some((c) => /pg_advisory_lock\(/.test(c.text)),
+    '用了会话级锁 —— serverless 下连接复用，忘了释放就是永久死锁');
+  // 锁必须在插入之前
+  const iLock = sql.calls.findIndex((c) => c.text.includes('pg_advisory_xact_lock'));
+  const iIns = sql.calls.findIndex((c) => c.text.includes('insert into telemetry_identity'));
+  assert.ok(iLock >= 0 && iLock < iIns, '锁在插入之后取，等于没取');
+});
+
+test('🔴 命中墓碑 → 身份丢掉，匿名事件照收', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }]], ['tag-dead']);
+  const r = await openPostgresStore(sql).put(
+    [{ eid: 'a' }], Date.now(),
+    [{ eid: 'a', os_user: 'zhang.wei', pubkey_tag: 'tag-dead' }], '10.0.0.1',
+  );
+  assert.equal(r.accepted, 1, '匿名事件必须照收 —— 删除的语义是「不要认出我」，不是「不要数我」');
+  assert.equal(r.identities, 0, '已删除的机器又被写回了身份');
+  assert.ok(!sql.calls.some((c) => c.text.includes('insert into telemetry_identity')),
+    '压根不该发出这条 insert');
+});
+
+test('一批里只有部分命中墓碑：命中的丢，没命中的照写', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }, { eid: 'b' }]], ['tag-dead']);
+  const r = await openPostgresStore(sql).put(
+    [{ eid: 'a' }, { eid: 'b' }], Date.now(),
+    [
+      { eid: 'a', os_user: 'x', pubkey_tag: 'tag-dead' },
+      { eid: 'b', os_user: 'y', pubkey_tag: 'tag-live' },
+    ], null,
+  );
+  assert.equal(r.identities, 1);
+  const ins = sql.calls.find((c) => c.text.includes('insert into telemetry_identity'));
+  const payload = JSON.parse(ins.args.find((x) => typeof x === 'string' && x.startsWith('[')));
+  assert.deepEqual(payload.map((x) => x.eid), ['b']);
+});
+
+test('🔴 身份行落库带 pubkey_tag（删除要靠它找行）', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }]]);
+  await openPostgresStore(sql).put(
+    [{ eid: 'a' }], Date.now(), [{ eid: 'a', os_user: 'x', pubkey_tag: 'tag-1' }], null,
+  );
+  const ins = sql.calls.find((c) => c.text.includes('insert into telemetry_identity'));
+  assert.match(ins.text, /pubkey_tag/, '没写 pubkey_tag —— 删除时按什么找行？');
 });
