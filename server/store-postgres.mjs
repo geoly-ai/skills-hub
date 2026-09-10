@@ -77,14 +77,41 @@ export function openPostgresStore(sql) {
           //    半年前那些事件就会被**补上**今天观测到的 IP 与用户名。
           //    注释当时写的是「跟着事件走」，实现并没有做到 —— 现在做到了。)
           const freshIds = new Set(rows.map((r) => r.eid));
-          const idRows = identities.filter((x) => freshIds.has(x.eid));
+          let idRows = identities.filter((x) => freshIds.has(x.eid));
+          // 🔴 **写身份行之前先按 tag 上事务锁，再查墓碑。**（Codex 2026-09-10 的第一条）
+          //    没有这把锁时的竞态是：
+          //      ① 摄入查墓碑 → 没命中
+          //      ② 删除请求写墓碑、删身份、提交
+          //      ③ 摄入接着把身份行插进去
+          //    结果是**删完之后身份又回来了**，而两边各自看都没错。
+          //    `WHERE NOT EXISTS` 挡不住它：那只保证单条语句内的原子性，
+          //    挡不住「我插完了、你才提交墓碑」这个顺序。
+          //    两条路径按**同一个** tag 取同一把 advisory lock，才真的串行。
+          //    ⚠️ 用 `pg_advisory_xact_lock`（事务级）而不是会话级：
+          //    serverless 下连接会被复用，会话级锁忘了释放就是永久死锁。
+          const tags = [...new Set(idRows.map((x) => x.pubkey_tag).filter(Boolean))];
+          for (const t of tags) {
+            await tx`select pg_advisory_xact_lock(hashtext(${t}))`;
+          }
+          if (tags.length > 0) {
+            const dead = await tx`
+              select pubkey_tag from telemetry_delete_tombstone
+              where pubkey_tag = any(${tags})
+            `;
+            const buried = new Set(dead.map((r) => r.pubkey_tag));
+            if (buried.size > 0) {
+              // 🔴 命中墓碑 = 这台机器已经要求删除过。**身份丢掉，匿名事件照收** ——
+              //    删除的语义是「不要认出我」，不是「不要数我」。
+              idRows = idRows.filter((x) => !buried.has(x.pubkey_tag));
+            }
+          }
           identitiesWritten = idRows.length;
           if (idRows.length > 0) {
             const idPayload = JSON.stringify(idRows);
             await tx`
-              insert into telemetry_identity (eid, received_at, os_user, host, notice, ip)
+              insert into telemetry_identity (eid, received_at, os_user, host, notice, ip, pubkey_tag)
               select x->>'eid', to_timestamp(${receivedAtMs}::bigint / 1000.0),
-                     x->>'os_user', x->>'host', x->>'notice', ${ip}::inet
+                     x->>'os_user', x->>'host', x->>'notice', ${ip}::inet, x->>'pubkey_tag'
               from jsonb_array_elements(${idPayload}::text::jsonb) as x
               on conflict (eid) do nothing
             `;
