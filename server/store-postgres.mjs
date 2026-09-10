@@ -174,6 +174,50 @@ export function openPostgresStore(sql) {
     },
 
     /**
+     * 到期剥掉 `install_id` —— 与身份三项同一条 90 天到期线（用户 2026-09-09 选 1A）。
+     *
+     * 🔴 **为什么它属于身份而不属于计数。** 身份行 90 天后删了，但 `install_id`
+     *    还在事件 JSON 里躺到 180 天：它配上时间线仍然能把同一台机器的行为串起来，
+     *    再与新数据一关联就重新指回人（Codex 2026-09-09 指出）。
+     *    留着它，「身份 90 天」这句话是假的。
+     *
+     * 🔴 **代价写在这里，别让后来的人自己撞上：** 90 天之后那批事件**算不出
+     *    去重装机数**。今天没有影响 —— `aggregate.mjs` 压根没用过 `install_id`，
+     *    服务端的 `installs` 聚合至今是个缺口。但**将来写那个聚合时，它只能覆盖
+     *    90 天以内的窗口**；跨过这条线去算，得到的是一个偏小且无声偏小的数，
+     *    而 K=5 抑制正是拿它当判据的。
+     *
+     * 🔴 用 `jsonb_exists(ev, 'install_id')` 而不是 `ev ? 'install_id'`：
+     *    `?` 在很多驱动里是参数占位符，写进模板字符串是自找的歧义。
+     *
+     * 🔴 **每轮有上限。** 第一次跑可能撞上一大批历史；不封顶的话这条 UPDATE
+     *    会把一次定时任务拖成长事务。撞上限时**说出来**（`capped`），
+     *    下一轮接着剥 —— 悄悄剥一半是最糟的形态。
+     */
+    async pruneInstallIds(retentionDays, nowMs = Date.now(), cap = 50_000) {
+      const cutoffMs = nowMs - retentionDays * 86_400_000;
+      if (!Number.isFinite(cutoffMs)) {
+        throw new Error(`telemetry-server: pruneInstallIds 的水位不是有限数值：${cutoffMs}`);
+      }
+      try {
+        const rows = await sql`
+          with doomed as (
+            select eid from telemetry_events
+            where received_at < to_timestamp(${cutoffMs}::bigint / 1000.0)
+              and jsonb_exists(ev, 'install_id')
+            limit ${cap}
+          )
+          update telemetry_events e set ev = e.ev - 'install_id'
+          from doomed d where e.eid = d.eid
+          returning 1
+        `;
+        return { stripped: rows.length, capped: rows.length >= cap };
+      } catch (e) {
+        throw new StoreUnavailableError(e);
+      }
+    },
+
+    /**
      * 保留期清理 —— §5.3 的 180 天。
      *
      * 🔴 顺序：**先把要删的折进 rollup 并推水位、再删**。

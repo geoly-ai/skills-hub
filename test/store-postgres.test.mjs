@@ -6,6 +6,7 @@
 //    并让测试断言那些参数是**驱动能接受的形状**（JSON 字符串而不是数组）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { openPostgresStore, MAX_SCAN_ROWS, StoreUnavailableError } from '../server/store-postgres.mjs';
 
 /** 造一个模板标签函数；`plan` 决定每次调用返回什么。 */
@@ -227,4 +228,39 @@ test('🔴 身份保留期是独立的一条线，且只删不折算', async () 
 test('🔴 pruneIdentity 也有 NaN 闸', async () => {
   const store = openPostgresStore(fakeSql());
   await assert.rejects(() => store.pruneIdentity(NaN), /有限数值/);
+});
+
+// ── install_id 纳入 90 天身份生命周期（用户 2026-09-09 选 1A）──────────────
+//
+// 🔴 身份行 90 天后删了，但 install_id 还在事件 JSON 里躺到 180 天 ——
+//    它配上时间线仍能把同一台机器串起来，再与新数据一关联就重新指回人。
+test('🔴 到期剥掉 install_id：用 jsonb_exists，不用 ? 操作符', async () => {
+  const sql = fakeSql([[1, 1, 1]]);
+  const r = await openPostgresStore(sql).pruneInstallIds(90, 1_800_000_000_000);
+  assert.deepEqual(r, { stripped: 3, capped: false });
+  const up = sql.calls.find((c) => c.text.includes('telemetry_events'));
+  assert.ok(up, '没发出剥离语句');
+  assert.match(up.text, /jsonb_exists\(ev, 'install_id'\)/,
+    "必须用 jsonb_exists —— `?` 在很多驱动里是参数占位符，写进模板是自找的歧义");
+  assert.match(up.text, /set ev = e\.ev - 'install_id'/, '剥的必须是这一个键');
+  assert.ok(!up.text.includes('delete from'), '这一步只剥键，不删事件');
+});
+
+test('🔴 每轮有上限，撞上限要说出来（悄悄剥一半是最糟的）', async () => {
+  const sql = fakeSql([[1, 1]]);
+  const r = await openPostgresStore(sql).pruneInstallIds(90, 1_800_000_000_000, 2);
+  assert.equal(r.stripped, 2);
+  assert.equal(r.capped, true, '撞上限没有说出来');
+  const up = sql.calls.find((c) => c.text.includes('limit'));
+  assert.ok(up, '没有封顶 —— 第一次跑会把定时任务拖成长事务');
+});
+
+test('🔴 pruneInstallIds 同样有 NaN 闸', async () => {
+  await assert.rejects(() => openPostgresStore(fakeSql()).pruneInstallIds(NaN), /有限数值/);
+});
+
+test('🔴 install_id 与身份三项走同一条到期线', async () => {
+  const src = readFileSync(new URL('../server/api/prune.js', import.meta.url), 'utf8');
+  assert.match(src, /pruneInstallIds\(idDays\)/,
+    'install_id 必须用身份那条保留期（idDays），不是事件那条');
 });

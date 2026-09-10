@@ -812,10 +812,16 @@ test('🔴 身份清理失败时事件清理照跑，并整体报 500', async ()
     const mod = await import('../server/api/prune.js');
     const src = readFileSync(new URL('../server/api/prune.js', import.meta.url), 'utf8');
     // 结构判据：pruneIdentity 包在 try 里，且 prune(days) 在 try 之外
-    assert.match(src, /try \{\s*idr = await store\.pruneIdentity\(idDays\);\s*\} catch/,
-      '身份清理没有被单独兜住');
-    assert.match(src, /\}\s*const r = await store\.prune\(days\);/,
-      '事件清理必须在身份清理的 catch 之外，否则会被连坐');
+    // 判据：try 块里是身份那两步，**事件清理必须在块外**。
+    //    上一版把整段正则写死成一句话，加一行就匹配不上了 —— 结构判据要按
+    //    「块里有什么、块外有什么」写，不是按行数写。
+    const tryBlock = src.slice(src.indexOf('try {', src.indexOf('let idsr')),
+      src.indexOf('} catch (e) {', src.indexOf('let idsr')));
+    assert.match(tryBlock, /store\.pruneIdentity\(idDays\)/, '身份清理不在被兜住的块里');
+    assert.match(tryBlock, /store\.pruneInstallIds\(idDays\)/, 'install_id 剥离不在被兜住的块里');
+    assert.ok(!/store\.prune\(days\)/.test(tryBlock),
+      '事件清理落在了身份清理的 try 里 —— 身份表不存在会把它一起连坐掉');
+    assert.match(src, /store\.prune\(days\)/, '事件清理本身不见了');
     assert.match(src, /res\.statusCode = idError \? 500 : 200/,
       '身份清理失败必须整体非 2xx —— 回 200 把错误藏在 body 里等于没人会发现');
     assert.ok(typeof mod.default === 'function');

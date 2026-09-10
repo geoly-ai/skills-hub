@@ -71,8 +71,12 @@ export default async function handler(req, res) {
     //    定时任务那边看得见），而不是回 200 把错误藏在 body 里。
     let idr = null;
     let idError = null;
+    let idsr = null;
     try {
       idr = await store.pruneIdentity(idDays);
+      // 🔴 `install_id` 与身份三项**同一条到期线**（用户 2026-09-09 选 1A）：
+      //    身份行删了但 install_id 还在，配上时间线仍然能串回同一台机器。
+      idsr = await store.pruneInstallIds(idDays);
     } catch (e) {
       idError = e?.message ?? String(e);
     }
@@ -83,6 +87,9 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({
       ok: !idError, retentionDays: days, identityRetentionDays: idDays,
       identityDeleted: idr?.deleted ?? null,
+      installIdsStripped: idsr?.stripped ?? null,
+      // 撞上限要说出来：这一轮只剥了一部分，下一轮接着剥
+      installIdsCapped: idsr?.capped ? true : undefined,
       identityError: idError ?? undefined,
       ...r,
     }));
