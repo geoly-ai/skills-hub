@@ -31,7 +31,11 @@ let cached = null;
 export function runtime() {
   if (cached) return cached;
 
-  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+  // 🔴 优先用**应用专用的最小权限角色**（telemetry_app，规格 §4.4 权限矩阵）。
+  //    `DATABASE_URL` 是 Neon 集成给的 owner 连接串 —— 表的 owner 对自己的表有全部权限，
+  //    REVOKE 形同虚设，「审计只增不改」在 owner 连接下根本约束不住。
+  //    回落到 owner 只是为了「先部署代码、后配变量」时服务不断；迁移仍走 owner（migrate.mjs）。
+  const url = process.env.GEOLY_TELEMETRY_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
   if (!url) throw new Error('缺少 DATABASE_URL / POSTGRES_URL');
   // 🔴 运行时走**池化**连接；`POSTGRES_URL_NO_SSL` 一律不用（明文出网）。
   const sql = postgres(url, { max: 1, ssl: 'require', idle_timeout: 20 });

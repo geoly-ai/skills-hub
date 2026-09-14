@@ -59,6 +59,34 @@ test('🔴 迁移：先删 NULL tag 行，再 set not null，再加 hex CHECK；
     '指纹不一致时没有中止迁移');
 });
 
+// 🔴 运行时必须优先连最小权限角色：owner 对自己的表有全部权限，「审计只增不改」约束不住它（§4.4）。
+test('🔴 运行时优先用 GEOLY_TELEMETRY_DATABASE_URL（telemetry_app），owner 只是回落', () => {
+  const src = readFileSync(join(SERVER, 'vercel-runtime.mjs'), 'utf8');
+  const m = src.match(/const url = ([^;]+);/);
+  assert.ok(m, 'vercel-runtime.mjs 里找不到连接串的取值 —— 断言在空跑');
+  const order = [...m[1].matchAll(/process\.env\.([A-Z_]+)/g)].map((x) => x[1]);
+  assert.equal(order[0], 'GEOLY_TELEMETRY_DATABASE_URL', `连接串取值顺序不对：${order.join(' → ')}`);
+  // 迁移不走应用角色：它要建表、改列、写指纹，应用角色没有这些权限
+  const mig = readFileSync(join(SERVER, 'migrate.mjs'), 'utf8');
+  assert.ok(!/GEOLY_TELEMETRY_DATABASE_URL/.test(mig.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')),
+    '迁移脚本读了应用角色的连接串 —— 它会因权限不足失败');
+});
+
+test('🔴 迁移授权之后反查：审计表对 telemetry_app 只许 INSERT，多一项就中止', () => {
+  const src = readFileSync(join(SERVER, 'migrate.mjs'), 'utf8');
+  assert.match(src, /grant insert on telemetry_audit to telemetry_app/);
+  assert.match(src, /revoke select, update, delete, truncate on telemetry_audit from telemetry_app/);
+  const i = src.indexOf("has_table_privilege('telemetry_app', 'telemetry_audit', 'UPDATE')");
+  assert.ok(i > 0, '没有反查审计表的 UPDATE 权限');
+  assert.match(src.slice(i, i + 800), /if \(!ap\.i \|\| ap\.s \|\| ap\.u \|\| ap\.d \|\| ap\.t\)[\s\S]{0,200}process\.exit\(1\)/,
+    '反查出多余权限时没有中止迁移');
+  // 授权块不许删「telemetry_audit 的 UPDATE/DELETE」之外的东西：矩阵里每张表都要出现
+  for (const t of ['telemetry_events', 'telemetry_rollup', 'telemetry_meta', 'telemetry_identity',
+    'telemetry_delete_nonce', 'telemetry_delete_tombstone']) {
+    assert.match(src, new RegExp(`grant [a-z, ]+ on [a-z_, ]*${t}[a-z_, ]* to telemetry_app`), `权限矩阵漏了 ${t}`);
+  }
+});
+
 test('prune 定时任务：清过期 nonce 的失败不许回 200', () => {
   const src = readFileSync(join(SERVER, 'api', 'prune.js'), 'utf8');
   assert.match(src, /pruneDeleteNonces\(\)/);

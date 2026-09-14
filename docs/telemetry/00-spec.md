@@ -240,9 +240,21 @@ NFC 归一（同一个名字的两种 Unicode 写法必须折成同一个值，�
 - **平台级全局限速与数据库容量告警**：Vercel 上进程内令牌桶是 `Infinity`（`server/vercel-runtime.mjs` 顶部的诚实清单），
   两个删除端点与摄入端点都只能靠边缘/防火墙限速兜底。每次有效删除会写一行已消费 nonce 与一行墓碑，
   墓碑永久保留 —— 需要对 `telemetry_delete_tombstone` 的行数设容量告警。
-- **审计表权限矩阵**（应用连接所用的数据库角色）：`telemetry_audit` 只给 `INSERT`、`SELECT`，**不给** `UPDATE` / `DELETE`；
-  `telemetry_delete_tombstone` 给 `INSERT`、`SELECT`；`telemetry_delete_nonce` 给 `INSERT`、`SELECT`、`DELETE`（到期清理）；
-  `telemetry_identity` 给 `INSERT`、`SELECT`、`DELETE`。迁移用单独的高权限角色跑。
+- **数据库角色与权限矩阵**（2026-09-14 落实）：运行时连应用专用角色 `telemetry_app`
+  （连接串放 `GEOLY_TELEMETRY_DATABASE_URL`），迁移用 Neon 的 owner（`DATABASE_URL_UNPOOLED`）。
+  ⚠️ 不能让运行时直接用 owner：表的 owner 对自己的表有全部权限，REVOKE 约束不住它。
+
+  | 表 | telemetry_app 的权限 | 为什么 |
+  |---|---|---|
+  | `telemetry_events` | SELECT INSERT UPDATE DELETE | 摄入、聚合读取、剥 `install_id`、保留期清理 |
+  | `telemetry_rollup` | SELECT INSERT UPDATE | 折算保留期外的计数 |
+  | `telemetry_meta` | SELECT UPDATE | 读密钥指纹、写清理时间；**指纹只由迁移写** |
+  | `telemetry_identity` | SELECT INSERT DELETE | 摄入身份、按 tag 删除、90 天到期 |
+  | `telemetry_delete_nonce` | SELECT INSERT DELETE | 记已消费 nonce、到期清理 |
+  | `telemetry_delete_tombstone` | SELECT INSERT DELETE | 摄入查墓碑、写墓碑、180 天到期 |
+  | `telemetry_audit` | **只 INSERT**（另给序列 USAGE） | 审计只增不改；运行时从不读它 |
+
+  角色本身（带密码）由人建，不进仓库；迁移在角色存在时重授一遍并反查审计表只有 INSERT，多一项就中止。
 - 身份被丢弃时服务端打一行只含条数的 `identity-dropped` 日志；它是逐批一条，不是聚合指标 —— 身份摄入打开后
   应改接平台指标并按时间窗告警（未实现）。
 
