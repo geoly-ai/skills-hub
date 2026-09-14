@@ -51,3 +51,17 @@ test('🔴 主题口与登录口同一套护栏：同源检查 + safeNext + __Ho
   assert.ok(THEME_COOKIE.startsWith('__Host-'), '`__Host-` 前缀强制 Secure + Path=/ + 无 Domain');
   assert.ok(!/'use client'|"use client"/.test(src));
 });
+
+// ⚠️ 不在这里 import 路由真跑 handler：`next/server` 没有 exports 映射，纯 Node 测试里解析不到
+//    （只有 Next 的打包器认它）。守卫本身已抽成模块并被真跑：同源检查与 safeNext（含控制字符绕过）
+//    见 test/http-guards.test.mjs。这里守的是「路由确实按正确顺序用了它们」。
+test('🔴 主题口的守卫顺序：先同源检查、再读表单；回跳地址只来自 safeNext', () => {
+  const src = read('app/api/theme/route.js');
+  const iOrigin = src.indexOf('sameOrigin(req)');
+  const iForm = src.indexOf('req.formData()');
+  assert.ok(iOrigin > 0 && iForm > 0, '找不到同源检查或读表单 —— 断言在空跑');
+  assert.ok(iOrigin < iForm, '先读了表单再做同源检查');
+  const redirects = [...src.matchAll(/NextResponse\.redirect\(new URL\((\w+),/g)].map((m) => m[1]);
+  assert.deepEqual(redirects, ['to'], '回跳地址必须是 safeNext 的结果变量 to，且只有这一处跳转');
+  assert.match(src, /const to = safeNext\(/);
+});

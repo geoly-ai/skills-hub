@@ -3,7 +3,7 @@ import { MIN_EVENTS_FOR_QUANTILE } from '../lib/publish.mjs';
 import { VIEW, viewStateOf } from '../lib/state.mjs';
 import { Icon } from './icons.jsx';
 import { Nothing } from './nothing.jsx';
-import { PanelHead, WithheldRow } from './dimension-table.jsx';
+import { HEAD_WORD, PanelHead, WithheldRow } from './dimension-table.jsx';
 
 /**
  * 耗时分位数（§1 的问题 3：一次安装要多久）。DESIGN.md §10.6 / §11.2。
@@ -37,8 +37,8 @@ export function Durations({ durations, totalEvents }) {
   if (state !== VIEW.ROWS) {
     return (
       <div className="panel">
-        <PanelHead {...head} right={state === VIEW.NO_EVENTS ? '零事件'
-          : state === VIEW.DIMENSION_MISSING ? '服务端未算' : '整表未发布'} />
+        {/* 🔴 与维度表共用状态词表：NO_ROWS 是「一行都没有」，不是「未发布」（§10.1） */}
+        <PanelHead {...head} right={HEAD_WORD[state]} />
         <div className="body"><Nothing state={state} id="nt-durations" /></div>
         {state === VIEW.SUPPRESSED_QUANTILE || state === VIEW.SUPPRESSED ? <QuantileDrawer /> : null}
       </div>

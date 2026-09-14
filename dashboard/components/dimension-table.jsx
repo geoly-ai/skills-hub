@@ -17,7 +17,8 @@ import { Nothing } from './nothing.jsx';
  */
 
 /** 面板头右侧：只报「可见行数」或一个状态词，不报候选行数、不报总计（§8.5）。 */
-const HEAD_WORD = {
+/** 面板头右侧的状态词。耗时面板共用这一张表 —— 两处各写一份，迟早有一处把「没有」写成「未发布」。 */
+export const HEAD_WORD = {
   [VIEW.NO_EVENTS]: '零事件',
   [VIEW.NO_ROWS]: '一行都没有',
   [VIEW.DIMENSION_MISSING]: '服务端未算',

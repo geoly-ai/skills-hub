@@ -105,6 +105,10 @@ export async function Shell({ title, current, path, source, readAt, children }) 
         <CollectionBar />
 
         <main className="main" id="main">{children}</main>
+        {/* 窄屏时侧栏底部隐藏，这句挪到这里；宽屏由 CSS 隐藏，避免同屏出现两遍（§5.3） */}
+        <p className="cap mainfoot">
+          这里的计数是趋势信号，不是精确指标；禁止用于计费或任何信任判定。
+        </p>
       </div>
     </div>
   );

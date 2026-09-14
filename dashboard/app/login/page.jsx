@@ -1,5 +1,6 @@
 import { Icon } from '../../components/icons.jsx';
 import { Notice } from '../../components/nothing.jsx';
+import { safeNext } from '../../lib/http-guards.mjs';
 
 /*
  * 登录页（DESIGN.md §15）。
@@ -31,7 +32,8 @@ const ERRORS = {
 export default async function LoginPage({ searchParams }) {
   const sp = await searchParams;
   const err = ERRORS[sp?.e];
-  const to = typeof sp?.to === 'string' && sp.to.startsWith('/') && !sp.to.startsWith('//') ? sp.to : '/';
+  // 与登录口同一个守卫 —— 这里原先是一份更弱的手写检查（漏了 `/\` 与控制字符）
+  const to = safeNext(sp?.to);
   return (
     <main className="loginframe" id="main">
       <div className="logincard">

@@ -31,6 +31,7 @@
 }
 .nav .num { font-family: var(--f-mono); font-size: var(--fs-chip); color: var(--c-text-dim); }
 .sidefoot { margin-top: auto; padding: var(--sp-4); border-top: 1px solid var(--c-hairline); }
+.mainfoot { display: none; padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--c-hairline); }
 
 .topbar {
   position: sticky; top: 0; z-index: 20; height: var(--h-topbar);
@@ -169,7 +170,8 @@ td { height: var(--h-row); padding: var(--row-pad-y) var(--sp-3); font-size: var
      /* 🔴 值不做大写：版本号与制品坐标区分大小写，改了就是改数据（§5.4） */
      text-transform: none; }
 tbody tr:last-child td { border-bottom: 0; }
-tbody tr:hover td { background: color-mix(in srgb, var(--c-accent) 6%, transparent); }
+/* 🔴 排除抑制行：`background` 简写会把斜纹 background-image 一起清掉，悬停时抑制态就只剩两个通道（§14.1） */
+tbody tr:not(.withheld-row):hover td { background: color-mix(in srgb, var(--c-accent) 6%, transparent); }
 /* 🔴 overflow-wrap: anywhere，但不许 break-all：那会在版本号中间断行（§12.1） */
 td.v { font-family: var(--f-mono); color: var(--c-text); overflow-wrap: anywhere; }
 td.n, th.n { text-align: right; font-family: var(--f-mono);
@@ -271,6 +273,8 @@ td.dumbcell { width: var(--w-dumb); }
   .nav ul { display: flex; }
   .nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--c-accent); }
   .sidefoot { display: none; }
+  /* 🔴 侧栏底部那句「禁止用于计费或任何信任判定」在窄屏不能跟着消失（规格 §5.3）：挪到主区底部 */
+  .mainfoot { display: block; }
 }
 @media (max-width: 899px) {
   .kpirow { grid-template-columns: repeat(2, minmax(0, 1fr)); }

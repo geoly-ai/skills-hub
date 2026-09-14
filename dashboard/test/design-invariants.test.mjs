@@ -148,3 +148,27 @@ test('🔴 SOURCE 非 ok 时主区只有告示条：KPI 与面板只在 ok 分�
   assert.match(failBranch, /<Nothing/);
   assert.match(failBranch, /<ServerGaps data=\{null\} \/>/);
 });
+
+// 🔴 面板头状态词只有一张表（components/dimension-table.jsx 的 HEAD_WORD）。
+//    耗时面板原先手写三元式，把 NO_ROWS 写成了「整表未发布」—— 「没有」与「未发布」混成一个词（§10.1）。
+test('🔴 耗时面板的面板头状态词取自共享的 HEAD_WORD，不另写一份', async () => {
+  const { readFileSync: rf } = await import('node:fs');
+  const src = rf(new URL('../components/durations.jsx', import.meta.url), 'utf8');
+  assert.match(src, /right=\{HEAD_WORD\[state\]\}/, '耗时面板没用共享状态词表');
+  assert.ok(!/'整表未发布'/.test(src), '耗时面板里又出现了手写的状态词');
+  const table = rf(new URL('../components/dimension-table.jsx', import.meta.url), 'utf8');
+  for (const k of ['NO_EVENTS', 'NO_ROWS', 'DIMENSION_MISSING', 'UNRECOGNIZED_ROWS', 'FILTERED_EMPTY', 'SUPPRESSED', 'SUPPRESSED_QUANTILE']) {
+    assert.match(table, new RegExp(`\\[VIEW\\.${k}\\]:`), `HEAD_WORD 缺 ${k}`);
+  }
+});
+
+// 🔴 规格 §5.3 那句边界声明在任何宽度都要看得见：侧栏在窄屏隐藏时，主区底部要有同一句。
+test('🔴 「禁止用于计费或任何信任判定」窄屏不消失', async () => {
+  const { readFileSync: rf } = await import('node:fs');
+  const shell = rf(new URL('../components/shell.jsx', import.meta.url), 'utf8');
+  const css = rf(new URL('../app/components.css', import.meta.url), 'utf8');
+  const n = (shell.match(/禁止用于计费或任何信任判定/g) ?? []).length;
+  assert.equal(n, 2, '侧栏与主区底部应各有一份');
+  const narrow = css.slice(css.indexOf('@media (max-width: 1119px)'));
+  assert.match(narrow.slice(0, narrow.indexOf('}\n}') + 3), /\.mainfoot\s*\{\s*display:\s*block/, '窄屏断点里没把主区那份显示出来');
+});

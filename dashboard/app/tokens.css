@@ -112,7 +112,7 @@
     --c-hairline: #2A2F37; --c-rule: #3A414B; --c-rule-hi: #4C545F;
     --c-text: #EDEFF2; --c-text-mid: #B6BEC9; --c-text-dim: #97A0AC;
     /* 🔴 亮色那个 #2F5D8C 在 #1C2027 上画的 1px 线几乎看不见 */
-    --c-accent: #4E86BE; --c-accent-ink: #86B4E6; --c-on-accent: #FFFFFF;
+    --c-accent: #4E86BE; --c-accent-ink: #86B4E6; --c-on-accent: #14171B;
     --c-fault: #EF9A94; --c-withheld: #DFB768; --c-pending: #A9A6EE;
     --c-unknown: #97A0AC; --c-measure: #8B97A5;
     --p-fault: #2C1E1F; --p-withheld: #2A2318; --p-pending: #21203A; --p-quiet: #23262B;
@@ -129,7 +129,7 @@
   --c-page: #14171B; --c-panel: #1C2027; --c-inset: #171A20;
   --c-hairline: #2A2F37; --c-rule: #3A414B; --c-rule-hi: #4C545F;
   --c-text: #EDEFF2; --c-text-mid: #B6BEC9; --c-text-dim: #97A0AC;
-  --c-accent: #4E86BE; --c-accent-ink: #86B4E6; --c-on-accent: #FFFFFF;
+  --c-accent: #4E86BE; --c-accent-ink: #86B4E6; --c-on-accent: #14171B;
   --c-fault: #EF9A94; --c-withheld: #DFB768; --c-pending: #A9A6EE;
   --c-unknown: #97A0AC; --c-measure: #8B97A5;
   --p-fault: #2C1E1F; --p-withheld: #2A2318; --p-pending: #21203A; --p-quiet: #23262B;
