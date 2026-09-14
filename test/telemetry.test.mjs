@@ -553,7 +553,7 @@ test('🔴 身份告知标记必须是普通文件且内容有效 —— 目录/
 // 🔴 删除必须把**墓碑**也删掉（Codex 2026-09-09 的 P1）。
 //    `sending.tomb.ndjson` 里没被 mark 覆盖的尾部，下一次 flush 会扫回队列并发出去 ——
 //    用户以为删干净了，结果删完还发了一批。
-test('🔴 telemetry delete 删掉目录里的一切（墓碑、戳、标记），只留锁', async () => {
+test('🔴 telemetry delete 删掉目录里的一切（墓碑、戳、标记、私钥），只留锁与 identity-off', async () => {
   const d = iso();
   const { mkdirSync, writeFileSync: wf, readdirSync, existsSync } = await import('node:fs');
   const dir = join(d, 'telemetry');
@@ -562,20 +562,54 @@ test('🔴 telemetry delete 删掉目录里的一切（墓碑、戳、标记）�
   for (const f of ['queue.ndjson', 'queue.1.ndjson', 'sending.ndjson',
     'sending.tomb.ndjson', 'sending.tomb.mark', 'history.ndjson', 'history.1.ndjson',
     'install-id', 'auto-upload.last', 'upload-notice.v1', 'identity-notice.v2',
-    'identity-off']) {
+    'delete-key', 'identity-off']) {
     wf(join(dir, f), 'x\n');
   }
   const tm = await fresh();
   const r = tm.purgeLocal();
   assert.ok(r.removed >= 12, `只删了 ${r.removed} 个`);
   assert.deepEqual(r.remaining.filter((n) => !n.startsWith('upload.lock')), []);
+  assert.deepEqual(r.kept, ['identity-off']);
+  assert.equal(r.deleteKeyRemoved, true);
   assert.equal(existsSync(join(dir, 'sending.tomb.ndjson')), false, '墓碑还在 —— 下次 flush 会把它扫回队列发出去');
   assert.equal(existsSync(join(dir, 'sending.tomb.mark')), false, '墓碑水位还在');
   assert.equal(existsSync(join(dir, 'install-id')), false);
-  // 剩下的只能是锁
+  // 剩下的只能是锁与用户偏好
   for (const n of readdirSync(dir)) {
-    assert.ok(n.startsWith('upload.lock'), `删完还剩一个非锁文件：${n}`);
+    assert.ok(n.startsWith('upload.lock') || n === 'identity-off', `删完还剩一个非保留文件：${n}`);
   }
+});
+
+// 🔴 `identity-off` 是用户的偏好，不是埋点数据（Codex 2026-09-13 P1）。
+//    删了它等于替用户把身份采集重新打开 —— 先关、再删的人删完反而又开始被采。
+test('🔴 off → delete 之后身份采集仍然是关的', async () => {
+  const d = iso();
+  process.env.GEOLY_TELEMETRY_IDENTITY = 'on';
+  try {
+    const { mkdirSync, writeFileSync: wf } = await import('node:fs');
+    mkdirSync(join(d, 'telemetry'), { recursive: true });
+    wf(join(d, 'telemetry', 'identity-notice.v2'), `shown-at=${new Date().toISOString()}\n`);
+    const tm = await fresh();
+    assert.equal(tm.identityEnabled(), true, '前提自查：环境变量开 + 告知过 = 能采');
+    tm.identityOff();
+    assert.equal(tm.identityEnabled(), false);
+    tm.purgeLocal();
+    assert.equal((await fresh()).identityEnabled(), false, 'delete 把用户的「关闭身份」一起删了');
+  } finally { delete process.env.GEOLY_TELEMETRY_IDENTITY; }
+});
+
+test('🔴 keepDeleteKey：远程删除没成功时私钥留着，且如实报告没删', async () => {
+  const d = iso();
+  const { mkdirSync, writeFileSync: wf, existsSync } = await import('node:fs');
+  const dir = join(d, 'telemetry');
+  mkdirSync(dir, { recursive: true });
+  for (const f of ['queue.ndjson', 'install-id', 'delete-key']) wf(join(dir, f), 'x\n');
+  const tm = await fresh();
+  const r = tm.purgeLocal({ keepDeleteKey: true });
+  assert.equal(existsSync(join(dir, 'delete-key')), true, '私钥被删了 —— 服务端那批数据从此证明不了是谁的');
+  assert.equal(r.deleteKeyRemoved, false);
+  assert.ok(r.kept.includes('delete-key'));
+  assert.equal(existsSync(join(dir, 'queue.ndjson')), false, '保留私钥不等于保留别的数据');
 });
 
 test('状态目录不存在时 delete 什么都不建', async () => {
@@ -583,7 +617,7 @@ test('状态目录不存在时 delete 什么都不建', async () => {
   const { existsSync } = await import('node:fs');
   const tm = await fresh();
   const r = tm.purgeLocal();
-  assert.deepEqual(r, { removed: 0, remaining: [] });
+  assert.deepEqual(r, { removed: 0, remaining: [], kept: [], deleteKeyRemoved: true });
   assert.equal(existsSync(join(d, 'telemetry')), false, '为了删而先把目录建出来了');
 });
 

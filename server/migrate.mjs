@@ -80,6 +80,30 @@ try {
   await sql`create index if not exists telemetry_identity_received_at on telemetry_identity (received_at)`;
   // 删除按 pubkey_tag 找行，必须有索引。
   await sql`create index if not exists telemetry_identity_pubkey_tag on telemetry_identity (pubkey_tag)`;
+
+  // 🔴 **tag 为 NULL 的身份行：删掉，然后让它再也出现不了。**（2026-09-13）
+  //    摄入层早先从没把 pubkey 换成 tag（validate.mjs parseBatch 那段注释），
+  //    所以在修复之前落库的身份行 tag 全是 NULL —— 删除通道按所有权**永远**找不到它们，
+  //    而它们仍然是登录名、主机名与 IP。等 90 天到期不是答案：那 90 天里用户申请删除
+  //    会得到「删除成功」，数据却还在。隐私优先，直接删（Codex 2026-09-13 的 P0）。
+  //    ⚠️ 身份摄入的 kill switch 默认关，正常部署里这里应当删 0 行；删了非 0 行要说出来。
+  const orphans = await sql`delete from telemetry_identity where pubkey_tag is null returning 1`;
+  if (orphans.length > 0) {
+    console.error(`⚠️ 删掉了 ${orphans.length} 行没有 pubkey_tag 的身份数据（无法按所有权删除的历史行）`);
+  }
+  // 然后从结构上禁止：同类缺陷再出现时，插入当场失败，而不是静默攒下删不掉的数据。
+  // `alter … set not null` 对已经是 not null 的列是幂等的。
+  await sql`alter table telemetry_identity alter column pubkey_tag set not null`;
+  const [chk] = await sql`
+    select 1 as ok from pg_constraint
+    where conname = 'telemetry_identity_pubkey_tag_hex' and conrelid = 'telemetry_identity'::regclass
+  `;
+  if (!chk) {
+    await sql`
+      alter table telemetry_identity add constraint telemetry_identity_pubkey_tag_hex
+      check (pubkey_tag ~ '^[0-9a-f]{64}$')
+    `;
+  }
   // 归属页按人聚合，走这个索引。
   await sql`create index if not exists telemetry_identity_os_user on telemetry_identity (os_user)`;
 
@@ -138,6 +162,28 @@ try {
   `;
   await sql`insert into telemetry_meta (id, pruned_at) values (1, null) on conflict (id) do nothing`;
 
+  // ── tag 密钥指纹（2026-09-13）────────────────────────────────────────────
+  //
+  // 🔴 运行时的删除与身份摄入都要求「库里记的指纹 == 当前 GEOLY_TELEMETRY_TAG_SECRET 的指纹」，
+  //    对不上就拒绝（server/delete.mjs tagKeyId 的长注释：换了密钥，删除会回
+  //    `deleted: true` 却一行没删）。指纹只在这里写，**运行时从不写** ——
+  //    否则第一个带着错密钥冷启动的实例就把指纹改成它自己的了。
+  // 🔴 库里已有指纹且与当前环境不同：**迁移失败**，不覆盖。换密钥意味着历史 tag 全部作废，
+  //    那是一个要人拍板的决定，不是迁移脚本顺手做的事。
+  await sql`alter table telemetry_meta add column if not exists tag_key_id text`;
+  const { tagKeyId } = await import('./delete.mjs');
+  const envKeyId = tagKeyId();
+  const [km] = await sql`select tag_key_id from telemetry_meta where id = 1`;
+  if (envKeyId === null) {
+    console.error('⚠️ 没有 GEOLY_TELEMETRY_TAG_SECRET：不写 tag 密钥指纹 —— 删除通道与身份摄入会一直回 503 / 丢身份');
+  } else if (km?.tag_key_id == null) {
+    await sql`update telemetry_meta set tag_key_id = ${envKeyId} where id = 1 and tag_key_id is null`;
+  } else if (km.tag_key_id !== envKeyId) {
+    console.error('✖ 库里的 tag 密钥指纹与当前 GEOLY_TELEMETRY_TAG_SECRET 不一致 —— 密钥被换过？');
+    console.error('  历史 pubkey_tag 与墓碑都是用旧密钥算的，换密钥会让它们全部失效。不覆盖，迁移中止。');
+    process.exit(1);
+  }
+
   // ── 核验：命令没报错 ≠ 表真的在 ────────────────────────────────────────
   const want = ['telemetry_events', 'telemetry_rollup', 'telemetry_meta',
     'telemetry_identity', 'telemetry_audit',
@@ -153,16 +199,68 @@ try {
   }
   // 🔴 **表在 ≠ 列在。** ALTER 是这次迁移的重点，所以它也要被核验 ——
   //    否则「迁移完成」这句话只覆盖了建表那一半。
+  //    删除通道依赖的每张表都核一遍，不只是 telemetry_identity（Codex 2026-09-13 P2）。
+  const wantCols = {
+    telemetry_identity: ['pubkey_tag', 'os_user', 'host', 'notice', 'ip', 'eid', 'received_at'],
+    telemetry_delete_nonce: ['nonce', 'pubkey_tag', 'expires_at', 'used_at'],
+    telemetry_delete_tombstone: ['pubkey_tag', 'at'],
+    telemetry_audit: ['id', 'at', 'viewer', 'action', 'target', 'allowed', 'request_id'],
+    telemetry_meta: ['id', 'pruned_at', 'tag_key_id'],
+  };
   const cols = await sql`
-    select column_name from information_schema.columns
-    where table_schema = current_schema() and table_name = 'telemetry_identity'
+    select table_name, column_name, is_nullable from information_schema.columns
+    where table_schema = current_schema() and table_name = any(${Object.keys(wantCols)})
   `;
-  const names = cols.map((c) => c.column_name);
-  for (const c of ['pubkey_tag', 'os_user', 'host', 'notice', 'ip', 'eid', 'received_at']) {
-    if (!names.includes(c)) {
-      console.error(`✖ telemetry_identity 少了列 ${c}，实际：${names.join('、')}`);
+  for (const [table, need] of Object.entries(wantCols)) {
+    const names = cols.filter((c) => c.table_name === table).map((c) => c.column_name);
+    for (const c of need) {
+      if (!names.includes(c)) {
+        console.error(`✖ ${table} 少了列 ${c}，实际：${names.join('、')}`);
+        process.exit(1);
+      }
+    }
+  }
+  const tagCol = cols.find((c) => c.table_name === 'telemetry_identity' && c.column_name === 'pubkey_tag');
+  if (tagCol?.is_nullable !== 'NO') {
+    console.error('✖ telemetry_identity.pubkey_tag 仍可为 NULL —— 删不掉的身份行还会被静默写进来');
+    process.exit(1);
+  }
+  // 主键就是去重与防重放的依据：nonce 表没有主键，「一次性」就不成立
+  const pks = await sql`
+    select tc.table_name, kcu.column_name from information_schema.table_constraints tc
+    join information_schema.key_column_usage kcu
+      on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema
+    where tc.table_schema = current_schema() and tc.constraint_type = 'PRIMARY KEY'
+      and tc.table_name = any(${['telemetry_delete_nonce', 'telemetry_delete_tombstone']})
+  `;
+  for (const [table, col] of [['telemetry_delete_nonce', 'nonce'], ['telemetry_delete_tombstone', 'pubkey_tag']]) {
+    if (!pks.some((p) => p.table_name === table && p.column_name === col)) {
+      console.error(`✖ ${table} 的主键不是 ${col} —— 防重放 / 墓碑去重不成立`);
       process.exit(1);
     }
+  }
+  // 🔴 「如果约束名不存在就创建」之后要**反查**：创建语句没报错 ≠ 约束在那儿（Codex 2026-09-13 P2）
+  const [hex] = await sql`
+    select 1 as ok from pg_constraint
+    where conname = 'telemetry_identity_pubkey_tag_hex' and conrelid = 'telemetry_identity'::regclass
+      and contype = 'c'
+  `;
+  if (!hex) {
+    console.error('✖ telemetry_identity_pubkey_tag_hex 约束不存在 —— 非 tag 形状的值能写进 pubkey_tag');
+    process.exit(1);
+  }
+  // 删除与到期清理都按这些索引走；缺了不是错，是全表扫描 —— 在公开端点上等于可被放大的 DoS
+  const wantIdx = ['telemetry_identity_pubkey_tag', 'telemetry_identity_received_at',
+    'telemetry_delete_nonce_expires', 'telemetry_audit_at', 'telemetry_events_received_at'];
+  const idx = await sql`
+    select indexname from pg_indexes
+    where schemaname = current_schema() and indexname = any(${wantIdx})
+  `;
+  const haveIdx = new Set(idx.map((r) => r.indexname));
+  const missingIdx = wantIdx.filter((n) => !haveIdx.has(n));
+  if (missingIdx.length > 0) {
+    console.error(`✖ 缺索引：${missingIdx.join('、')}`);
+    process.exit(1);
   }
 
   const [meta] = await sql`select count(*)::int as n from telemetry_meta`;

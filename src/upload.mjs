@@ -9,6 +9,10 @@ import {
   mkdirSync, renameSync, unlinkSync, linkSync, statSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { createPrivateKey, sign as signEd } from 'node:crypto';
+import {
+  CHALLENGE_SCHEMA, DELETE_SCHEMA, RE_PUBKEY, signedMessage,
+} from './delete-proof.mjs';
 import {
   stateDir,
   telemetryDir,
@@ -108,13 +112,22 @@ export const isDefaultEndpoint = () => process.env.GEOLY_TELEMETRY_ENDPOINT === 
 const MAX_ACK_BYTES = 64 * 1024;
 
 async function ackOk(res, n) {
-  if (typeof res.text !== 'function') return true;
-  // ACK 只有几十个字节；声明得比这大得多的一律不读
-  const declared = Number(res.headers?.get?.('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_ACK_BYTES) return false;
   let body;
-  try { body = await res.text(); } catch { return false; }
-  if (body.length > MAX_ACK_BYTES) return false;
+  if (res.body && typeof res.body.getReader === 'function') {
+    // 🔴 **按真实字节读，超限当场取消。** 早先是 `await res.text()` 之后再比长度 ——
+    //    chunked 响应没有 Content-Length，一个恶意端点可以先把任意大小的 body
+    //    整个塞进内存（Codex 2026-09-13 P1）。永不结束的 body 由调用方的超时 abort 兜住。
+    body = await readBounded(res, MAX_ACK_BYTES);
+    if (body === null) return false;
+  } else if (typeof res.text === 'function') {
+    // 没有流、只有 text() 的只可能是测试替身（真实 Response 的 body 是 ReadableStream 或 null）
+    const declared = Number(res.headers?.get?.('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_ACK_BYTES) return false;
+    try { body = await res.text(); } catch { return false; }
+    if (Buffer.byteLength(body, 'utf8') > MAX_ACK_BYTES) return false;
+  } else {
+    return true;
+  }
   let ack;
   try { ack = parseStrict(body); } catch { return false; }
   if (!ack || typeof ack !== 'object' || ack.schema !== 'geoly.skills.telemetry-ack/1') return false;
@@ -435,5 +448,153 @@ export async function maybeAutoUpload({ fetchImpl, timeoutMs = AUTO_UPLOAD_TIMEO
     // flush 自己已经吞掉一切异常，走到这里只可能是三道门自身出了岔子。
     // 静默的含义就是这个：埋点的任何问题都不许冒泡到主命令（T-5）。
     return { ran: false, reason: `error:${err?.name ?? 'unknown'}` };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 远程删除（规格 §4.4；删除通道第四块）
+//
+// 🔴 与上报同一套出网纪律：只走 https 端点（endpoint() 校验）、禁止重定向、
+//    整段有超时、响应当敌意输入读（有界）。
+// 🔴 **三个开关一票否决**（Codex 2026-09-13 P1）：`--offline`、`GEOLY_TELEMETRY=0`、
+//    `GEOLY_TELEMETRY_UPLOAD=0` 都承诺过「不发网络请求」，删除请求也是网络请求。
+//    被否决时私钥保留，用户临时解除开关后可以重跑。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 删除两个端点的响应都是几十字节的 JSON；8 KiB 已经很宽。 */
+export const MAX_DELETE_RESPONSE_BYTES = 8 * 1024;
+/** 两次往返（取挑战 + 删除）共用一个超时。用户主动在等，给得比自动上报宽。 */
+export const DELETE_TIMEOUT_MS = 5000;
+
+/**
+ * 删除端点的 URL，**相对上报端点解析**：默认 `…/v1/events` → `…/v1/delete`。
+ * `delete` 同时是签名里的 audience，客户端与服务端各自算、逐字比对。
+ */
+export function deleteUrls(ep = endpoint()) {
+  return {
+    challenge: new URL('delete/challenge', ep).toString(),
+    delete: new URL('delete', ep).toString(),
+  };
+}
+
+/**
+ * 按**真实字节**读响应体，超限立刻取消。
+ *
+ * 🔴 不能先 `res.text()` 再比长度：chunked 响应没有 Content-Length，
+ *    `text()` 会把一个恶意端点发来的任意大小的 body 整个读进内存之后才轮到你比
+ *    （Codex 2026-09-13 P1，上报那边的 ackOk 有同样的问题，那是另一件事）。
+ * 🔴 字节数是 `Uint8Array.byteLength`，不是解码后的字符串长度 —— 多字节 UTF-8 下两者不等。
+ * 🔴 解码用 `fatal: true`：非法 UTF-8 不静默替换成 U+FFFD。
+ * ⚠️ 永不结束的 body 由调用方的 AbortController 兜：abort 让 read() 抛，这里返回 null。
+ * @returns {Promise<string|null>} 超限、读失败、非法 UTF-8、或者拿不到流时一律 null（fail-closed）
+ */
+export async function readBounded(res, maxBytes) {
+  const declared = Number(res.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    try { await res.body?.cancel(); } catch { /* 已经断了 */ }
+    return null;
+  }
+  const body = res.body;
+  if (!body || typeof body.getReader !== 'function') return null;
+  const reader = body.getReader();
+  const chunks = [];
+  let n = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      n += value.byteLength;
+      if (n > maxBytes) {
+        try { await reader.cancel(); } catch { /* 已经断了 */ }
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch { return null; }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+  } catch { return null; }
+}
+
+/**
+ * 向服务端申请删除这台机器已发出的身份数据。**绝不抛错。**
+ *
+ * @param {object} opts
+ * @param {{pem: string, pubkey: string}|null} opts.key  `deleteKey()` 的返回值
+ * @param {Function|null} [opts.fetchImpl] 缺省用 `globalThis.fetch`
+ *        （用 `??` 而不是默认参数：默认参数只对 undefined 生效，null 会原样穿过去）
+ * @returns {Promise<{ ok: boolean, reason?: string, detail?: string }>}
+ */
+export async function remoteDelete({ key, fetchImpl = null, timeoutMs = DELETE_TIMEOUT_MS } = {}) {
+  try {
+    if (offline()) return { ok: false, reason: 'offline' };
+    if (!uploadEnabled()) return { ok: false, reason: 'upload-disabled' };
+    if (!key || typeof key.pem !== 'string' || !RE_PUBKEY.test(key.pubkey ?? '')) {
+      return { ok: false, reason: 'no-key' };
+    }
+    const doFetch = fetchImpl ?? globalThis.fetch;
+    if (typeof doFetch !== 'function') return { ok: false, reason: 'no-fetch' };
+    let urls;
+    try {
+      urls = deleteUrls();
+    } catch (e) {
+      return { ok: false, reason: 'bad-endpoint', detail: e.message };
+    }
+
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      const post = async (url, body) => {
+        const res = await doFetch(url, {
+          method: 'POST',
+          signal: ac.signal,
+          redirect: 'error',
+          headers: { 'content-type': 'application/json' },
+          body,
+        });
+        if (res.redirected) return { err: 'redirect-refused' };
+        // 失败响应也按有界方式读完再丢：别让一个大错误页绕过上限
+        const text = await readBounded(res, MAX_DELETE_RESPONSE_BYTES);
+        if (!res.ok) return { err: `http-${res.status}` };
+        if (text === null) return { err: 'bad-response' };
+        let obj;
+        try { obj = parseStrict(text); } catch { return { err: 'bad-response' }; }
+        if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return { err: 'bad-response' };
+        return { obj };
+      };
+
+      const c = await post(urls.challenge,
+        JSON.stringify({ schema: CHALLENGE_SCHEMA, pubkey: key.pubkey }));
+      if (c.err) return { ok: false, reason: c.err };
+      const ch = c.obj;
+      if (ch.schema !== CHALLENGE_SCHEMA || typeof ch.nonce !== 'string') {
+        return { ok: false, reason: 'bad-challenge' };
+      }
+      // 🔴 **audience 对不上就不签。** 服务端说「我是 X」，而我们要发去的是 Y ——
+      //    这正是中继的形状：Y 拿着从 X 那里取来的挑战让我们签，再把签名转给 X。
+      if (ch.audience !== urls.delete) return { ok: false, reason: 'audience-mismatch' };
+
+      let signature;
+      try {
+        const msg = signedMessage({ audience: urls.delete, pubkey: key.pubkey, nonce: ch.nonce });
+        signature = signEd(null, msg, createPrivateKey(key.pem)).toString('base64url');
+      } catch {
+        return { ok: false, reason: 'bad-challenge' };
+      }
+
+      const d = await post(urls.delete, JSON.stringify({
+        schema: DELETE_SCHEMA, pubkey: key.pubkey, nonce: ch.nonce, signature,
+      }));
+      if (d.err) return { ok: false, reason: d.err };
+      // 🔴 回执要**恰好**是 `{schema, deleted: true}`：一个回 200 + 随便什么的中间页不算删成功
+      const keys = Object.keys(d.obj).sort();
+      if (d.obj.schema !== DELETE_SCHEMA || d.obj.deleted !== true
+        || keys.length !== 2 || keys[0] !== 'deleted' || keys[1] !== 'schema') {
+        return { ok: false, reason: 'bad-ack' };
+      }
+      return { ok: true };
+    } finally { clearTimeout(t); }
+  } catch (err) {
+    return { ok: false, reason: `error:${err?.name ?? 'unknown'}` };
   }
 }

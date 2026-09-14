@@ -808,31 +808,48 @@ export function identityOn() {
  *    「删掉了」变成「删掉了但还是发出去了」。
  * 🔴 `install-id` 也一起删：留着它，下一条事件仍然接得回同一条时间线，
  *    那样「删除」只是删了一半（Codex 2026-09-09 指出）。
- * 🔴 **只管本机。** 已经发出去的记录要服务端删，而那条通道还没建 ——
- *    所以这里如实说「本机已清空、服务端另说」，不假装自己能远程删。
+ * 🔴 **只管本机。** 服务端那一半由 `upload.mjs` 的 `remoteDelete` 负责，
+ *    而且**必须先于这里**：这里会删掉私钥，私钥是远程删除唯一的所有权证明。
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.keepDeleteKey] 远程删除没成功时传 true —— 私钥一删，
+ *        服务端那批数据就再也证明不了是谁的，只能等 90 天到期。
+ * @returns {{ removed: number, remaining: string[], kept: string[], deleteKeyRemoved: boolean }}
+ *          `deleteKeyRemoved` 看的是**删完之后目录里还有没有它**，不是「我们试过删」：
+ *          远程已写墓碑、本机私钥却没删掉时，下一条身份事件会复用旧钥、被墓碑静默丢掉，
+ *          CLI 必须知道这件事才能说实话（Codex 2026-09-13 P1）。
  */
-export function purgeLocal() {
+export function purgeLocal({ keepDeleteKey = false } = {}) {
   const dir = join(stateDir(), 'telemetry');
   // 目录都不在 = 本来就没有数据。**不为了删而先建目录**（那会在
   // `GEOLY_TELEMETRY=0` 的机器上凭空写出东西来）。
-  if (!existsSync(dir)) return { removed: 0, remaining: [] };
+  if (!existsSync(dir)) return { removed: 0, remaining: [], kept: [], deleteKeyRemoved: true };
 
   const release = acquire(lockPath());
   try {
-    // 🔴 **删的是目录里除锁以外的全部文件，不是一张手写清单。**
+    // 🔴 **删的是目录里除保留项以外的全部文件，不是一张手写清单。**
     //    手写清单漏过 `sending.tomb.ndjson` 与 `sending.tomb.mark`
     //    （Codex 2026-09-09 指出）—— 墓碑里没被 mark 覆盖的尾部，
     //    下一次 flush 会**扫回队列并发出去**：用户以为删干净了，
     //    结果删完还发了一批。告知里还写着「删除」，那就是一句假话。
     //    清单式删除的问题不是这次漏了哪个，是**它会一直漏**：
     //    每加一个新的状态文件都要有人记得回来改这里。
-    //    ⚠️ 例外只有锁本身：它此刻正被我们持有，且里面没有任何埋点数据。
+    //    所以清单只列**保留**的，且每一项都要有理由：
+    //      · 锁 —— 它此刻正被我们持有，且里面没有任何埋点数据
+    //      · `identity-off` —— **用户的偏好，不是埋点数据**。删了它等于替用户把
+    //        身份采集重新打开：先 `telemetry off` 再 `telemetry delete` 的人，
+    //        删完反而又开始被采（Codex 2026-09-13 P1）
+    //      · `delete-key`（仅当调用方要求）—— 见 keepDeleteKey
     const lock = lockPath();
+    const keep = new Set(['identity-off']);
+    if (keepDeleteKey) keep.add(basename(deleteKeyPath()));
     let removed = 0;
     const remaining = [];
+    const kept = [];
     for (const name of readdirSync(dir)) {
       const p = join(dir, name);
       if (p === lock || name.startsWith(basename(lock))) { remaining.push(name); continue; }
+      if (keep.has(name)) { kept.push(name); continue; }
       try {
         rmSync(p, { recursive: true, force: true });
         removed++;
@@ -840,7 +857,9 @@ export function purgeLocal() {
         remaining.push(name);   // 删不掉要说出来，不能算「已清空」
       }
     }
-    return { removed, remaining };
+    let deleteKeyRemoved;
+    try { deleteKeyRemoved = !readdirSync(dir).includes(basename(deleteKeyPath())); } catch { deleteKeyRemoved = false; }
+    return { removed, remaining, kept, deleteKeyRemoved };
   } finally { release(); }
 }
 

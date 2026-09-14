@@ -12,6 +12,7 @@ import {
   MAX_QUEUE_BYTES, serializeAnonymousEvent,
 } from '../src/telemetry.mjs';
 import { parseStrict } from '../src/canonical-json.mjs';
+import { pubkeyTag, taggingAvailable } from './delete.mjs';
 
 export const BATCH_SCHEMA = 'geoly.skills.telemetry-batch/1';
 export const ACK_SCHEMA = 'geoly.skills.telemetry-ack/1';
@@ -119,8 +120,19 @@ export function parseBatch(text) {
     events.push(parseStrict(serializeAnonymousEvent(picked)));
     const id = splitIdentity(picked);
     if (id === null) continue;
-    if (ingest) identities.push(id);
-    else identityDropped++;
+    if (!ingest) { identityDropped++; continue; }
+    // 🔴 **公钥原文在这里换成 tag，之后再也不往下传。**
+    //    早先没有任何代码做这一步：身份行带着 `pubkey` 进了 put()，而 put() 插的是
+    //    `x->>'pubkey_tag'` —— 于是每一行的 tag 都是 NULL，删除按 tag 找不到行，
+    //    摄入侧查墓碑也因为 `filter(Boolean)` 永不命中。store 的单测手工塞了
+    //    `pubkey_tag`，从没走过 parseBatch → put 这条真链路，所以一直绿着。
+    // 🔴 **删不掉的身份不收。** 没带公钥、或服务端密钥没配（算不出 tag）时，
+    //    这一行存进去就是一份谁都无法按所有权删除的个人数据 —— 整行丢掉，
+    //    匿名事件照收。不抛错：配错密钥不该让摄入面 500。
+    if (typeof id.pubkey !== 'string' || !taggingAvailable()) { identityDropped++; continue; }
+    id.pubkey_tag = pubkeyTag(id.pubkey);
+    delete id.pubkey;
+    identities.push(id);
   }
   return { events, identities, rejected, identityDropped };
 }

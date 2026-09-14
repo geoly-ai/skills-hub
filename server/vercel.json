@@ -7,6 +7,14 @@
     {
       "source": "/v1/summary",
       "destination": "/api/summary"
+    },
+    {
+      "source": "/v1/delete/challenge",
+      "destination": "/api/delete-challenge"
+    },
+    {
+      "source": "/v1/delete",
+      "destination": "/api/delete"
     }
   ],
   "crons": [
@@ -21,6 +29,12 @@
     },
     "api/summary.js": {
       "maxDuration": 30
+    },
+    "api/delete-challenge.js": {
+      "maxDuration": 15
+    },
+    "api/delete.js": {
+      "maxDuration": 15
     },
     "api/prune.js": {
       "maxDuration": 60
