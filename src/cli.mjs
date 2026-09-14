@@ -38,7 +38,9 @@ const HELP = `skills-hub —— geoly skill 分发（M1 + M2 的命令面）
 
   stats [--json] [--export <file>]   本地埋点报表
   telemetry <status|flush|on|off|delete>
-                                     埋点开关、队列、身份三项的退出与本机清空
+                                     埋点开关、队列、身份三项的退出；delete 先向服务端申请删除
+                                     已发出的身份记录（--offline / GEOLY_TELEMETRY=0 /
+                                     GEOLY_TELEMETRY_UPLOAD=0 下不出网），再清本机
 
 全局 flag（09-cli.md §2）：
   --clients <list>            默认 = 本机已存在的全部；含未安装 client 是硬错误
@@ -408,24 +410,75 @@ async function cmdTelemetry(args, globals, out, stdout, stderr) {
       return EXIT.OK;
     }
     case 'delete': {
-      const r = tm.purgeLocal();
+      // 🔴 **先远程、后本机。** 本机那一步会删掉私钥，而私钥是远程删除唯一的所有权证明
+      //    （规格 §4.4）。倒过来做，服务端那批数据就再也证明不了是谁的。
+      const key = tm.deleteKey();
+      // 私钥只在身份开启时生成，身份开启又要求告知过。所以「没私钥、也没告知过」=
+      // 这台机器从没发过带身份的数据，服务端没有可按所有权删的东西。
+      // 反过来「告知过却没私钥」= 私钥丢了或坏了，**不能**说服务端没有数据（Codex 2026-09-13 P1）。
+      const identityEver = key !== null || tm.identityNoticeShown();
+      const remote = key ? await up.remoteDelete({ key }) : null;
+      const r = tm.purgeLocal({ keepDeleteKey: key !== null && !remote.ok });
+      const vetoed = remote !== null && (remote.reason === 'offline' || remote.reason === 'upload-disabled');
+
+      /** @type {'deleted'|'deleted-key-left'|'vetoed'|'remote-failed'|'unprovable'|'nothing-remote'} */
+      let status;
+      let code;
+      if (remote?.ok) {
+        status = r.deleteKeyRemoved ? 'deleted' : 'deleted-key-left';
+        code = r.deleteKeyRemoved ? EXIT.OK : EXIT.PARTIAL;
+      } else if (vetoed) {
+        status = 'vetoed'; code = EXIT.PARTIAL;
+      } else if (remote) {
+        status = 'remote-failed'; code = EXIT.NETWORK;
+      } else if (identityEver) {
+        status = 'unprovable'; code = EXIT.PARTIAL;
+      } else {
+        status = 'nothing-remote'; code = EXIT.OK;
+      }
+      // 🔴 本机删不干净也要反映到退出码上：「已清空」和「清了一部分」是两件事
+      const leftovers = r.remaining.filter((n) => !n.startsWith('upload.lock'));
+      if (leftovers.length > 0 && code === EXIT.OK) code = EXIT.PARTIAL;
+
       if (globals.json) {
         return out.emit('telemetry', {
-          action: 'delete', removed: r.removed, remaining: r.remaining, scope: 'local-only',
-          note: '服务端删除通道尚未上线',
-        }, EXIT.OK);
+          action: 'delete', remote: status, reason: remote?.ok ? null : (remote?.reason ?? null),
+          removed: r.removed, remaining: leftovers, kept: r.kept, deleteKeyRemoved: r.deleteKeyRemoved,
+        }, code);
+      }
+      switch (status) {
+        case 'deleted':
+          stdout.write('服务端已删除这台机器发出的身份记录（登录名 / 主机名 / 来源 IP），\n');
+          stdout.write('并剥掉了那些事件上的 install_id。匿名计数保留到到期。\n');
+          break;
+        case 'deleted-key-left':
+          stdout.write('服务端已删除身份记录，但本机的删除私钥没删掉。\n');
+          stdout.write('⚠️ 在删掉它之前，这台机器之后发出的身份记录会被服务端当作「已申请删除」而丢弃。\n');
+          break;
+        case 'vetoed':
+          stdout.write('⚠️ 没有向服务端申请删除：--offline / GEOLY_TELEMETRY=0 / GEOLY_TELEMETRY_UPLOAD=0\n');
+          stdout.write('   都承诺过不发网络请求，删除请求也是网络请求。\n');
+          stdout.write('   删除私钥已保留 —— 临时解除这些开关后再跑一次 `skills-hub telemetry delete`。\n');
+          break;
+        case 'remote-failed':
+          stdout.write(`⚠️ 服务端删除没有成功（${remote.reason}${remote.detail ? `：${remote.detail}` : ''}）。\n`);
+          stdout.write('   删除私钥已保留 —— 稍后再跑一次 `skills-hub telemetry delete`。\n');
+          break;
+        case 'unprovable':
+          stdout.write('⚠️ 这台机器看过身份告知，但找不到可用的删除私钥（丢失或损坏），\n');
+          stdout.write('   无法向服务端证明那些身份记录是你的。它们会在 90 天后到期删除。\n');
+          break;
+        default:
+          stdout.write('这台机器从没发出过带身份的记录，服务端没有需要按所有权删除的东西。\n');
       }
       stdout.write(`本机埋点数据已清空（删了 ${r.removed} 个文件，含 install-id 与上报墓碑）。\n`);
-      // 🔴 删不掉的要**说出来**：「已清空」和「清了一部分」是两件事。
-      if (r.remaining.length > 0) {
-        stdout.write(`⚠️ 这些没删掉：${r.remaining.join('、')}\n`);
+      if (r.kept.includes('identity-off')) stdout.write('「关闭身份」的设置保留着。\n');
+      if (leftovers.length > 0) stdout.write(`⚠️ 这些没删掉：${leftovers.join('、')}\n`);
+      // 删除的是「过去的」；身份采集如果仍开着，之后的新事件照样会带身份
+      if (tm.identityEnabled()) {
+        stdout.write('ℹ️ 身份采集仍然开着，之后的事件会带一把新的删除密钥重新采集 —— 要停请 `skills-hub telemetry off`。\n');
       }
-      // 🔴 **不假装能远程删。** 服务端删除要有所有权证明，那条通道还没建；
-      //    在没有证明的情况下开一个「按 install_id 删」的入口，等于让任何人
-      //    删掉别人的数据（Codex 2026-09-09 指出）。
-      stdout.write('⚠️ 这只清了本机。已经发到服务端的记录需要另外申请删除，\n');
-      stdout.write('   带所有权证明的删除通道还没上线 —— 在那之前请联系维护者。\n');
-      return EXIT.OK;
+      return code;
     }
     default:
       if (globals.json) {

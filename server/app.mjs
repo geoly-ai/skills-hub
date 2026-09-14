@@ -11,10 +11,19 @@ import { isIP } from 'node:net';
 import { ACK_SCHEMA, BadBatchError, MAX_BODY_BYTES, parseBatch } from './validate.mjs';
 import { StoreFullError } from './store.mjs';
 import { summarize } from './aggregate.mjs';
+import { parseStrict } from '../src/canonical-json.mjs';
+import {
+  BadDeleteRequestError, CHALLENGE_SCHEMA, DELETE_SCHEMA, MAX_DELETE_BODY_BYTES, NONCE_TTL_SECONDS,
+  checkNonce, mintNonce, parseChallengeRequest, parseDeleteRequest, pubkeyTag, serverAudience,
+  tagKeyId, verifyProof,
+} from './delete.mjs';
 
 /** 事件接收路径。查询路径是 `/v1/summary`。 */
 export const INGEST_PATH = '/v1/events';
 export const SUMMARY_PATH = '/v1/summary';
+/** 删除通道：先取挑战，再带签名删。 */
+export const DELETE_CHALLENGE_PATH = '/v1/delete/challenge';
+export const DELETE_PATH = '/v1/delete';
 
 function send(res, status, obj, extraHeaders = {}) {
   const body = JSON.stringify(obj);
@@ -201,6 +210,7 @@ export function createHandler({
     const path = (req.url ?? '').split('?')[0];
 
     if (path === SUMMARY_PATH) return handleSummary(req, res);
+    if (path === DELETE_CHALLENGE_PATH || path === DELETE_PATH) return handleDelete(req, res, path);
     if (path !== INGEST_PATH) return send(res, 404, { error: 'not-found' });
     if (req.method !== 'POST') {
       return send(res, 405, { error: 'method-not-allowed' }, { allow: 'POST' });
@@ -216,7 +226,21 @@ export function createHandler({
     inFlight++;
     try {
       const text = await readBody(req, maxBodyBytes);
-      const { events, identities, rejected } = parseBatch(text);
+      const parsed = parseBatch(text);
+      const { events, rejected } = parsed;
+      let { identities } = parsed;
+      // 🔴 **tag 密钥指纹对不上就不收身份。**（Codex 2026-09-13 的 P0）
+      //    换过密钥时这一批的 tag 与库里的历史 tag、墓碑都不在一个体系里：
+      //    存进去的身份行删除通道认不出，墓碑也挡不住已删除的机器。
+      //    文件版 store 不存身份，没有这个方法，跳过。
+      if (identities.length > 0 && typeof store.tagKeyIdMatches === 'function'
+        && !(await store.tagKeyIdMatches(tagKeyId()))) {
+        identities = [];
+      }
+      // 🔴 身份被丢要**看得见**（Codex 2026-09-13 P2）：密钥配坏时身份会一直被丢，
+      //    没有迹象就没人发现。只打条数，一个身份值都不打。
+      const dropped = (parsed.identityDropped ?? 0) + (parsed.identities.length - identities.length);
+      if (dropped > 0) console.warn(`[telemetry-server] identity-dropped count=${dropped}`);
       // 🔴 只有真的要存身份行时才去看 IP。没有身份行时**连取都不取** ——
       //    这样「不采身份」这条路径上，IP 从头到尾没有出现在任何一个变量里。
       const ip = identities.length > 0 ? clientIp(req) : null;
@@ -247,6 +271,83 @@ export function createHandler({
       inFlight--;
     }
   };
+
+  /**
+   * 删除通道的两个端点。协议见 delete.mjs；存储语义见 store-postgres.mjs 的 deleteIdentity。
+   *
+   * 🔴 **对外只有三种结果，而且都不泄漏「这把公钥有没有数据」：**
+   *    挑战永远发（不查有没有数据）；证明不成立一律 `bad-proof`（形状不对、签名不对、
+   *    nonce 过期/用过/不属于这把公钥，不分开报）；成功只回 `deleted: true`，不回行数。
+   * 🔴 与摄入面同一套闸：只收 POST、只收 JSON、体积闸、令牌桶、并发上限、不回显输入。
+   */
+  async function handleDelete(req, res, path) {
+    // 文件版 store 不支持身份，也就没有可删的东西 —— 这个路由对它不存在
+    // 🔴 挑战与删除回执都不许被任何一层缓存：缓存住的挑战会被发给别人，
+    //    缓存住的 `deleted: true` 会让重试看不见真实结果；连 404 也不许被缓存 ——
+    //    换成 Postgres store 之后，代理还在回「这个端点不存在」。
+    const noStore = { 'cache-control': 'no-store' };
+    if (typeof store.deleteIdentity !== 'function' || typeof store.tagKeyIdMatches !== 'function') {
+      return send(res, 404, { error: 'not-found' }, noStore);
+    }
+    if (req.method !== 'POST') {
+      return send(res, 405, { error: 'method-not-allowed' }, { allow: 'POST', ...noStore });
+    }
+    if (!jsonContentType(req.headers['content-type'])) {
+      return send(res, 415, { error: 'unsupported-media-type' }, noStore);
+    }
+    if (!takeToken()) return send(res, 429, { error: 'rate-limited' }, { 'retry-after': '10', ...noStore });
+    if (inFlight >= maxInFlight) return send(res, 503, { error: 'busy' }, { 'retry-after': '10', ...noStore });
+
+    inFlight++;
+    try {
+      const text = await readBody(req, MAX_DELETE_BODY_BYTES);
+      // 🔴 三样缺一样就**拒绝服务**，不回落到任何降级模式：
+      //    · audience 没配 —— 签名绑不到端点上，中继重放是开着的
+      //    · tag 密钥没配 —— 算不出 tag（delete.mjs pubkeyTag 的长注释）
+      //    · 库里的密钥指纹与当前对不上 —— 删除会回 `deleted: true` 却一行没删
+      //    这三样都是**全局状态**，与请求里是哪把公钥无关，所以回同一个码不泄漏存在性。
+      const audience = serverAudience();
+      const keyId = tagKeyId();
+      if (audience === null || keyId === null || !(await store.tagKeyIdMatches(keyId))) {
+        return send(res, 503, { error: 'delete-unavailable' }, noStore);
+      }
+      let body;
+      try { body = parseStrict(text); } catch { throw new BadDeleteRequestError('malformed-json'); }
+
+      if (path === DELETE_CHALLENGE_PATH) {
+        const { pubkey } = parseChallengeRequest(body);
+        // 🔴 **不写库、不查这把公钥有没有数据。** 挑战由服务端密钥签发（delete.mjs mintNonce），
+        //    所以发挑战没有存储代价，也不成为「这台机器被没被采过」的查询口。
+        const nonce = mintNonce(pubkeyTag(pubkey));
+        return send(res, 200, {
+          schema: CHALLENGE_SCHEMA, audience, nonce, expires_in: NONCE_TTL_SECONDS,
+        }, noStore);
+      }
+
+      const proof = parseDeleteRequest(body);
+      // 🔴 验签失败、挑战不是签给这把公钥的、过期、已用过 —— **同一个码**。
+      //    验签失败**不写审计也不碰库**：那条路径任何人都能打，写了就是一张无鉴权可灌的表。
+      if (!verifyProof({ audience, ...proof })) return send(res, 400, { error: 'bad-proof' }, noStore);
+      const tag = pubkeyTag(proof.pubkey);
+      const chk = checkNonce(proof.nonce, tag);
+      if (!chk.ok) return send(res, 400, { error: 'bad-proof' }, noStore);
+      // request_id 由服务端生成，不信任任何请求头
+      const ok = await store.deleteIdentity(tag, proof.nonce, chk.expiresAtMs, randomUUID());
+      if (!ok) return send(res, 400, { error: 'bad-proof' }, noStore);
+      return send(res, 200, { schema: DELETE_SCHEMA, deleted: true }, noStore);
+    } catch (err) {
+      if (err instanceof BadBatchError) {
+        return send(res, err.code === 'too-large' ? 413 : 400, { error: err.code }, noStore);
+      }
+      if (err instanceof BadDeleteRequestError) return send(res, 400, { error: err.code }, noStore);
+      // 🔴 日志里只有 ref 与错误对象 —— 不打 body、不打 pubkey/tag/nonce/signature
+      const ref = randomUUID();
+      console.error(`[telemetry-server] ${ref}`, err);
+      return send(res, 500, { error: 'internal', ref }, noStore);
+    } finally {
+      inFlight--;
+    }
+  }
 
   async function handleSummary(req, res) {
     if (req.method !== 'GET') return send(res, 405, { error: 'method-not-allowed' }, { allow: 'GET' });

@@ -22,7 +22,8 @@ function fakeSql(plan = [], tombstoned = []) {
     //    （锁没有返回值；墓碑为空是默认情形，非空的那一支由专门的测试用
     //    `tombstoned` 显式打开）。真正被断言的仍然是插入语句的参数与顺序。
     if (/pg_advisory_xact_lock/.test(text)) return Promise.resolve([]);
-    if (/from telemetry_delete_tombstone/.test(text)) {
+    // 只应答「查墓碑」那条 select —— 删墓碑的语句里也有这段表名，放宽了会把它吞掉
+    if (/select pubkey_tag from telemetry_delete_tombstone/.test(text)) {
       return Promise.resolve(tombstoned.map((t) => ({ pubkey_tag: t })));
     }
     const next = plan.shift();
@@ -330,4 +331,191 @@ test('🔴 身份行落库带 pubkey_tag（删除要靠它找行）', async () =
   );
   const ins = sql.calls.find((c) => c.text.includes('insert into telemetry_identity'));
   assert.match(ins.text, /pubkey_tag/, '没写 pubkey_tag —— 删除时按什么找行？');
+});
+
+// ── 删除（按所有权）────────────────────────────────────────────────────────
+
+const EXP = 1_800_000_300_000;
+
+test('🔴 deleteIdentity：一个事务内按固定顺序 —— 锁 → 记已消费 → 墓碑 → 剥 install_id → 删身份 → 审计', async () => {
+  // plan：set local → 空；记已消费 nonce → 返回 1 行（没人先用过）；其余空
+  const sql = fakeSql([[], [1], [], [], [], []]);
+  const ok = await openPostgresStore(sql).deleteIdentity('tag-1', 'nonce-1', EXP, 'rid-1');
+  assert.equal(ok, true);
+  const texts = sql.calls.map((c) => c.text);
+  const at = (re) => texts.findIndex((t) => re.test(t));
+  const order = [
+    at(/<<BEGIN>>/),
+    at(/pg_advisory_xact_lock/),
+    at(/insert into telemetry_delete_nonce/),
+    at(/insert into telemetry_delete_tombstone/),
+    at(/update telemetry_events/),
+    at(/delete from telemetry_identity/),
+    at(/insert into telemetry_audit/),
+    at(/<<COMMIT>>/),
+  ];
+  assert.ok(order.every((i) => i >= 0), `缺了某一步：${JSON.stringify(order)}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order, `顺序不对：${JSON.stringify(order)}`);
+  assert.ok(!texts.some((t) => /pg_advisory_lock\(/.test(t)), '用了会话级锁');
+  assert.deepEqual(sql.calls[order[1]].args, ['tag-1'], '锁的必须是这把公钥的 tag —— 与摄入侧同一把');
+
+  // 🔴 防重放是**一条**带唯一约束的插入 —— 先查再插会被并发请求各用一次
+  const ins = sql.calls[order[2]];
+  assert.match(ins.text, /on conflict \(nonce\) do nothing/);
+  assert.match(ins.text, /returning/);
+  assert.deepEqual(ins.args, ['nonce-1', 'tag-1', EXP]);
+
+  // 🔴 install_id 与身份同一条生命周期：按这把公钥的身份行找到事件、剥掉，必须在删身份行之前
+  const strip = sql.calls[order[4]];
+  assert.match(strip.text, /ev - 'install_id'/);
+  assert.match(strip.text, /telemetry_identity/, '剥 install_id 没按身份行找事件 —— 会剥错机器');
+  assert.deepEqual(strip.args, ['tag-1']);
+
+  assert.deepEqual(sql.calls[order[5]].args, ['tag-1']);
+  assert.deepEqual(sql.calls[order[6]].args, ['tag-1', 'rid-1']);
+});
+
+test('🔴 deleteIdentity：nonce 已被消费 → 返回 false，墓碑、剥 install_id、删身份、审计一条都不发', async () => {
+  const sql = fakeSql([[], []]);             // 记已消费 → 0 行（先被用过）
+  const ok = await openPostgresStore(sql).deleteIdentity('tag-1', 'nonce-x', EXP, 'rid');
+  assert.equal(ok, false);
+  const texts = sql.calls.map((c) => c.text).join('\n');
+  assert.ok(!/telemetry_delete_tombstone|update telemetry_events|delete from telemetry_identity|telemetry_audit/.test(texts),
+    '重放的请求还写了东西');
+});
+
+test('deleteIdentity：过期时间不是有限数值 → 直接抛，不打库', async () => {
+  const sql = fakeSql();
+  for (const bad of [NaN, undefined, Infinity]) {
+    await assert.rejects(openPostgresStore(sql).deleteIdentity('t', 'n', bad, 'r'), /不是有限数值/);
+  }
+  assert.equal(sql.calls.length, 0);
+});
+
+test('deleteIdentity / tagKeyIdMatches / pruneDeleteNonces：数据库出错 → StoreUnavailableError', async () => {
+  await assert.rejects(openPostgresStore(fakeSql([new Error('boom')])).deleteIdentity('t', 'n', EXP, 'r'),
+    StoreUnavailableError);
+  await assert.rejects(openPostgresStore(fakeSql([new Error('boom')])).tagKeyIdMatches('abc'),
+    StoreUnavailableError);
+  await assert.rejects(openPostgresStore(fakeSql([new Error('boom')])).pruneDeleteNonces(),
+    StoreUnavailableError);
+});
+
+// 🔴 换过密钥时删除会假成功 —— 指纹比对是那道闸。只缓存「对得上」，修好配置要立刻生效。
+test('🔴 tagKeyIdMatches：对得上才 true 并缓存；对不上不缓存；库里是 NULL 也算对不上', async () => {
+  const good = fakeSql([[{ tag_key_id: 'id-1' }]]);
+  const s = openPostgresStore(good);
+  assert.equal(await s.tagKeyIdMatches('id-1'), true);
+  assert.equal(await s.tagKeyIdMatches('id-1'), true);
+  assert.equal(good.calls.length, 1, '对得上之后应当缓存，不必每个请求都查');
+
+  const bad = fakeSql([[{ tag_key_id: 'id-old' }], [{ tag_key_id: 'id-1' }]]);
+  const s2 = openPostgresStore(bad);
+  assert.equal(await s2.tagKeyIdMatches('id-1'), false);
+  assert.equal(await s2.tagKeyIdMatches('id-1'), true, '对不上被缓存了 —— 修好配置后要等实例回收才生效');
+
+  assert.equal(await openPostgresStore(fakeSql([[{ tag_key_id: null }]])).tagKeyIdMatches('id-1'), false);
+  assert.equal(await openPostgresStore(fakeSql([[]])).tagKeyIdMatches('id-1'), false);
+  const none = fakeSql();
+  assert.equal(await openPostgresStore(none).tagKeyIdMatches(null), false, '没密钥（指纹为 null）必须是 false');
+  assert.equal(none.calls.length, 0);
+});
+
+test('🔴 pruneTombstones：按保留期删墓碑，水位是 NaN 直接抛', async () => {
+  const sql = fakeSql([[1]]);
+  const now = 1_800_000_000_000;
+  const r = await openPostgresStore(sql).pruneTombstones(180, now);
+  assert.equal(r.deleted, 1);
+  assert.match(sql.calls[0].text, /delete from telemetry_delete_tombstone/);
+  assert.match(sql.calls[0].text, /at < to_timestamp/);
+  assert.deepEqual(sql.calls[0].args, [now - 180 * 86_400_000]);
+  await assert.rejects(openPostgresStore(fakeSql()).pruneTombstones(Number('180 days')), /不是有限数值/);
+});
+
+test('pruneDeleteNonces：过了挑战有效期就删（不额外留一天）', async () => {
+  const sql = fakeSql([[1, 1]]);
+  const r = await openPostgresStore(sql).pruneDeleteNonces();
+  assert.equal(r.deleted, 2);
+  assert.match(sql.calls[0].text, /expires_at <= now\(\)/);
+});
+
+// 🔴 命中墓碑时只丢身份行不够：install_id 还挂在新事件上，时间线照样串得回去。
+test('🔴 put：命中墓碑的事件在同一个事务里剥掉 install_id，没命中的不动', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }, { eid: 'b' }]], ['tag-dead']);
+  await openPostgresStore(sql).put(
+    [{ eid: 'a' }, { eid: 'b' }], Date.now(),
+    [
+      { eid: 'a', os_user: 'x', pubkey_tag: 'tag-dead' },
+      { eid: 'b', os_user: 'y', pubkey_tag: 'tag-live' },
+    ], null,
+  );
+  const strip = sql.calls.find((c) => c.text.includes('update telemetry_events'));
+  assert.ok(strip, '命中墓碑却没剥 install_id');
+  assert.match(strip.text, /ev - 'install_id'/);
+  assert.deepEqual(strip.args, [['a']], '剥错了事件 —— 只该剥命中墓碑的那条');
+  const iStrip = sql.calls.indexOf(strip);
+  assert.ok(iStrip < sql.calls.findIndex((c) => c.text === '<<COMMIT>>'), '剥 install_id 不在同一个事务里');
+});
+
+test('put：没有命中墓碑时不发剥 install_id 的语句', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }]]);
+  await openPostgresStore(sql).put(
+    [{ eid: 'a' }], Date.now(), [{ eid: 'a', os_user: 'x', pubkey_tag: 'tag-live' }], null,
+  );
+  assert.ok(!sql.calls.some((c) => c.text.includes('update telemetry_events')));
+});
+
+// 🔴 [A,B] 与 [B,A] 两批各拿到第一把、等第二把 —— 死锁。
+test('🔴 put：多个 tag 按排序后的顺序取锁', async () => {
+  const sql = fakeSql([[], [{ eid: 'a' }, { eid: 'b' }]]);
+  await openPostgresStore(sql).put(
+    [{ eid: 'a' }, { eid: 'b' }], Date.now(),
+    [{ eid: 'a', os_user: 'x', pubkey_tag: 'tag-b' }, { eid: 'b', os_user: 'y', pubkey_tag: 'tag-a' }], null,
+  );
+  const locks = sql.calls.filter((c) => c.text.includes('pg_advisory_xact_lock')).map((c) => c.args[0]);
+  assert.deepEqual(locks, ['tag-a', 'tag-b']);
+});
+
+// 🔴 **真链路：parseBatch 的输出原样喂给 put()。**
+//    上面几条都是手工塞 `pubkey_tag` 的身份行 —— 于是「没有任何代码把 pubkey 变成
+//    pubkey_tag」这件事一直测不出来：每一行落库时 tag 都是 NULL，删除找不到行、
+//    墓碑永不命中，而单测全绿。这一条不许手工构造身份行。
+test('🔴 端到端：parseBatch → put，落库的身份行 tag 非空且没有公钥原文', async () => {
+  const { parseBatch, BATCH_SCHEMA } = await import('../server/validate.mjs');
+  const { pubkeyTag } = await import('../server/delete.mjs');
+  const pubkey = Buffer.alloc(32, 5).toString('base64url');
+  const secret = 's'.repeat(32);
+  const saved = [process.env.GEOLY_TELEMETRY_IDENTITY_INGEST, process.env.GEOLY_TELEMETRY_TAG_SECRET];
+  process.env.GEOLY_TELEMETRY_IDENTITY_INGEST = 'on';
+  process.env.GEOLY_TELEMETRY_TAG_SECRET = secret;
+  try {
+    const eid = '11111111-1111-4111-8111-111111111111';
+    const { events, identities } = parseBatch(JSON.stringify({
+      schema: BATCH_SCHEMA,
+      events: [{
+        schema: 'geoly.skills.telemetry/1', eid, at: '2026-01-01T00:00:00Z',
+        install_id: '22222222-2222-4222-8222-222222222222',
+        cli: '0.3.7', os: 'darwin', arch: 'arm64', node: '22.13.0', kind: 'install', result: 'ok',
+        os_user: 'zhang.wei', host: 'MBP-14-zw', notice: 'v2', pubkey,
+      }],
+    }));
+    const sql = fakeSql([[], [{ eid }]]);
+    const r = await openPostgresStore(sql).put(events, Date.now(), identities, null);
+    assert.equal(r.identities, 1);
+
+    const lock = sql.calls.find((c) => c.text.includes('pg_advisory_xact_lock'));
+    assert.deepEqual(lock?.args, [pubkeyTag(pubkey, secret)], '锁没按真实 tag 取 —— 摄入与删除串行不起来');
+    const tomb = sql.calls.find((c) => c.text.includes('from telemetry_delete_tombstone'));
+    assert.ok(tomb, '没查墓碑 —— tag 为空时 filter(Boolean) 会把这一步整个跳过');
+
+    const ins = sql.calls.find((c) => c.text.includes('insert into telemetry_identity'));
+    const payload = JSON.parse(ins.args.find((x) => typeof x === 'string' && x.startsWith('[')));
+    assert.equal(payload[0].pubkey_tag, pubkeyTag(pubkey, secret));
+    assert.ok(!JSON.stringify(payload).includes(pubkey), '公钥原文进了插入参数');
+  } finally {
+    if (saved[0] === undefined) delete process.env.GEOLY_TELEMETRY_IDENTITY_INGEST;
+    else process.env.GEOLY_TELEMETRY_IDENTITY_INGEST = saved[0];
+    if (saved[1] === undefined) delete process.env.GEOLY_TELEMETRY_TAG_SECRET;
+    else process.env.GEOLY_TELEMETRY_TAG_SECRET = saved[1];
+  }
 });

@@ -428,12 +428,29 @@ test('🔴 服务端身份采集默认关：拆出来但当场丢掉，匿名事
   }
 });
 
-test('打开 kill switch 后身份行才出现，且只带 eid 与身份三项', async () => {
-  const saved = process.env.GEOLY_TELEMETRY_IDENTITY_INGEST;
-  process.env.GEOLY_TELEMETRY_IDENTITY_INGEST = 'on';
-  try {
+const PUBKEY = Buffer.alloc(32, 5).toString('base64url');
+const TAG_SECRET = 's'.repeat(32);
+
+/** 身份摄入要两样都配：kill switch 与 tag 密钥。测试结束原样还原。 */
+async function withIdentityIngest(env, fn) {
+  const keys = ['GEOLY_TELEMETRY_IDENTITY_INGEST', 'GEOLY_TELEMETRY_TAG_SECRET'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  for (const k of keys) {
+    if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k];
+  }
+  try { return await fn(); } finally {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  }
+}
+const ingestOn = { GEOLY_TELEMETRY_IDENTITY_INGEST: 'on', GEOLY_TELEMETRY_TAG_SECRET: TAG_SECRET };
+
+test('打开 kill switch 后身份行才出现，且只带 eid、身份三项与 pubkey_tag', async () => {
+  await withIdentityIngest(ingestOn, async () => {
     const { parseBatch } = await import('../server/validate.mjs');
-    const { identities } = parseBatch(batchOf(idEvent()));
+    const { pubkeyTag } = await import('../server/delete.mjs');
+    const { identities } = parseBatch(batchOf(idEvent({ pubkey: PUBKEY })));
     assert.equal(identities.length, 1);
     const row = identities[0];
     assert.equal(row.eid, '11111111-1111-4111-8111-111111111111');
@@ -444,11 +461,32 @@ test('打开 kill switch 后身份行才出现，且只带 eid 与身份三项',
     assert.equal(row.install_id, undefined);
     assert.equal(row.artifact, undefined);
     assert.equal(row.at, undefined);
-    assert.deepEqual(Object.keys(row).sort(), ['eid', 'host', 'notice', 'os_user']);
-  } finally {
-    if (saved === undefined) delete process.env.GEOLY_TELEMETRY_IDENTITY_INGEST;
-    else process.env.GEOLY_TELEMETRY_IDENTITY_INGEST = saved;
-  }
+    // 🔴 删除按 tag 找行 —— 这一格早先一直是 NULL，而这条测试断言的正是那个错的形状
+    assert.equal(row.pubkey_tag, pubkeyTag(PUBKEY, TAG_SECRET));
+    assert.equal(row.pubkey, undefined, '公钥原文不许往下传 —— 落库的只能是 tag');
+    assert.deepEqual(Object.keys(row).sort(), ['eid', 'host', 'notice', 'os_user', 'pubkey_tag']);
+  });
+});
+
+// 🔴 删不掉的身份不收：存进去就是一份谁都无法按所有权删除的个人数据。
+test('🔴 身份事件没带公钥 → 身份行丢掉，匿名事件照收', async () => {
+  await withIdentityIngest(ingestOn, async () => {
+    const { parseBatch } = await import('../server/validate.mjs');
+    const r = parseBatch(batchOf(idEvent()));
+    assert.equal(r.identities.length, 0, '没有公钥的身份行将来删不掉');
+    assert.equal(r.identityDropped, 1);
+    assert.equal(r.events.length, 1);
+  });
+});
+
+test('🔴 服务端没配 tag 密钥 → 身份行丢掉（fail-closed，不抛、不 500）', async () => {
+  await withIdentityIngest({ GEOLY_TELEMETRY_IDENTITY_INGEST: 'on' }, async () => {
+    const { parseBatch } = await import('../server/validate.mjs');
+    const r = parseBatch(batchOf(idEvent({ pubkey: PUBKEY })));
+    assert.equal(r.identities.length, 0, '算不出 tag 还存身份 = 存了一份删不掉的数据');
+    assert.equal(r.identityDropped, 1);
+    assert.equal(r.events.length, 1);
+  });
 });
 
 test('没有身份字段的事件不产生身份行（也不算 dropped）', async () => {

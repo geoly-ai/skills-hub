@@ -89,8 +89,20 @@ export default async function handler(req, res) {
     } catch (e) {
       idError = e?.message ?? String(e);
     }
+    // 过期删除挑战：只控表大小（正确性靠 deleteIdentity 里的 expires_at > now()）。
+    // 🔴 同样不许连坐：迁移没跑时这张表不存在，不能因此停掉事件保留期。
+    let nonceError = null;
+    let ndr = null;
+    try {
+      ndr = await store.pruneDeleteNonces();
+      // 墓碑与事件同一条保留期（用户 2026-09-14 拍板 180 天，见 pruneTombstones）
+      await store.pruneTombstones(days);
+    } catch (e) {
+      nonceError = e?.message ?? String(e);
+    }
     const r = await store.prune(days);
     await sql`update telemetry_meta set pruned_at = now() where id = 1`;
+    if (nonceError) idError = idError ?? `delete-nonce: ${nonceError}`;
     res.statusCode = idError ? 500 : 200;
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.end(JSON.stringify({

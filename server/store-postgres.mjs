@@ -34,6 +34,8 @@ export class StoreUnavailableError extends Error {
  * @param {object} sql  `postgres` 客户端（模板标签函数）
  */
 export function openPostgresStore(sql) {
+  /** 已确认与库里一致的 tag 密钥指纹（只缓存「一致」，见 tagKeyIdMatches）。 */
+  let keyIdOk = null;
   return {
     /**
      * 🔴 **先 durable，再 ACK。** COMMIT 返回之后才算收下。
@@ -89,7 +91,9 @@ export function openPostgresStore(sql) {
           //    两条路径按**同一个** tag 取同一把 advisory lock，才真的串行。
           //    ⚠️ 用 `pg_advisory_xact_lock`（事务级）而不是会话级：
           //    serverless 下连接会被复用，会话级锁忘了释放就是永久死锁。
-          const tags = [...new Set(idRows.map((x) => x.pubkey_tag).filter(Boolean))];
+          // 🔴 **按固定顺序取锁。** 两批分别是 [A,B] 与 [B,A] 时，各拿到第一把、
+          //    等第二把 —— 死锁。排序之后所有事务都按同一个顺序取（Codex 2026-09-13）。
+          const tags = [...new Set(idRows.map((x) => x.pubkey_tag).filter(Boolean))].sort();
           for (const t of tags) {
             await tx`select pg_advisory_xact_lock(hashtext(${t}))`;
           }
@@ -102,6 +106,14 @@ export function openPostgresStore(sql) {
             if (buried.size > 0) {
               // 🔴 命中墓碑 = 这台机器已经要求删除过。**身份丢掉，匿名事件照收** ——
               //    删除的语义是「不要认出我」，不是「不要数我」。
+              // 🔴 **而且 `install_id` 也要剥掉。** 它与身份同一条生命周期（§2.3）：
+              //    只丢身份行、留着 install_id，删过的机器照样能按时间线串回去
+              //    （Codex 2026-09-13 的 P0）。刚插进去的这批事件，同一个事务里就剥。
+              const buriedEids = idRows.filter((x) => buried.has(x.pubkey_tag)).map((x) => x.eid);
+              await tx`
+                update telemetry_events set ev = ev - 'install_id'
+                where eid = any(${buriedEids}) and jsonb_exists(ev, 'install_id')
+              `;
               idRows = idRows.filter((x) => !buried.has(x.pubkey_tag));
             }
           }
@@ -239,6 +251,131 @@ export function openPostgresStore(sql) {
           returning 1
         `;
         return { stripped: rows.length, capped: rows.length >= cap };
+      } catch (e) {
+        throw new StoreUnavailableError(e);
+      }
+    },
+
+    /**
+     * 库里记的 tag 密钥指纹是否等于当前环境的。
+     *
+     * 🔴 **为什么删除与身份摄入都要先过这一关**（Codex 2026-09-13 的 P0）：
+     *    密钥一换，历史行的 tag 就再也算不出来 —— 删除照样回 `deleted: true`，
+     *    实际一行没删；新摄入的身份行也挂在一套新 tag 上，墓碑对不上。
+     *    假成功比 503 危险得多，所以对不上就拒绝。
+     * 🔴 只缓存「对得上」：对不上多半是部署配错，修好之后要立刻生效，
+     *    不该等实例回收。库里是 NULL（迁移没写指纹）同样算对不上。
+     */
+    async tagKeyIdMatches(expected) {
+      if (keyIdOk === expected && expected !== null) return true;
+      if (typeof expected !== 'string' || expected === '') return false;
+      let row;
+      try {
+        [row] = await sql`select tag_key_id from telemetry_meta where id = 1`;
+      } catch (e) {
+        throw new StoreUnavailableError(e);
+      }
+      const ok = typeof row?.tag_key_id === 'string' && row.tag_key_id === expected;
+      if (ok) keyIdOk = expected;
+      return ok;
+    },
+
+    /**
+     * 按所有权删除身份。**调用前签名与挑战都必须已经验过**（app 层，delete.mjs）。
+     *
+     * 一个事务，顺序固定，每一步的理由：
+     *   1. 按 tag 取事务级 advisory lock —— 与 put() **同一把**，否则摄入可能在
+     *      「删完之后」把身份行插回来（put() 那段长注释里的竞态）
+     *   2. **记下这个 nonce 已被消费**：挑战是无状态签发的（发挑战不写库），
+     *      防重放只能靠「用过的记一笔」。`on conflict do nothing returning` 是一条语句
+     *      判「有没有人先用过」—— 先 SELECT 再 INSERT 会被并发请求各用一次
+     *   3. 写墓碑 —— 客户端队列里还压着带旧公钥的事件，下一次 flush 会把身份插回来；
+     *      有墓碑它们在摄入侧就被丢掉
+     *   4. **剥掉这些身份行所挂事件的 `install_id`** —— 必须在删身份行**之前**，
+     *      删完就不知道哪些事件是这台机器的了。`install_id` 与身份同一条生命周期
+     *      （§2.3，用户 2026-09-09 选 1A）：身份删了、它还在，时间线照样串得回去
+     *      （Codex 2026-09-13 的 P0）
+     *   5. 删身份行
+     *   6. 写审计 —— 与前面同事务：审计写不进去，整个删除回滚，不留「删了但没记」
+     *
+     * @returns {Promise<boolean>} nonce 已被消费过时 false，此时**什么都没写**。
+     *          🔴 不返回删了几行 —— 调用方不该有这个数，也就不会把它回给请求方。
+     */
+    async deleteIdentity(tag, nonce, expiresAtMs, requestId) {
+      if (!Number.isFinite(expiresAtMs)) {
+        throw new Error(`telemetry-server: nonce 过期时间不是有限数值：${expiresAtMs}`);
+      }
+      try {
+        return await sql.begin(async (tx) => {
+          await tx`set local synchronous_commit = on`;
+          await tx`select pg_advisory_xact_lock(hashtext(${tag}))`;
+          const fresh = await tx`
+            insert into telemetry_delete_nonce (nonce, pubkey_tag, expires_at, used_at)
+            values (${nonce}, ${tag}, to_timestamp(${expiresAtMs}::bigint / 1000.0), now())
+            on conflict (nonce) do nothing
+            returning 1
+          `;
+          if (fresh.length === 0) return false;
+          await tx`
+            insert into telemetry_delete_tombstone (pubkey_tag) values (${tag})
+            on conflict (pubkey_tag) do nothing
+          `;
+          await tx`
+            update telemetry_events e set ev = e.ev - 'install_id'
+            from telemetry_identity i
+            where i.eid = e.eid and i.pubkey_tag = ${tag} and jsonb_exists(e.ev, 'install_id')
+          `;
+          await tx`delete from telemetry_identity where pubkey_tag = ${tag}`;
+          await tx`
+            insert into telemetry_audit (viewer, action, target, allowed, request_id)
+            values ('self', 'identity.delete', ${tag}, true, ${requestId})
+          `;
+          return true;
+        });
+      } catch (e) {
+        throw new StoreUnavailableError(e);
+      }
+    },
+
+    /**
+     * 已消费 nonce 的清理 —— 过了挑战有效期就可以删：过期的 nonce 在
+     * `checkNonce` 那一步就验不过，重放不到这张表来。**只控表大小，不管正确性。**
+     */
+    async pruneDeleteNonces() {
+      try {
+        const del = await sql`
+          delete from telemetry_delete_nonce where expires_at <= now()
+          returning 1
+        `;
+        return { deleted: del.length };
+      } catch (e) {
+        throw new StoreUnavailableError(e);
+      }
+    },
+
+    /**
+     * 删除墓碑的保留期清理 —— 与事件保留期**同一个天数**（用户 2026-09-14 拍板：180 天）。
+     *
+     * 🔴 为什么不是永久：任何人都能无成本生成密钥去制造墓碑，永久保留等于一张
+     *    公开可无限灌大的表（Codex 2026-09-13 的 P0）。
+     * 🔴 为什么跟事件同一个天数：墓碑挡的是「客户端队列里的旧事件重发、把身份送回来」。
+     *    事件还在库里时，重发的旧事件按 eid 就被判重，根本走不到写身份那一步；
+     *    事件过了保留期被删，墓碑也就没有要挡的旧行了。
+     * ⚠️ 代价（已接受）：超过这个天数后恢复的旧客户端备份，可能把旧身份重新提交一次 ——
+     *    再申请删除一次即可。
+     */
+    async pruneTombstones(retentionDays, nowMs = Date.now()) {
+      const cutoffMs = nowMs - retentionDays * 86_400_000;
+      if (!Number.isFinite(cutoffMs)) {
+        throw new Error(`telemetry-server: pruneTombstones 的水位不是有限数值：${cutoffMs}`);
+      }
+      try {
+        const del = await sql`
+          delete from telemetry_delete_tombstone
+          where at < to_timestamp(${cutoffMs}::bigint / 1000.0)
+          returning 1
+        `;
+        return { deleted: del.length };
       } catch (e) {
         throw new StoreUnavailableError(e);
       }
