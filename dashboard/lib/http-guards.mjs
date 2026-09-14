@@ -12,7 +12,16 @@
 export function safeNext(raw) {
   if (typeof raw !== 'string') return '/';
   if (!raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return '/';
-  return raw;
+  // 🔴 **URL 解析器会先剥掉制表符与换行**：`/\t/evil.com` 过了上面的前缀检查，
+  //    落到 `new URL(to, req.url)` 时变成 `//evil.com` —— 登录后被 303 到外站
+  //    （2026-09-14 评审实测）。控制字符一律不收。
+  if (/[\u0000-\u001F\u007F]/.test(raw)) return '/';
+  // 再用真实解析器兜底：解析后 origin 必须还是占位站点，不是就不是站内路径。
+  // 前缀检查是枚举，解析器的规范化规则是会变的 —— 以解析结果为准。
+  let u;
+  try { u = new URL(raw, 'https://x.invalid'); } catch { return '/'; }
+  if (u.origin !== 'https://x.invalid') return '/';
+  return `${u.pathname}${u.search}`;
 }
 
 /**

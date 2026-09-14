@@ -94,3 +94,36 @@ test('「真实的 0」那一条必须明说它不是故障；「不可用」那
   assert.ok(SOURCE_COPY[SOURCE.UNREACHABLE].body.includes('不是'));
   assert.ok(SOURCE_COPY[SOURCE.UNCONFIGURED].body.includes('不是因为没人用'));
 });
+
+/* ── 2026-09-14 值班台重做补的三条（DESIGN.md §5.4 / §9.3 / §10.2）──────── */
+
+const textOf = (c) => `${c.title}\n${c.body}\n${c.next}`;
+
+test('🔴 界面文案零 emoji、零 Markdown 星号 —— 告示条不解析，写了就原样上屏', () => {
+  const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+  for (const [k, c] of [...Object.entries(SOURCE_COPY), ...Object.entries(VIEW_COPY)]) {
+    assert.ok(!EMOJI.test(textOf(c)), `${k} 的文案里有 emoji`);
+    assert.ok(!textOf(c).includes('**'), `${k} 的文案里有 Markdown 的 **`);
+  }
+});
+
+test('🔴 故障态文案里不出现阿拉伯数字的 0（引用这个概念时写「零」）', () => {
+  // 判据照抄 DESIGN.md §9.3：200/401/404 这类紧邻数字的不命中
+  const ISOLATED_ZERO = /(^|[^0-9A-Za-z._-])0([^0-9A-Za-z._-]|$)/;
+  const faults = [...Object.values(SOURCE), VIEW.UNRECOGNIZED_ROWS]
+    .filter((s) => s !== SOURCE.OK);
+  assert.equal(faults.length, 5, '故障族应当恰好五态');
+  for (const s of faults) {
+    const c = SOURCE_COPY[s] ?? VIEW_COPY[s];
+    assert.ok(!ISOLATED_ZERO.test(textOf(c)), `${s} 的文案里出现了孤立的 0`);
+  }
+});
+
+test('🔴 抑制态文案里一个阿拉伯数字都没有，且不许把两种抑制写成同一句门槛', () => {
+  for (const s of [VIEW.SUPPRESSED, VIEW.SUPPRESSED_QUANTILE]) {
+    assert.ok(!/[0-9]/.test(textOf(VIEW_COPY[s])), `${s} 的文案里出现了数字：琥珀格里的数字会被当成这一格的值`);
+  }
+  // 分位数那一条必须说出「事件条数」这道额外门槛，否则会把人引去「机器不够」的方向
+  assert.match(VIEW_COPY[VIEW.SUPPRESSED_QUANTILE].body, /事件条数/);
+  assert.ok(!VIEW_COPY[VIEW.SUPPRESSED].body.includes('事件条数'));
+});

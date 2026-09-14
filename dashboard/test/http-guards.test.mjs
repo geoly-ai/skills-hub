@@ -21,6 +21,21 @@ test('safeNext：只放行站内相对路径', () => {
   assert.equal(safeNext(42), '/');
 });
 
+// 🔴 URL 解析器会先剥掉制表符与换行：`/\t/evil.com` 过了前缀检查，解析后是 `//evil.com`
+//    （2026-09-14 评审实测：登录后被 303 到外站）。`?to=/%09/evil.com` 解码后就是这个形状。
+test('🔴 safeNext：控制字符绕过前缀检查的形状一律拒', () => {
+  for (const bad of ['/\t/evil.com', '/\n/evil.com', '/\r/evil.com', '/\t\\evil.com', '/\u0000/evil.com']) {
+    assert.equal(safeNext(bad), '/', JSON.stringify(bad));
+    // 兜底判据：放行的东西拼到本站上，origin 必须还是本站
+    assert.equal(new URL(safeNext(bad), 'https://dash.example').origin, 'https://dash.example');
+  }
+});
+
+test('safeNext：站内路径的查询参数原样保留', () => {
+  assert.equal(safeNext('/boundary?x=1'), '/boundary?x=1');
+  assert.equal(safeNext('/a/b'), '/a/b');
+});
+
 test('sameOrigin：没有 Origin 头（老浏览器 / 普通 form POST）放行', () => {
   assert.equal(sameOrigin(req('https://dash.example/api/login')), true);
 });
