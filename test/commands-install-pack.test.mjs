@@ -357,3 +357,42 @@ test('orphanRootsAfter：判据是**事务后的全景**，不是单条 entry �
     [{ name: 'a', requested_by: ['direct:skill:geoly/a@0.2.0'] }], ['b']);
   assert.deepEqual(orphans2, ['direct:skill:geoly/a@0.1.0', 'pack:geoly/m@0.3.6']);
 });
+
+// ── 埋点的耗时口径（2026-09-14）─────────────────────────────────────────────
+//
+// 🔴 `ms` 是整个 target 事务的耗时，拆不到单个制品上。早先每个制品都记同一个整批耗时：
+//    一条命令装两个 skill 就把这批耗时算了 2 遍，服务端按制品版本算的分位数因此按制品数加权。
+//    现在只有「这个 target 这次只装了一个制品」时事件才带 ms。
+//    ⚠️ pack 不算批量：事件按**请求的 root** 记，装 pack 只记 pack 自己一条（成员不各记一条）。
+
+test('🔴 一条命令装两个 skill：两条 install 事件都不带 ms —— 同一批耗时不许算 N 遍', async () => {
+  const s = scenario();
+  const w = makeWorld({ artifacts: [s.shared, s.dev, s.tool, s.pack] });
+  const r = await run(w, ['install', s.shared.record.id, s.dev.record.id, '--clients', 'claude', '--json']);
+  assert.equal(r.code, 0, `${r.stderr}\n${r.stdout}`);
+  const inst = r.events.filter((e) => e.kind === 'install');
+  assert.equal(inst.length, 2, `前提自查：两个 spec 应当记两条事件，实际 ${JSON.stringify(inst)}`);
+  for (const e of inst) {
+    assert.equal(e.ms, undefined, `${e.artifact} 带了整批耗时 ${e.ms}ms —— 分位数又会按制品数加权`);
+  }
+});
+
+test('装 pack：只记 pack 自己一条 install 事件，它带 ms（pack 是一个制品，不是批量）', async () => {
+  const s = scenario();
+  const w = makeWorld({ artifacts: [s.shared, s.dev, s.tool, s.pack] });
+  const r = await run(w, ['install', PACK_ID, '--clients', 'claude', '--json']);
+  assert.equal(r.code, 0, `${r.stderr}\n${r.stdout}`);
+  const inst = r.events.filter((e) => e.kind === 'install');
+  assert.deepEqual(inst.map((e) => e.artifact), [PACK_ID], '事件应当按请求的 root 记，成员不各记一条');
+  assert.ok(Number.isInteger(inst[0].ms) && inst[0].ms >= 0, `pack 的耗时丢了：${inst[0].ms}`);
+});
+
+test('只装一个 skill：唯一那条 install 事件带 ms（单个制品的耗时仍然可用）', async () => {
+  const s = scenario();
+  const w = makeWorld({ artifacts: [s.shared, s.dev, s.tool, s.pack] });
+  const r = await run(w, ['install', s.shared.record.id, '--clients', 'claude', '--json']);
+  assert.equal(r.code, 0, `${r.stderr}\n${r.stdout}`);
+  const inst = r.events.filter((e) => e.kind === 'install');
+  assert.equal(inst.length, 1, `单个 skill 应当只记一条 install 事件：${JSON.stringify(inst)}`);
+  assert.ok(Number.isInteger(inst[0].ms) && inst[0].ms >= 0, `单个制品的耗时丢了：${inst[0].ms}`);
+});

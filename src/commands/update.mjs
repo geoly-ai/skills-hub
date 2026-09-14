@@ -831,7 +831,9 @@ function emitTelemetry(ctx, results, previews) {
     }
     for (const a of recs) {
       rec({
-        artifact: a.id, client: r.client, kind: 'update', ms: r.ms,
+        // 🔴 同 install.mjs emitTelemetry：r.ms 是整个 target 事务的耗时，
+        //    一次更新多个制品时不带 ms，免得同一批耗时被算 N 遍。
+        artifact: a.id, client: r.client, kind: 'update', ms: recs.length === 1 ? r.ms : undefined,
         reason: r.ok ? undefined : r.reason, result: r.ok ? 'ok' : 'failed',
         scope: r.scope, version: a.version,
       });
