@@ -354,6 +354,34 @@ export function openPostgresStore(sql) {
     },
 
     /**
+     * 删除墓碑的保留期清理 —— 与事件保留期**同一个天数**（用户 2026-09-14 拍板：180 天）。
+     *
+     * 🔴 为什么不是永久：任何人都能无成本生成密钥去制造墓碑，永久保留等于一张
+     *    公开可无限灌大的表（Codex 2026-09-13 的 P0）。
+     * 🔴 为什么跟事件同一个天数：墓碑挡的是「客户端队列里的旧事件重发、把身份送回来」。
+     *    事件还在库里时，重发的旧事件按 eid 就被判重，根本走不到写身份那一步；
+     *    事件过了保留期被删，墓碑也就没有要挡的旧行了。
+     * ⚠️ 代价（已接受）：超过这个天数后恢复的旧客户端备份，可能把旧身份重新提交一次 ——
+     *    再申请删除一次即可。
+     */
+    async pruneTombstones(retentionDays, nowMs = Date.now()) {
+      const cutoffMs = nowMs - retentionDays * 86_400_000;
+      if (!Number.isFinite(cutoffMs)) {
+        throw new Error(`telemetry-server: pruneTombstones 的水位不是有限数值：${cutoffMs}`);
+      }
+      try {
+        const del = await sql`
+          delete from telemetry_delete_tombstone
+          where at < to_timestamp(${cutoffMs}::bigint / 1000.0)
+          returning 1
+        `;
+        return { deleted: del.length };
+      } catch (e) {
+        throw new StoreUnavailableError(e);
+      }
+    },
+
+    /**
      * 保留期清理 —— §5.3 的 180 天。
      *
      * 🔴 顺序：**先把要删的折进 rollup 并推水位、再删**。

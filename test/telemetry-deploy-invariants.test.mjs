@@ -62,5 +62,7 @@ test('🔴 迁移：先删 NULL tag 行，再 set not null，再加 hex CHECK；
 test('prune 定时任务：清过期 nonce 的失败不许回 200', () => {
   const src = readFileSync(join(SERVER, 'api', 'prune.js'), 'utf8');
   assert.match(src, /pruneDeleteNonces\(\)/);
+  // 墓碑与事件同一条保留期 —— 用 days，不是身份的 idDays
+  assert.match(src, /pruneTombstones\(days\)/, '墓碑没有接到定时清理，或用错了保留期');
   assert.match(src, /if \(nonceError\) idError = /, 'nonce 清理失败没有并入最终的失败状态');
 });

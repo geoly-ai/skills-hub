@@ -22,7 +22,8 @@ function fakeSql(plan = [], tombstoned = []) {
     //    （锁没有返回值；墓碑为空是默认情形，非空的那一支由专门的测试用
     //    `tombstoned` 显式打开）。真正被断言的仍然是插入语句的参数与顺序。
     if (/pg_advisory_xact_lock/.test(text)) return Promise.resolve([]);
-    if (/from telemetry_delete_tombstone/.test(text)) {
+    // 只应答「查墓碑」那条 select —— 删墓碑的语句里也有这段表名，放宽了会把它吞掉
+    if (/select pubkey_tag from telemetry_delete_tombstone/.test(text)) {
       return Promise.resolve(tombstoned.map((t) => ({ pubkey_tag: t })));
     }
     const next = plan.shift();
@@ -418,6 +419,17 @@ test('🔴 tagKeyIdMatches：对得上才 true 并缓存；对不上不缓存；
   const none = fakeSql();
   assert.equal(await openPostgresStore(none).tagKeyIdMatches(null), false, '没密钥（指纹为 null）必须是 false');
   assert.equal(none.calls.length, 0);
+});
+
+test('🔴 pruneTombstones：按保留期删墓碑，水位是 NaN 直接抛', async () => {
+  const sql = fakeSql([[1]]);
+  const now = 1_800_000_000_000;
+  const r = await openPostgresStore(sql).pruneTombstones(180, now);
+  assert.equal(r.deleted, 1);
+  assert.match(sql.calls[0].text, /delete from telemetry_delete_tombstone/);
+  assert.match(sql.calls[0].text, /at < to_timestamp/);
+  assert.deepEqual(sql.calls[0].args, [now - 180 * 86_400_000]);
+  await assert.rejects(openPostgresStore(fakeSql()).pruneTombstones(Number('180 days')), /不是有限数值/);
 });
 
 test('pruneDeleteNonces：过了挑战有效期就删（不额外留一天）', async () => {

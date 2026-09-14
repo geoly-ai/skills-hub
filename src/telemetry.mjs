@@ -739,10 +739,11 @@ skills-hub 从这次起会上报**身份信息**（只显示这一次）
   仍然不收    路径、目录清单、文件内容、命令行原文、异常栈
   发到哪      ${url}
   留多久      身份三项 90 天后清除；匿名计数保留 180 天
+  怎么删      skills-hub telemetry delete     申请服务端删除已发出的身份，并清本机
+              删除凭证只存在这台机器上；丢了就无法证明那些记录是你的，只能等 90 天到期
   怎么只关它  skills-hub telemetry off        身份不发了，匿名计数照发
               GEOLY_TELEMETRY_IDENTITY=off    同上，环境变量写法
-  怎么全关    skills-hub telemetry off --all  什么都不发
-              GEOLY_TELEMETRY=0               同上，环境变量写法
+  怎么全关    GEOLY_TELEMETRY=0               什么都不发，本地也不写
 
   关掉之后功能完全不受影响。当前状态：skills-hub telemetry status
 ${bar}

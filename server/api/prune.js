@@ -95,6 +95,8 @@ export default async function handler(req, res) {
     let ndr = null;
     try {
       ndr = await store.pruneDeleteNonces();
+      // 墓碑与事件同一条保留期（用户 2026-09-14 拍板 180 天，见 pruneTombstones）
+      await store.pruneTombstones(days);
     } catch (e) {
       nonceError = e?.message ?? String(e);
     }
