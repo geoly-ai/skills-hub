@@ -5,7 +5,7 @@
 > 权威源是 `registry/snapshots/hub-<N>.json`（已签名对象里的那份清单），
 > 这里只是把它渲染成人和 agent 都能直接读的形状。
 
-快照 **5** · 生成于 `2026-09-05T04:59:27Z` · 仓库 `geoly-ai/skills-hub`
+快照 **6** · 生成于 `2026-09-10T09:45:32Z` · 仓库 `geoly-ai/skills-hub`
 
 ## 怎么装
 
@@ -31,10 +31,11 @@ agent 不要在没有用户明确同意的情况下装 Tier 2。
 | `pack:plaud-theme/plaud-theme-matrix@0.4.0` | ✓ | 2 | agents claude codex cursor | PLAUD Shopify 主题矩阵全套 10 个 skill（order 0–9）。它们共用 plaud-theme-shared 的契约层（两轴状态机、handoff schema、SyncReach），必须并排安装… |
 | `pack:prompts-map/prompt-map@0.7.0` | ✓ | 2 | agents claude codex cursor | product-card Prompt Map 全套 9 个 skill。它们靠 ../prompt-map-shared/ 的兄弟路径互相引用，必须并排安装 —— 单独装其中一个会得到引用不到 shared 的坏 sk… |
 
-## Skill（33）
+## Skill（34）
 
 | id | latest | tier | clients | 说明 |
 |---|---|---|---|---|
+| `skill:geoly-ai/codex-thread-migrator@0.1.0` | ✓ | 1 | codex | Find locally retained Codex tasks that disappeared after switching accounts or Providers, inventory and dedupl… |
 | `skill:geoly-ai/skills-hub-install@0.2.0` | ✓ | 2 | claude cursor codex agents | 用 skills-hub CLI 装 skill / pack —— 命令、装到哪一端、复现与离线、装崩了怎么恢复、以及为什么没有 --force。当用户要装 geoly 的 skill、说「装一下 xxx skill」… |
 | `skill:geoly-ai/skills-hub-publish@0.2.0` |  | 2 | claude cursor codex agents | 把 skill 投稿进 geoly skills-hub —— 投稿目录长什么样、skill.json 怎么写、capability 怎么定、要过哪几道门、被拒了怎么改。当用户要发布/投稿一个 skill 到 hub、或… |
 | `skill:geoly-ai/skills-hub-publish@0.3.0` | ✓ | 2 | claude cursor codex agents | 把 skill 或 pack（矩阵包）投稿进 geoly skills-hub —— 投稿目录长什么样、skill.json / pack.json 怎么写、PROMOTION.json 什么时候要、capability… |
