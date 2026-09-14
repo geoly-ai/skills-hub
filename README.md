@@ -1,204 +1,112 @@
 # skills-hub
 
-> npm 包名：**`@geoly-ai/skills-hub`**，bin `skills-hub`。
-> （M0 正文写的是 `@geoly/skills-hub`，那是拍板时没核实 org —— 见 [`docs/m0/ERRATA.md`](docs/m0/ERRATA.md) E-7）
+[![npm](https://img.shields.io/npm/v/@geoly-ai/skills-hub)](https://www.npmjs.com/package/@geoly-ai/skills-hub)
+![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-blue)
 
-`geoly-ai` 的 skill 分发中心：一条命令装单个 skill、装矩阵包，
-并支持外部投稿与过审。
+`geoly-ai` 的 agent skill 分发中心。一条命令把单个 skill 或整套矩阵包装进
+Claude Code、Codex 等客户端；外部作者也可以用它投稿，经审核后发布。
 
-## 线上
+每一次安装都会验证签名快照与内容摘要，验证**不可关闭**；装到一半中断可以恢复，不会留下半装状态。
 
-| | |
-|---|---|
-| registry 浏览站 | **https://skills-hub-pearl.vercel.app/** |
-| 埋点摄入端 | `https://skills-hub-telemetry.vercel.app/v1/events` |
-| **分发（客户端真正取字节的地方）** | GitHub Releases —— 见下 |
+- **npm 包**：[`@geoly-ai/skills-hub`](https://www.npmjs.com/package/@geoly-ai/skills-hub)，命令名 `skills-hub`
+- **可安装清单**：[`registry/catalog.md`](registry/catalog.md)（每次发布快照时自动生成）
+- **registry 浏览站**：<https://skills-hub-pearl.vercel.app/>
 
-分发地址**不配置、不发现**，由客户端从**已验签**的对象推导
-（locator 契约见 [`docs/m0/02-registry.md`](docs/m0/02-registry.md) §4.0）：
+> 给 agent 看的入口是 [`AGENTS.md`](AGENTS.md)；本文面向人类读者。
 
-```
-/releases/download/timestamp/timestamp.json      ← 新鲜度锚点（滚动，每 3 天刷新）
-/releases/download/hub-v<N>/hub-<N>.json[.sigstore.json]
-/releases/download/hub-v<N>/<asset.file>         ← 制品资产
-```
+## 目录
 
-🔴 **`hub-v<N>` 与 CLI 的 `v<x.y.z>` 是两个 Release，刻意分开。**
-合成一个的话，「快照号 N → 哪个 CLI 版本」这个映射就**不在任何签名对象里**，
-客户端拿着验过签的快照也推不出去哪儿下载 —— 那正是 0.2.0
-「已发布但没人能装」的根因。
+- [快速开始](#快速开始)
+- [环境要求](#环境要求)
+- [支持的客户端](#支持的客户端)
+- [常用命令](#常用命令)
+- [项目级安装](#项目级安装)
+- [投稿一个 skill](#投稿一个-skill)
+- [埋点与隐私](#埋点与隐私)
+- [已知限制](#已知限制)
+- [开发](#开发)
+- [文档导航](#文档导航)
 
-🔴 **不是 `skills-hub.vercel.app`** —— `.vercel.app` 子域名全局唯一，项目名撞车时
-Vercel 会自动追加一个随机词（这就是 `-pearl` 的来历）。那个裸域名**不属于本项目**，
-访问它拿到的是 Vercel 边缘层的 `NOT_FOUND`（`text/plain`，不是站点自己的 404 页）。
+## 快速开始
 
-⚠️ 这一条踩过：看到裸域名 404 就以为站点坏了，实际站点一直好好的。
-   ⚠️ 更值得记的是随之而来的第二个错误 —— 曾经在**那个 404 页面**上
-   `grep _vercel/insights` 来判断「站点有没有引 analytics 脚本」。
-   **在错误的 URL 上取证，结论就算碰巧对了也是无效的。**
-
-## 安装
-
-不用先装 CLI —— `npx` 直接跑：
+不需要先安装，`npx` 直接运行：
 
 ```sh
 # 装一个 skill
 npx @geoly-ai/skills-hub install skill:geoly-ai/skills-hub-install --clients claude
 
-# 装一整套矩阵（pack 是一个制品，成员一次装完）
+# 装一整套矩阵包（pack 的全部成员一次装完）
 npx @geoly-ai/skills-hub install pack:prompts-map/prompt-map --clients claude
 
-# 装全部可装的（要 --yes-i-really-want-everything，--yes 不够）
+# 装全部可装的制品（非交互下必须显式确认）
 npx @geoly-ai/skills-hub install --all --clients claude --yes-i-really-want-everything
 ```
 
-首次装到某个 client 时目录可能还不存在，加 `--create-missing claude`。
-装过一次之后 `--offline` 可用（资产按 sha256 内容寻址缓存在
-`~/.cache/geoly-skills`）。
+- 目标客户端的 skill 目录还不存在时，加 `--create-missing claude`。
+- 装过一次之后可以离线复装：`--offline`（资产按 sha256 缓存在 `~/.cache/geoly-skills`）。
+- 需要常驻命令时全局安装：`npm i -g @geoly-ai/skills-hub`。
 
-想常驻就装全局：`npm i -g @geoly-ai/skills-hub`。
+有哪些 skill 和 pack 可以装，见 [`registry/catalog.md`](registry/catalog.md)。
+其中 Tier 2 的制品会执行 shell 或读写凭据，安装前请先读清单里的风险说明。
 
-**已发布**：[`@geoly-ai/skills-hub@0.3.3`](https://www.npmjs.com/package/@geoly-ai/skills-hub)
-（带 npm provenance；发布 workflow 会用**本包自带的验签器 + 内置信任根**
-自验一遍它自己签的 tarball）。
+## 环境要求
 
-平台：**macOS / Linux / WSL**，**Node ≥ 22.13**。
+| 项目 | 要求 |
+|---|---|
+| 系统 | macOS、Linux、WSL |
+| Node.js | ≥ 22.13（本地锁使用内建 `node:sqlite`） |
+| 通过代理访问网络 | Node ≥ 24，并设置 `HTTPS_PROXY` 环境变量 |
 
-> ⚠️ **在企业代理后面需要 Node ≥ 24。** Node 的内建 fetch 直到 24 才支持
-> `HTTPS_PROXY` / `NO_PROXY`（CLI 会自动启用它）。22.x 用户可以先在能直连的
-> 网络里跑一次把缓存热起来，之后 `--offline` 可用。这是**已知缺口**。
+⚠️ **Node 不读系统代理。** Clash、Surge 或公司 VPN 客户端通常只设置系统代理，
+浏览器能打开 GitHub 不代表 CLI 能连上。需要显式导出环境变量，例如 macOS 上：
 
-### 当前能装到哪几端
+```sh
+scutil --proxy | grep -iE "HTTPSProxy|HTTPSPort"   # 查看代理端口
+export HTTPS_PROXY=http://127.0.0.1:<端口>
+```
+
+Node 22 在代理环境下无法联网；可以先在能直连的网络里装一次，之后用 `--offline`。
+
+## 支持的客户端
 
 | client | 全局 | 项目级 | 说明 |
 |---|:--:|:--:|---|
 | `claude` | ✅ | ✅ | |
 | `codex` | ✅ | ✅ | |
-| `agents` | ✅ | ✅ | **present-only**：`.agents` 已存在才加入，**不会被创建** |
-| `cursor` | ❌ | ❌ | 无运行时证据，且静态读其加载器**预判会失败**（R-8） |
+| `agents` | ✅ | ✅ | 仅当 `.agents` 目录已存在时加入，不会自动创建 |
+| `cursor` | ❌ | ❌ | 尚无运行时验证，静态分析预判其加载器会失败（[R-8](docs/m1/01-residual-risks.md)） |
 
-⚠️ `codex` 与 `agents` 同时装时，同一个 skill 会在 codex 的 catalog 里出现两次 ——
-这两个位置本身重叠，CLI 会告警但不拦截。
+`--clients` 不指定时，默认装到本机已存在的全部客户端。
+同时装 `codex` 与 `agents` 时，同一个 skill 会在 Codex 的列表里出现两次（两个目录本身重叠），CLI 会告警但不阻止。
 
-## 现在在哪一步
+## 常用命令
 
-| 阶段 | 状态 |
+| 命令 | 作用 |
 |---|---|
-| **M0 · 制品与信任模型** | ✅ 已通过（v45，2026-08-25） |
-| **M1 · 只读分发** | ✅ 已完成（0.1.0 首发）—— resolve / install / recover / check / list-search-why / sync-lock |
-| **M2 · pack 与受控 catalog** | ✅ 命令面与 promotion 的派生均已就绪；元数据来源待 M3 |
-| **分发真的通了** | ✅ **0.3.3** —— registry 上线 23 个制品 / 3 张快照，单个 skill、整套 `pack:`、`--offline` 三条路径在干净环境实测通过 |
-| M3 · 投稿与审核 | 🚧 元数据（`owner` / `review` / `provenance`）仍靠 promotion 的显式 `--inputs` |
-| M4 · update / remove | ✅ 命令面已实现 —— 边界逐条列在下面「明确没做到的」里 |
+| `install <spec>…` | 安装 skill 或 pack |
+| `update [<spec>…] \| --all` | 重新解析已安装的制品，展示差异，确认后升级 |
+| `remove <name>` | 移除自己直接安装的那一条引用；引用归零才删除目录 |
+| `list [--installed\|--outdated\|--packs]` | 列出可装或已装的制品 |
+| `search <关键词>…` | 按名称搜索 |
+| `check` | 校验已安装内容：字节是否完整、当前是否仍可使用（未被下架） |
+| `why <name>` | 查看某个 skill 是被谁请求安装的 |
+| `recover` | 安装中途崩溃后恢复现场 |
+| `sync-lock` | 重算项目级 `geoly-skills.lock.json` |
+| `vendor <pack> --out <dir>` | 把 pack 及全部成员导出成普通目录树 |
+| `publish [path]` | 投稿 skill 或 pack，见[投稿一个 skill](#投稿一个-skill) |
+| `stats` | 本地埋点报表 |
+| `telemetry <status\|flush\|on\|off\|delete>` | 埋点开关与数据删除 |
 
-> 📌 **「发布了」不等于「能装」。** 0.1.0 与 0.2.0 都能发布、能验签、能浏览 registry，
-> 但**任何一次 `install` 都取不到字节**：客户端推不出下载地址、CLI 没有网络层、
-> 服务端一个 Release 都没有。这三件事到 0.3.3 才全部闭合，
-> 判据是**从 npm 装下来的那个包在干净 home 上真的装成了**，不是测试绿。
+常用全局选项：`--clients`、`--project`、`--offline`、`--snapshot <N>`（钉住快照以便复现）、`--json`、`--yes`。
+完整选项与退出码见 `skills-hub --help` 与 [`docs/m0/09-cli.md`](docs/m0/09-cli.md)。
 
-**1386 个测试**在 Node 22.13.0 / 24.19.0 双版本全绿；穷举崩溃注入（真内核 **72** 个注入点逐个反向命中，
-数目取自 `test/harness/fault-points.mjs` 的 CATALOG）是 CI 的合并门。
+**没有**跳过校验的开关：不存在 `--no-verify`、`--insecure`、`--force`。
+替换同名目录必须用 `--replace <name>` 点名；安装已下架（yanked）或过期快照都需要各自的独立开关。
 
-### 🔴 现在明确**没有**做到的（截至 0.3.3）
+## 项目级安装
 
-不写清楚就等于默认承诺了，所以逐条列出：
-
-- **投稿流水线还没接上**：record 必填的 `owner` / `review`（以及 pack 的
-  `provenance`）目前由 promotion 的显式 `--inputs` 提供，不是自动产出的。
-- **Node 22.x 在代理后面装不了**（见上面的安装说明）。
-- **`--from-generation` 只做到编译计划**，接成正向事务的入口还没写
-  （M4 的 `update` / `remove` **没有**顺手把它接上 —— 两条命令都只用现成的
-  `runTransaction`，不新增 journal op、不新增故障注入点）。
-- **`remove` 只减「你自己那一条 direct 引用」**：`remove <name>` 减掉的是
-  `direct:<该 entry 的 artifact>` 那条边。一个**只被 pack / `all@snapshot` 请求**的
-  成员因此删不掉（它的引用永远不归零）—— 规范只给了 `remove <name>` 这一种语法，
-  没有「删掉整条 pack root」的入口，CLI **不自己发明一个**。
-  出路是 `update pack:<name>`（新版本不再含它就会被退役）。
-- **`update` 不接受 `--snapshot`**：钉快照能决定「解析到哪个版本」，
-  但回答不了「现在还该不该用」（那必须查当前快照）。两者怎么组合规范没写。
-- **`update` 的冲突没有 `--replace` 出路**：在一次升级里顺手删掉你先前装过的东西
-  不是你表达过的意思。
-- **项目级 lockfile 的重算仍不是原子的**（R-11 第四条）。M4 把两格提前到**动手之前**
-  就失败（缓存里没有要用到的历史快照；任一在册项目 target 的引用图不闭合），
-  但**没有做完整的 dry-run**（没有真的用 post-state 复算一次 `projectLockfile()`），
-  磁盘在预热与收尾之间坏掉也仍会落回那个缺口 ——
-  兜底照旧是 `check` 报「lockfile 过时」+ `sync-lock`。
-  🔴 另外，**`--clients` 会同时收窄「投影哪些 target」与「预热哪些 target」**：
-  两者内部一致（不会出现「预热漏了、重算却要」），但显式 `--clients` 时
-  未点名的项目 target **不进 lockfile** —— 这是 `recalcLockfile()` 既有的性质
-  （`install` / `sync-lock` 同样如此），不是 M4 引入的，本轮也没有改它。
-- **`plan.strictlyMatches()` 不查被验目录**自己**是不是 symlink**（它从
-  `readdirSync(dir)` 开始递归，查的是子项）。`update` / `remove` 在自己这一侧
-  补了这道门（`refgraph.entryStillMatches` / `assertEntryTreeIntact`），
-  但 `install` 的 §4.2 adopt 分支仍会走进去 —— **既有缺口，本轮未修**。
-- **有 lockfile 时 `install` 仍不「只按 lockfile 装」**（04-install.md §8 的那一条）：
-  lockfile 目前只被写出与被 `check` 比对，还没有当成 `install` 的权威输入。
-- **`replaces` 与 `--freeze-attic` 在 `update` / `remove` 上同样没实现** ——
-  它们在 `install` 上本来就没实现，M4 没有扩大范围。
-- **`--release-frozen` 如实拒绝**（没有按 label 解冻 attic 的导出），不提供假装成功的路径。
-- `cursor` 未验证；`search` 搜不了 description（快照 record 里没有这个字段）。
-
-已知且**明确接受**的残余风险见 [`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)（R-1 … R-11）
-与 [`docs/m2/01-residual-risks.md`](docs/m2/01-residual-risks.md)（R-12 … R-21），
-M0 正文的勘误见 [`docs/m0/ERRATA.md`](docs/m0/ERRATA.md)（E-1 … E-8）。
-
-M2 交出了什么、**明确没做到什么**，见
-[`docs/m2/00-delivery.md`](docs/m2/00-delivery.md)（当时的三条待拍板项现已全部闭合）。
-
-## 从哪读起
-
-- **[`docs/m0/00-decisions.md`](docs/m0/00-decisions.md)** —— 决策台账、术语、
-  以及 🔴 **M1 开工前的两道硬门**（§6）
-- [`docs/m0/01-artifacts.md`](docs/m0/01-artifacts.md) 起是规范正文，共 12 份
-- `docs/m0/CHANGES-v*.md` 是 v2 → v45 的逐轮变更台账
-  （**变更台账不是现行规范**，以正文为准 —— 见
-  [`11-wire-contract.md`](docs/m0/11-wire-contract.md)）
-
-## 已经能跑的
-
-装好之后（安装见上）：
-
-```sh
-skills-hub install <spec> --clients claude   # 装
-skills-hub update [<spec>…] | --all          # 重解析 root：展示 diff、确认后应用
-skills-hub remove <name>                     # 减引用；🔴 引用归零才删目录
-skills-hub list --installed                  # 看装了什么
-skills-hub check                             # 字节对不对 + 现在还该不该用
-skills-hub why <name>                        # 这东西是谁请求装的
-skills-hub recover                           # 装到一半崩了之后收拾现场
-skills-hub stats                             # 本地埋点文本报表
-skills-hub telemetry status                  # 埋点/上报开关
-```
-
-从源码开发：
-
-```sh
-node bin/skills-hub.mjs --help
-npm test                                     # 1386 个测试
-npm run test:matrix                          # 在 Node 22.13 / 24.19 上各跑一遍
-```
-
-基础模块：`canonical-json`、`atomic-fs`、`safe-fs`、`tree-digest`/`tx-digest`、
-`lock`（`node:sqlite` 的 `BEGIN EXCLUSIVE`，内核释放）、故障注入框架、
-信任与制品链（Sigstore 验签 + 受限 tar 解包）、adapter 与 target 预检。
-
-- 两道 M1 前置 gate 的实测记录：[`docs/m1/00-gates.md`](docs/m1/00-gates.md)
-- 🔴 **已知且接受的残余风险**：[`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md)
-- M0 勘误（正文已封版，冲突以勘误为准）：[`docs/m0/ERRATA.md`](docs/m0/ERRATA.md)
-
-**当前可安装的组合**：`claude` / `codex` / `agents` × 全局 / 项目级。
-
-- `agents` 是 **present-only**：只在 `.agents` 已存在时加入，**不会被创建**
-  （它是共享约定路径，读者是 codex，不是独立客户端）
-- ⚠️ `codex` 与 `agents` 同时装时，同一个 skill 会在 codex 的 catalog 里出现两次 ——
-  CLI 会告警但不拦截
-- `cursor` 未启用：本机无运行时证据，且静态读它的加载器**预判会失败**，见 R-8
-
-## 项目级安装：先改 `.gitignore`
-
-装到项目级（`<repo>/.claude/skills` 等）时，状态目录 `.geoly/` 会落在仓库里。
-把下面几条加进 `.gitignore` —— 🔴 注意是 **adapter 派生的实际路径**，
-不是根上的 `/.geoly/`：
+加 `--project` 会把 skill 装进仓库内（如 `<repo>/.claude/skills`），并维护 `geoly-skills.lock.json`。
+安装状态目录 `.geoly/` 会随之落在仓库里，请把以下路径加入 `.gitignore`（CLI 安装时也会提示缺哪几条）：
 
 ```gitignore
 /.claude/skills/.geoly/
@@ -207,45 +115,94 @@ npm run test:matrix                          # 在 Node 22.13 / 24.19 上各跑�
 /.agents/skills/.geoly/
 ```
 
-（`skills-hub` 会在项目级安装时提示缺哪几条；`gitignorePatternsFor()` 按启用的
-client 生成，`test/adapters.test.mjs` 用真 git 仓库验证过它确实忽略状态目录、
-且**不误伤 skill 本体**。）
+⚠️ `git clean -xfd` 会删除整个 `.geoly/`，包括本地审计历史，且**无法恢复**。
 
-### ⚠️ `git clean -xfd` 会删掉整个 `.geoly/`
+## 投稿一个 skill
 
-不只是「进行中的事务状态」，**还包括本地审计历史**（live `audit` 与 `audit-archive/`）。
-清掉之后 `event_id` 序列会从头开始。这是规范承认的「放弃本地 audit」边界，
-但它**不可恢复** —— 清之前想清楚。
+```sh
+skills-hub publish ./my-skill              # 投稿 skill
+skills-hub publish ./my-pack --pack        # 投稿 pack
+skills-hub publish ./my-skill --dry-run    # 只做检查，不创建 fork 与 PR
+```
 
-## 埋点与面板
+- 在本地运行与服务端 PR 门禁相同的校验器，通过后自动 fork 并开 PR，全程不调用 `git`。
+- 使用你已有的 GitHub token（按 `GEOLY_GITHUB_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN` → `gh auth token` 查找），CLI 不保存 token。
+  执行写操作前会列出该 token 的权限范围并要求确认。
+- 审核通过后，由维护者发布新快照，制品随之进入可安装清单。
 
-规格：[`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md)（v6，已过六轮 Codex 评审）。
-端点实现见 [`server/`](server/)。
+投稿目录结构、`skill.json` 写法和被拒原因，见 [`docs/agents/02-publish.md`](docs/agents/02-publish.md) 与 [`docs/agents/03-gates.md`](docs/agents/03-gates.md)。
 
-🔴 **上报默认开**（2026-09-01 起，规格 §4.2）—— CLI 有内置默认端点。
-首次运行会打印一次告知（收什么、发到哪、怎么关），**这段告知一定先于第一次出网**。
-🔴 **一次 `install` 成功收尾后会静默上报一次**（规格 §5.1.1，2026-09-01 起）：
-24 小时最多一次，网络那一段超时 1 秒，发不出去就留在本地等下次，不影响安装结果、
-也不改退出码。`install` 失败（含部分失败）不发；`check` / `list` / `stats` 等命令
-只写本地，不出网。也可以随时 `skills-hub telemetry flush` 手动发。
+## 埋点与隐私
 
-事件只含制品坐标、客户端、操作、结果、耗时、CLI/OS/Node 版本和一个本机随机 ID，
-**不含路径、目录清单、文件内容、命令行原文、异常栈**；
-登录名 / 主机名 / 来源 IP 属于**身份三项**，**默认不采** —— 要开会在首次运行时
-单独告知一次，之后 `skills-hub telemetry off` 可以只关它、匿名计数照发
-（详见 [`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md) §2.3）；
-这条契约由 `assertValidEvent()` 在落盘/读回/上报/导出四个边界执行，
-**端点侧跑的是同一个校验器**（不另写一份，两份必然分叉）。
+CLI **默认上报**匿名使用数据，用于判断哪些 skill 在被使用、安装失败集中在哪里。首次运行时会打印一次说明，说明一定先于第一次联网。
 
-- 关掉：`GEOLY_TELEMETRY=0`　只留本地：`GEOLY_TELEMETRY_UPLOAD=0`　断网：`--offline`
-  （⚠️ `GEOLY_TELEMETRY_ENDPOINT=` 空值是**配置错误**，不是关闭开关）
-- 面板：[`docs/dashboard/`](docs/dashboard/)（零依赖静态页，
-  `skills-hub stats --export` 出的 JSON 拖进去即可）
+- **何时上报**：只在 `install` 成功后静默发送，24 小时最多一次，超时 1 秒，失败不影响安装结果与退出码。其他命令只写本地。
+- **收集什么**：制品坐标、客户端、操作、结果、耗时、CLI / 系统 / Node 版本，以及一个本机随机 ID。
+- **不收集**：路径、目录清单、文件内容、命令行原文、异常栈。
+- **身份信息**（登录名、主机名、来源 IP）默认**不收集**，只有显式开启并看过单独的告知后才会收集。
 
-## M0 定了什么
+| 想要 | 做法 |
+|---|---|
+| 完全关闭（本地也不写） | `GEOLY_TELEMETRY=0` |
+| 只保留本地统计，不上报 | `GEOLY_TELEMETRY_UPLOAD=0` |
+| 单次命令不联网 | `--offline` |
+| 只关闭身份信息，保留匿名计数 | `skills-hub telemetry off` |
+| 删除已上报的身份信息与本机数据 | `skills-hub telemetry delete` |
+| 查看当前状态 | `skills-hub telemetry status` |
 
-不可变制品布局与树摘要、签名快照 + timestamp 防回放、pack lock 与 yank 闭包、
-崩溃安全的安装事务（幂等前向恢复 / retirement rename / repair intent）、
-投稿与三阶段发布、威胁模型、CLI 命令面与退出码、JSON wire contract。
+完整规格见 [`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md)。
 
-平台：**macOS / Linux / WSL**，**Node ≥ 22.13**（锁用内建 `node:sqlite`）。
+## 已知限制
+
+- `cursor` 客户端尚不支持（见[支持的客户端](#支持的客户端)）。
+- `remove <name>` 只移除你直接安装的那条引用；只由 pack 带进来的成员无法单独删除，需要 `update pack:<name>` 让新版本退役它。
+- 项目级 lockfile 目前只用于 `check` 比对和 `sync-lock` 重算，`install` 还不会严格按 lockfile 安装。
+- `search` 只能按名称搜索，不能搜索描述。
+- 通过代理联网需要 Node ≥ 24。
+
+每个版本明确未做到的事项写在 [`CHANGELOG.md`](CHANGELOG.md) 的对应条目里；
+已知并接受的残余风险见 [`docs/m1/01-residual-risks.md`](docs/m1/01-residual-risks.md) 与 [`docs/m2/01-residual-risks.md`](docs/m2/01-residual-risks.md)。
+
+## 开发
+
+```sh
+node bin/skills-hub.mjs --help   # 从源码运行
+npm test                         # 全量测试
+npm run test:matrix              # 在 Node 22.13 与 24.19 上各跑一遍
+npm run check:all                # 发布前检查：Node 矩阵、签名身份、打包内容
+```
+
+CI 在 Node 22.13 与 24.19 上运行全量测试，并对安装事务的每个故障注入点做穷举崩溃测试，二者都是合并门禁。
+提交 PR 时请按 [`.github/pull_request_template.md`](.github/pull_request_template.md) 填写。
+
+### 仓库结构
+
+| 目录 | 内容 |
+|---|---|
+| `bin/`、`src/` | CLI 本体（随 npm 包发布） |
+| `test/` | 测试，含故障注入框架 |
+| `registry/`、`artifacts/` | 已发布的签名快照与制品 |
+| `scripts/` | 投稿门禁、promote 与发布流水线 |
+| `server/` | 埋点摄入服务（Vercel + Postgres） |
+| `dashboard/` | 埋点数据后台（内部使用，共享口令登录） |
+| `site/` | registry 浏览站 |
+| `docs/` | 规格与交付文档 |
+
+## 文档导航
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/agents/01-install.md`](docs/agents/01-install.md) | 安装指南（面向 agent，人也可以读） |
+| [`docs/agents/02-publish.md`](docs/agents/02-publish.md) | 投稿指南 |
+| [`docs/m0/00-decisions.md`](docs/m0/00-decisions.md) | 设计决策与术语，规格从这里读起 |
+| [`docs/m0/01-artifacts.md`](docs/m0/01-artifacts.md) … [`11-wire-contract.md`](docs/m0/11-wire-contract.md) | 规格正文：制品、registry、安装事务、威胁模型、CLI 与 JSON 契约 |
+| [`docs/m0/ERRATA.md`](docs/m0/ERRATA.md) | 规格勘误（与正文冲突时以勘误为准） |
+| [`docs/m3/01-delivery.md`](docs/m3/01-delivery.md) | 投稿与审核流水线的交付说明 |
+| [`docs/telemetry/00-spec.md`](docs/telemetry/00-spec.md) | 埋点规格 |
+| [`CHANGELOG.md`](CHANGELOG.md) | 版本变更 |
+
+`docs/m0/CHANGES-v*.md` 是规格评审过程的变更台账，不是现行规格。
+
+## 许可证
+
+见 [`LICENSE`](LICENSE)。
