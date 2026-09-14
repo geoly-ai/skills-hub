@@ -1,130 +1,145 @@
 /*
  * 设计 token —— dashboard 里**所有**颜色 / 字号 / 间距 / 圆角的唯一定义处。
  *
- * 来源：`site/DESIGN.md` 的 2026-09 重写版（Claude / Anthropic 视觉语言：
- * ivory `#FAF9F5` / clay `#D97757` / 墨 `#141413`，Source Serif 4 + Inter +
- * JetBrains Mono，「叙述纸 vs 记录纸」）。两个站要看起来像一家人。
+ * 来源：`dashboard/DESIGN.md`（2026-09-03 值班台重做）与它的可视证据
+ * `dashboard/design-preview.html`。token 名与那一页一一对应。
+ * 「冷石墨机箱 + 钢蓝 + 四种墨」。**不再跟随 site/ 的暖米 + 陶土**（DESIGN.md §2.1：
+ * dashboard 是内部值班台，不是对外的 registry 门面）。
  *
- * ⚠️ **那份设计尚未定稿**（写这份代码时 site/ 自己的 tokens.css 还停在上一版的
- *    greenbar 方向）。所以这里的纪律是：**组件样式里不许出现字面量色值与字面量
- *    像素间距，一律 `var(--…)`。** 将来 token 定稿了，只改这一个文件，
- *    不用回头翻每一个组件。
+ * 纪律：**组件样式里不许出现字面量色值与版面尺寸，一律 `var(--…)`。**
+ * 例外只有 README「视觉」一节列出的那几类（1–3px 描边、outline-offset、断点…）。
  *
- * 🔴 **完整的浅色定义写在裸 `:root`**，深色只**重定义** token。
- *    把某个颜色的唯一定义写进 `@media` 或 `[data-theme]` 里，在另一半条件下
- *    它就没有值 —— 主题化最常见的「只在某个环境下才复现」的 bug。
+ * 🔴 **完整的亮色定义写在裸 `:root`**，暗色只**重定义** token，且写两处：
+ *    `@media (prefers-color-scheme: dark)` 让系统偏好生效，`[data-theme="dark"]`
+ *    让手动切换能**双向**覆盖系统偏好。某个颜色的唯一定义写进其中一处，
+ *    另一半条件下它就没有值。
+ *
+ * 🔴 **全站没有绿色，连 token 都不定义**（DESIGN.md §1.1 第 7 条）：
+ *    这里没有验证轴，一个 `result: ok` 的计数不是一次担保。定义了就会有人用。
  */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
-  /* ── 中性：暖象牙（DESIGN.md §4.1）───────────────────────────────── */
-  --c-page:     #F0EEE6;   /* 页面底 */
-  --c-paper:    #FAF9F5;   /* 叙述纸：正文面板、卡片 */
-  --c-inset:    #EDEAE0;   /* 记录纸：台账、表格、命令、数字的凹陷底 */
-  --c-hairline: #DEDACB;
-  --c-rule:     #C9C3AF;
-  --c-rule-hi:  #B3AB93;
+  /* ── 中性：冷石墨。三层材质：页底 → 面板 → 凹陷 ── */
+  --c-page:      #E9EBEE;   /* 页面底 */
+  --c-panel:     #F7F8FA;   /* 面板、卡片、侧栏 */
+  --c-inset:     #E1E4E9;   /* 凹陷：表头、数值槽、字段 chip、代码片 */
+  --c-hairline:  #D2D7DE;   /* 1px 行分隔 */
+  --c-rule:      #B9C0CA;   /* 面板外框、表格外框、输入框 */
+  --c-rule-hi:   #98A1AE;   /* 区段界线 */
 
-  --c-text:     #141413;
-  --c-text-mid: #4A473F;
-  --c-text-dim: #605C51;
+  --c-text:      #14181D;
+  --c-text-mid:  #3C444E;
+  --c-text-dim:  #5A626D;
 
-  /* ── 强调：clay。🔴 拆成两个，理由见下面的「使用纪律」 ────────────── */
-  --c-clay:     #D97757;   /* 只画线，不写字 */
-  --c-clay-ink: #A34428;   /* 文字安全的 clay */
+  /* ── 强调：钢蓝。🔴 拆成两个 token ── */
+  --c-accent:     #2F5D8C;  /* 只画线：当前项左轨、焦点环、链接下划线、选中边框。🔴 不写字、不表达状态 */
+  --c-accent-ink: #245079;  /* 文字安全的钢蓝 */
+  --c-on-accent:  #FFFFFF;  /* 钢蓝实底按钮上的字 */
 
-  /* ── 语义色：颜料，不是霓虹 ──────────────────────────────────────── */
-  --c-ok:       #43632B;
-  --c-caution:  #855313;
-  --c-revoked:  #93291E;
-  --c-neutral:  #605C52;
+  /* ── 四种「墨」：各管一件事，不许串（DESIGN.md §4.3）── */
+  --c-fault:     #9B2C2C;   /* 砖红：链路故障 —— 我们没读到数 */
+  --c-withheld:  #7A5410;   /* 琥珀：有数但发布不出来（抑制） */
+  --c-pending:   #4B4A8F;   /* 靛紫：服务端还没算（待办，不是故障） */
+  --c-unknown:   #566070;   /* 冷灰：我们不知道（未提供） */
+  --c-measure:   #3C444E;   /* 图表条的墨。🔴 不是 accent（§11.1） */
 
-  /* ── 纸样：警示靠换纸，不靠加饱和度（DESIGN.md §3.3）─────────────── */
-  --p-manilla:  #F4EAD4;   /* 「服务端还没算」这类「不是故障，是还没做」 */
-  --p-grey:     #EDEDEB;   /* 「被抑制了」：撤走暖色 = 这块被划掉了 */
-  --p-heather:  #E8E7EF;   /* 「端点不可用」：仍带色相，与灰一眼分开 */
-  --p-clay:     #F7E7DE;
+  /* ── 纸样：状态靠换纸，不靠加饱和度 ── */
+  --p-fault:     #F6E9E7;
+  --p-withheld:  #F6EEDD;
+  --p-pending:   #EBEAF5;
+  --p-quiet:     #ECEEF1;   /* 中性灰纸：徽章「已连通」/ filtered / 不适用 */
 
-  /* ── 字体（DESIGN.md §5）。CJK 一律走系统栈，不 web 加载 ──────────── */
-  --f-serif: var(--font-serif), "Source Han Serif SC", "Noto Serif CJK SC",
-             "Songti SC", STSong, SimSun, Georgia, serif;
-  --f-sans:  var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
-             "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
-             "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
-  /* 🔴 mono 栈里也要挂中文：mono 段落里夹的中文若掉进默认字体，行高会跳 */
-  --f-mono:  var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas,
-             "PingFang SC", "Microsoft YaHei", monospace;
+  /* ── 斜纹：抑制态唯一的图案。🔴 它是编码，不是装饰 ── */
+  --hatch-withheld: repeating-linear-gradient(-45deg,
+      transparent 0 5px,
+      color-mix(in srgb, var(--c-withheld) 16%, transparent) 5px 7px);
 
-  /* ── 间距：4 的倍数 ─────────────────────────────────────────────── */
-  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
-  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px; --sp-9: 96px;
+  /* ── 字体（DESIGN.md §5）。next/font 在构建期自托管 Plex，CJK 一律走系统栈 ── */
+  --f-sans: var(--font-plex-sans), "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+            "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+            "IBM Plex Sans SC", "Noto Sans CJK SC", sans-serif;
+  /* 🔴 mono 栈里也要挂中文：mono 表格里夹的「未发布」「未提供」掉进默认字体，行高会跳 */
+  --f-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+            "PingFang SC", "Microsoft YaHei", monospace;
 
-  /* ── 字号阶梯（DESIGN.md §6.1）─────────────────────────────────── */
-  --fs-title: 34px; --fs-h2: 22px; --fs-h3: 15px;
-  --fs-lg: 17px;    --fs-base: 15px; --fs-sm: 13.5px;
-  --fs-mono: 12.5px; --fs-xs: 12px; --fs-label: 11.5px;
-  --fs-zero: 92px;  /* 全站唯一的大号数字 */
+  /* ── 字号阶梯（§6.1：后台密度）── */
+  --fs-kpi: 30px; --fs-h1: 19px; --fs-h2: 16px; --fs-h3: 13.5px;
+  --fs-base: 13px; --fs-td: 12.5px; --fs-sm: 12px; --fs-label: 11px;
+  --fs-notice: 15px;   /* 告示条标题（§8.9） */
+  --fs-chip: 11px;     /* 字段 chip、字段码、导航段号（§8.3 / §8.5） */
+  --fs-where: 11.5px;  /* 告示条 .where 行（§8.9） */
 
-  /* ── 圆角：Anthropic 的四档。🔴 全站不出现胶囊（999px）────────────── */
-  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 16px;
+  /* ── 间距（4 的倍数）── */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 28px; --sp-7: 40px; --sp-8: 56px;
 
-  /* 全站唯一的阴影，只给弹出层。卡片、面板、记录纸块一律无阴影 ——
-     记录纸是**凹陷**的，给它阴影会读成「浮起来的卡片」。 */
-  --shadow-pop: 0 2px 2px rgba(20, 20, 19, .012), 0 4px 4px rgba(20, 20, 19, .02),
-                0 16px 24px rgba(20, 20, 19, .04), 0 0 0 1px var(--c-hairline);
+  /* ── 圆角：三档。🔴 全站不出现胶囊 ── */
+  --r-xs: 3px; --r-sm: 5px; --r-md: 8px;
 
-  --wrap: 1120px;
+  /* ── 刻意不在尺度上的值，各自注明出处 ── */
+  --h-topbar: 56px;         /* 顶栏：一行 19px 标题 + 徽章的舒适高度（§6.2） */
+  --h-collectionbar: 34px;  /* 契约条：一行 11px chip（§6.2） */
+  --w-sidebar: 232px;       /* 侧栏：容得下「口径与边界」+ 16px 图标不换行（§6.2） */
+  --h-row: 32px;            /* 表格行：后台密度值（§6.2） */
+  --row-pad-y: 7px;         /* 单元格纵向 padding，与 --h-row 配套（§6.2） */
+  --gap-tight: 6px;         /* 图标与词之间（徽章、抑制词、摘要行） */
+  --chip-pad: 1px 5px;      /* 字段 chip 内边距（§8.3） */
+  --chip-pad-state: 3px 8px;/* 数据源徽章内边距（§8.2） */
+  --ctl-pad: 7px 10px;      /* 按钮内边距 */
+  --nav-pad: 7px 12px;      /* 导航项内边距 */
+  --h-control: 38px;        /* 登录输入框与主按钮高度（§15） */
+  --w-login: 420px;         /* 登录卡最大宽度（§15） */
+  --main-max: 1240px;       /* 主区最大宽度（§8.1） */
+  --tbl-min: 560px;         /* 表格最小宽度；窄屏在 .tablewrap 里横向滚，不撑破 body（§8.6） */
+  --tbl-min-wide: 660px;    /* 耗时表多三列 */
+  --w-bar: 128px;           /* 条形列（§8.6 的 120px + 单元格左右 padding 余量） */
+  --w-dumb: 150px;          /* p50→p95 区间条列（§11.2） */
+  --h-bar: 6px;             /* 条形高度（§11.1） */
+  --kpi-slot: 9ch;          /* 🔴 KPI 数值槽：容得下 10000–49999 与「未提供」，不许按内容缩字号（§8.4） */
+  --measure-prose: 84ch;    /* 告示条与抽屉正文行长 */
+  --measure-deck: 82ch;     /* deck 行长 */
 
-  /*
-   * 几个**刻意不在间距尺度上**的值。它们各有出处，所以照样给 token ——
-   * 组件样式里不出现字面量像素，这条纪律没有例外。
-   */
-  --h-header: 60px;      /* sticky 站头。DESIGN.md §9.1 实测过：它被撑成两行会盖住正文 */
-  --row-y: 5px;          /* 台账行上下各 5px = 行高 10px。记录纸要密（§3.2 规则 1） */
-  --tbl-min: 640px;      /* 表格最小宽度，窄屏在 .tablescroll 里横向滚，不撑破 body */
-  --fs-notice: 20px;     /* 告示条标题。🔴 衬线只用于 ≥20px，所以它正好卡在下限上 */
+  --shadow-pop: 0 1px 2px rgba(10,14,20,.06), 0 8px 20px rgba(10,14,20,.12),
+                0 0 0 1px var(--c-hairline);
 }
 
-/*
- * 暗色。两处都要写：`@media` 让系统偏好生效，`[data-theme]` 让手动切换
- * 能**双向**覆盖系统偏好。只有其中一处的话，手动切到亮色在暗色系统下会失效。
- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --c-page: #1A1917; --c-paper: #22211E; --c-inset: #191816;
-    --c-hairline: #343329; --c-rule: #4A483E; --c-rule-hi: #5C5A4E;
-    --c-text: #F9F9F7; --c-text-mid: #C3C2B7; --c-text-dim: #A4A195;
-    --c-clay: #D97757; --c-clay-ink: #EE9873;
-    --c-ok: #A3C275; --c-caution: #E2B563; --c-revoked: #F2938A; --c-neutral: #ABA89B;
-    /* 🔴 --p-grey 在暗色里必须偏**冷**：「撤走暖色」这个机制在暗色里靠色温差成立。 */
-    --p-manilla: #2E2820; --p-grey: #2B2B2E; --p-heather: #262533; --p-clay: #35251E;
+    color-scheme: dark;
+    --c-page: #14171B; --c-panel: #1C2027; --c-inset: #171A20;
+    --c-hairline: #2A2F37; --c-rule: #3A414B; --c-rule-hi: #4C545F;
+    --c-text: #EDEFF2; --c-text-mid: #B6BEC9; --c-text-dim: #97A0AC;
+    /* 🔴 亮色那个 #2F5D8C 在 #1C2027 上画的 1px 线几乎看不见 */
+    --c-accent: #4E86BE; --c-accent-ink: #86B4E6; --c-on-accent: #FFFFFF;
+    --c-fault: #EF9A94; --c-withheld: #DFB768; --c-pending: #A9A6EE;
+    --c-unknown: #97A0AC; --c-measure: #8B97A5;
+    --p-fault: #2C1E1F; --p-withheld: #2A2318; --p-pending: #21203A; --p-quiet: #23262B;
+    /* 🔴 深底上低透明度斜纹会糊成一片平色，于是「抑制」这个编码整个失效 */
+    --hatch-withheld: repeating-linear-gradient(-45deg, transparent 0 5px,
+        color-mix(in srgb, var(--c-withheld) 22%, transparent) 5px 7px);
+    --shadow-pop: 0 1px 2px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.5),
+                  0 0 0 1px var(--c-hairline);
   }
 }
 
 :root[data-theme="dark"] {
-  --c-page: #1A1917; --c-paper: #22211E; --c-inset: #191816;
-  --c-hairline: #343329; --c-rule: #4A483E; --c-rule-hi: #5C5A4E;
-  --c-text: #F9F9F7; --c-text-mid: #C3C2B7; --c-text-dim: #A4A195;
-  --c-clay: #D97757; --c-clay-ink: #EE9873;
-  --c-ok: #A3C275; --c-caution: #E2B563; --c-revoked: #F2938A; --c-neutral: #ABA89B;
-  --p-manilla: #2E2820; --p-grey: #2B2B2E; --p-heather: #262533; --p-clay: #35251E;
+  color-scheme: dark;
+  --c-page: #14171B; --c-panel: #1C2027; --c-inset: #171A20;
+  --c-hairline: #2A2F37; --c-rule: #3A414B; --c-rule-hi: #4C545F;
+  --c-text: #EDEFF2; --c-text-mid: #B6BEC9; --c-text-dim: #97A0AC;
+  --c-accent: #4E86BE; --c-accent-ink: #86B4E6; --c-on-accent: #FFFFFF;
+  --c-fault: #EF9A94; --c-withheld: #DFB768; --c-pending: #A9A6EE;
+  --c-unknown: #97A0AC; --c-measure: #8B97A5;
+  --p-fault: #2C1E1F; --p-withheld: #2A2318; --p-pending: #21203A; --p-quiet: #23262B;
+  --hatch-withheld: repeating-linear-gradient(-45deg, transparent 0 5px,
+      color-mix(in srgb, var(--c-withheld) 22%, transparent) 5px 7px);
+  --shadow-pop: 0 1px 2px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.5),
+                0 0 0 1px var(--c-hairline);
 }
 
-/*
- * ── 使用纪律（改样式前读一遍）────────────────────────────────────────────
- *
- * 🔴 `--c-clay` 不能当正文色：它在 `--c-paper` 上只有 2.96:1。
- *    它只画线（下划线、焦点环、计量条、节点圆点），文字一律 `--c-clay-ink`。
- * 🔴 `--c-clay` 不表达任何状态。它只说「这里可点 / 这是当前项 / 这里有焦点」。
- * 🔴 **`--c-ok` 在这个站点里几乎用不到。** site/ 那边它是「验证轴唯一的绿」；
- *    这里没有验证轴 —— 一个 `result: ok` 的埋点计数**不是**一次验证通过，
- *    给它绿色会让「有人装成功过」看起来像「我们担保过它」。
- *    result 的四个取值一律用中性色 + 词，不给颜色编码。
- * 🔴 状态永远同时给词：颜色是第二通道。
- * 🔴 大写只给我们自己造的标签（`.label`），不给数据 —— 制品坐标与版本号
- *    区分大小写，`text-transform: uppercase` 会把值改掉。
- * 🔴 `.label` 里只放拉丁与数字；只要出现一个汉字就换 `.label-cn`
- *    （uppercase 对中文无效，letter-spacing 会把中文拉散）。
- * ───────────────────────────────────────────────────────────────────────
- */
+/* 窄屏：KPI 数值 30 → 26（§6.1 / §12）。断点是字面量，README 列过的例外 */
+@media (max-width: 619px) {
+  :root { --fs-kpi: 26px; }
+}

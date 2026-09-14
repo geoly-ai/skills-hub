@@ -308,22 +308,42 @@ gh run list --branch main --workflow=ci.yml --limit 1 --json databaseId --jq '.[
 
 ## 视觉
 
-沿用 `site/DESIGN.md` 的 2026-09 重写版（Claude 视觉语言：ivory `#FAF9F5` / clay `#D97757` /
-墨 `#141413`，Source Serif 4 + Inter + JetBrains Mono，「叙述纸 vs 记录纸」）。
-两个站要看起来像一家人。
+规格是 [`DESIGN.md`](DESIGN.md)（值班台重做，2026-09-03 定稿），可视证据是
+[`design-preview.html`](design-preview.html)，token 名与 `app/tokens.css` 一一对应。
 
-⚠️ **那份设计尚未定稿**（写这份代码时 `site/app/tokens.css` 还停在上一版的 greenbar 方向）。
-所以颜色 / 字号 / 间距**一律走 CSS 自定义属性**，集中在 `app/tokens.css` 一个文件里；
-组件样式里不出现字面量色值与像素尺寸。将来 token 定稿了只改那一个文件。
-⚠️ 几个刻意不在间距尺度上的值（站头 60px、台账行 5px、表格 min-width 640px、
-告示条标题 20px）**照样给了 token**（`--h-header` / `--row-y` / `--tbl-min` / `--fs-notice`），
-各自在 tokens.css 里注明了出处。**剩下的字面量都不是颜色、也不是版面间距**：
-1/2/3px 的描边、`outline-offset: 2px`、`text-underline-offset: 3px`、
-`left: -9999px`（跳转链接藏到屏幕外）与媒体查询断点。
+🔴 **不再跟随 `site/` 的暖米 + 陶土**（这是一次产品改向，DESIGN.md §2.1）。
+`site/` 是对外的 registry 门面，这里是内部值班台：要的是「一屏放得下多少事实」和
+「异常一眼跳出来」。所以换成**冷石墨机箱 + 一个钢蓝强调色 + 四种去饱和的墨**，
+字体是 **IBM Plex Sans + IBM Plex Mono**（`next/font` 构建期自托管，运行时零第三方请求；
+CJK 走系统栈），没有衬线。两个站的关系是「同一家公司的产品页与机房面板」，不是同一套皮。
 
-一处**有意的偏离**：`--c-ok`（site 那边「验证轴唯一的绿」）在这里几乎不用 ——
-这里没有验证轴。一个 `result: ok` 的埋点计数**不是**一次验证通过，
-给它绿色会让「有人装成功过」看起来像「我们担保过它」。result 的四个取值一律中性色 + 词。
+**三层版面，顺序即优先级**：① 状态层（顶栏数据源徽章 + 常驻的采集面契约条）→
+② 数字层（KPI、面板、表格）→ ③ 脚注层（deck、默认收起的「为什么这样算」抽屉、
+独立的「口径与边界」页 `/boundary`）。解释性长文只能落在这三个位置。
+
+🔴 **四种墨各管一件事，不许串**：砖红 `--c-fault` = 我们读不到数（数据源四态 + 一行都不认得）；
+琥珀 `--c-withheld` + 斜纹 = 有数但不发布（抑制）；靛紫 `--c-pending` = 服务端还没算；
+冷灰 `--c-unknown` = 我们不知道（未提供）。钢蓝 `--c-accent` 只表达「可点 / 当前项 / 焦点」，
+不表达任何状态、不写字（写字用 `--c-accent-ink`）。
+
+🔴 **全站没有绿色，连 token 都不定义。** 这里没有验证轴：一个 `result: ok` 的埋点计数
+**不是**一次验证通过，给它绿色会让「有人装成功过」看起来像「我们担保过它」。
+`result` 的四个取值一律中性色 + 词；`result: failed` 是正常的业务计数，也不涂红。
+
+**纪律（不变）**：颜色 / 字号 / 间距**一律走 CSS 自定义属性**，集中在 `app/tokens.css`；
+组件样式里不出现字面量色值（`test/design-invariants.test.mjs` 在查）。
+几个刻意不在尺度上的值（顶栏 56px、契约条 34px、侧栏 232px、表格行 32px、KPI 槽 9ch…）
+**照样给了 token**，各自在 tokens.css 里注明出处。**剩下的字面量都不是颜色**：
+1/2/3px 的描边、`outline-offset`、`text-underline-offset`、图标尺寸、
+区间条的小几何量、`left: -9999px`（跳转链接藏到屏幕外）与媒体查询断点。
+
+**亮 / 暗 / 跟随系统三态**：暗色 token 在 `@media (prefers-color-scheme: dark)` 与
+`:root[data-theme="dark"]` 两处都写。切换是一个原生表单 `POST /api/theme`
+（同源检查 + `safeNext` + `__Host-` cookie，门禁照常），layout 在服务端把 `data-theme`
+写进 `<html>` —— **没有一行客户端 JS**，理由见 `lib/theme.mjs`。
+
+⚠️ 静态测试守不住的几条（抑制位里有没有数字、图标越界、375/400px 无横向溢出、对比度）
+要在浏览器里跑 `design-preview.html` 底部 `auditInvariants()` / `auditContrast()` 同款脚本。
 
 ---
 

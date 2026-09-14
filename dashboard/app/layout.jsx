@@ -1,4 +1,7 @@
-import { Source_Serif_4, Inter, JetBrains_Mono } from 'next/font/google';
+import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
+import { cookies } from 'next/headers';
+
+import { THEME_COOKIE, parseTheme } from '../lib/theme.mjs';
 
 import './tokens.css';
 import './base.css';
@@ -6,22 +9,20 @@ import './components.css';
 
 /**
  * 🔴 **用 `next/font/google`，不用 `<link href="fonts.googleapis.com">`。**
- *    DESIGN.md §5.2 给的是 `<link>`，但那会让每个访客的浏览器在**运行时**向
- *    Google 发一次请求。这个页面只有内部同事看，那次请求会把
- *    「谁在什么时候看了内部报表」这件事透给第三方 —— 与本平台整套隐私立场相反。
+ *    DESIGN.md §5.2 给的是 `<link>`（并注明 Next.js 可用 next/font 等价加载），
+ *    但 `<link>` 会让每个访客的浏览器在**运行时**向 Google 发一次请求 ——
+ *    把「谁在什么时候看了内部报表」这件事透给第三方，与本平台整套隐私立场相反。
  *    `next/font/google` 在**构建期**下载并自托管，运行时零第三方请求。
  *
  * ⚠️ 代价：`next build` 需要能访问 Google Fonts。离线构建会失败，
  *    那是**应该失败**的 —— 悄悄退回系统字体会让线上排版与设计规格无声地对不上。
+ * 🔴 不 web 加载任何 CJK 字体（全量 5–10 MB），中文走 tokens.css 里的系统栈。
  */
-const serif = Source_Serif_4({
-  subsets: ['latin'], axes: ['opsz'], display: 'swap', variable: '--font-serif',
+const sans = IBM_Plex_Sans({
+  subsets: ['latin'], weight: ['400', '500', '600', '700'], display: 'swap', variable: '--font-plex-sans',
 });
-const sans = Inter({
-  subsets: ['latin'], weight: ['400', '500', '600', '700'], display: 'swap', variable: '--font-sans',
-});
-const mono = JetBrains_Mono({
-  subsets: ['latin'], weight: ['400', '500', '700'], display: 'swap', variable: '--font-mono',
+const mono = IBM_Plex_Mono({
+  subsets: ['latin'], weight: ['400', '500', '600'], display: 'swap', variable: '--font-plex-mono',
 });
 
 export const metadata = {
@@ -31,41 +32,18 @@ export const metadata = {
   robots: { index: false, follow: false, nocache: true },
 };
 
-export default function RootLayout({ children }) {
-  const fontVars = `${serif.variable} ${sans.variable} ${mono.variable}`;
+/**
+ * 根布局只管 `<html>` / 字体 / 主题。骨架（侧栏、顶栏、契约条）在 components/shell.jsx，
+ * 由各页自己套 —— 登录页不能有它们（DESIGN.md §15）。
+ * 主题：cookie 里只有 light / dark；没有 = 跟随系统 = 不写 data-theme（lib/theme.mjs）。
+ */
+export default async function RootLayout({ children }) {
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
   return (
-    <html lang="zh-CN" className={fontVars}>
+    <html lang="zh-CN" className={`${sans.variable} ${mono.variable}`} data-theme={theme ?? undefined}>
       <body>
         <a className="skip-link" href="#main">跳到主内容</a>
-
-        <header className="site-header">
-          <div className="wrap">
-            <a className="brand" href="/">skills-hub</a>
-            <span className="label" aria-hidden="true">telemetry</span>
-            <span className="spacer" />
-            <span className="label-cn">内部运营数据 · 不公开</span>
-          </div>
-        </header>
-
-        <main id="main"><div className="wrap">{children}</div></main>
-
-        <footer className="site-footer">
-          <div className="wrap">
-            <p className="label-cn">关于这个平台</p>
-            <p>
-              这里的每一个数字都来自 <code className="mono">/v1/summary</code> 的聚合返回。
-              dashboard 自己<strong>不做任何聚合</strong> —— 聚合逻辑只有一份，在
-              <code className="mono"> server/aggregate.mjs</code>。
-              需要新维度就去那边加，不在这里补算：两份聚合必然分叉，而分叉不会让任何东西变红。
-            </p>
-            <p className="dim">
-              上报是 at-least-once，摄入端点按规格 §5.3 无鉴权。
-              🔴 这里的计数是**趋势信号，不是精确指标**，
-              并且<strong>禁止用于计费或任何信任判定</strong>
-              （「这个 skill 装的人多所以更可信」正是把一个无鉴权端点变成攻击面的做法）。
-            </p>
-          </div>
-        </footer>
+        {children}
       </body>
     </html>
   );
