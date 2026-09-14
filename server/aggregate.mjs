@@ -144,8 +144,11 @@ const byCountThenKey = (key) => (a, b) => b.n - a.n || (a[key] < b[key] ? -1 : a
  * · `durations`：只用 `kind=install` 且 `result=ok`、带合法 `ms` 与 `version` 的事件，
  *   按制品版本分组（规格 §1 问题 3「一次安装要多久（性能回归）」；
  *   失败安装的耗时量的是「失败得多快」，混进来会污染回归信号）。
- *   ⚠️ CLI 对同一个 target 的每个制品记的是**同一个整批耗时**（src/commands/install.mjs
- *   的 emitTelemetry），所以 `n` 按制品计、分位数按制品数加权。
+ *   口径是「**单个制品装一次要多久**」：CLI 只在一个 target 这次只装了一个制品时才给事件带
+ *   `ms`（src/commands/install.mjs 的 emitTelemetry，2026-09-14 起）。批量安装（--all、
+ *   一条命令多个 spec）的耗时拆不到单个制品上，不带 ms、不进分位数；pack 只记 pack 自己
+ *   一条事件，算一个制品，照常带 ms —— 早先批量安装的每个制品都记整批耗时，
+ *   分位数因此按制品数加权。⚠️ 0.3.8 及更早的 CLI 上报的事件仍是旧口径，混在库里直到到期。
  *
  * 🔴 输出里**没有**任何 install_id / eid / 身份字段的值：install_id 只进 Set 用来数数，
  *    输出的只是 `.size`。

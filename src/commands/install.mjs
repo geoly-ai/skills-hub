@@ -906,14 +906,22 @@ function emitTelemetry(ctx, results, perClient, snap) {
   if (!rec) return;
   for (const r of results) {
     // 🔴 每个 target 记的是**它自己那份名单**（--all 下按 client 各不相同）
-    for (const a of perClient.get(r.client)?.records ?? []) {
+    const recs = perClient.get(r.client)?.records ?? [];
+    for (const a of recs) {
       // 🔴 `reason` 只能来自 REASONS 有限代码表；`record()` 自己不抛，但传错值会被它内部
       //    的 assertValidEvent 拒掉并静默丢事件 —— 所以 reason 由 classify() 产出。
       rec({
         artifact: a.id,
         client: r.client,
         kind: 'install',
-        ms: r.ms,
+        // 🔴 `r.ms` 是**整个 target 事务**的耗时，拆不到事务里的单个制品上。
+        //    早先每个制品都记同一个 r.ms：一次装 N 个就把这批耗时算了 N 遍，
+        //    服务端按制品版本算的分位数因此按制品数加权（2026-09-14 用户要求修）。
+        //    现在只有「这个 target 这次只装了一个制品」时才带 ms —— 分位数的口径
+        //    就是「单个制品装一次要多久」。多个 spec / --all 的批量安装不带 ms。
+        //    ⚠️ 这里的名单是**请求的 root**：装 pack 只有 pack 自己一条，成员不各记一条，
+        //    所以 pack 算「一个制品」，带 ms。
+        ms: recs.length === 1 ? r.ms : undefined,
         reason: r.ok ? undefined : r.reason,
         result: r.ok ? 'ok' : 'failed',
         scope: r.scope,
