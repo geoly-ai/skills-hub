@@ -296,7 +296,9 @@ test('🔴 被改过的 rollup 文件不能污染原型，也不能把脏键带�
   const row = folded.byArtifact['skill:geoly/a@1.0.0'];
   assert.equal(row.kinds.evil, undefined, '未知的 kind 不该被带进来');
   assert.equal(row.results.ok, 0, '负数计数要被归零');
-  assert.equal(summarize([], folded).byArtifact.length, 1);
+  // 历史计数没有 installs，只出现在 rolled_up 里，不混进带 installs 的 byArtifact
+  assert.equal(summarize([], folded).rolled_up.byArtifact.length, 1);
+  assert.equal(summarize([], folded).byArtifact.length, 0);
 });
 
 // ── 聚合与保留期 ─────────────────────────────────────────────────────────────
