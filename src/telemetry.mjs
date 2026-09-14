@@ -715,7 +715,7 @@ skills-hub 会上报匿名使用埋点（首次运行提示，只显示这一次
               要开的话会**单独再告知一次**，并且可以只关它、匿名计数照发
   发到哪      ${url}
   什么时候发  一次 install 成功收尾之后，最多每 24 小时静默发一次
-              （超时 1 秒；发不出去就算了，不会影响安装结果）；
+              （超时 3 秒；发不出去就留在本地稍后再试，不会影响安装结果）；
               别的命令（check / list / stats…）只写本地，不出网。
               也可以随时手动 \`skills-hub telemetry flush\` 立刻发
   怎么关      GEOLY_TELEMETRY_UPLOAD=0   只留本地统计，不上报
@@ -950,10 +950,11 @@ const autoUploadStampPath = () => join(stateDir(), 'telemetry', 'auto-upload.las
  *
  * 🔴 **戳是在尝试之前写的，不是发成功之后写的。** 节流的判据是「距上次**尝试**」
  *    而不是「距上次**成功**」：端点挂了的时候，按「上次成功」算会让**每一次**
- *    install 都去撞一遍那个挂掉的端点、每次多付最多 1 秒 —— 恰恰是端点最不该
- *    被继续敲的时候敲得最凶。按「上次尝试」算，无论成败，24 小时内最多一次。
- *    代价写在明处：一次失败的尝试会把这批事件压后 24 小时（它们留在本地不丢，
- *    §5.2.2），用户想立刻发有 `telemetry flush` 这条明路。
+ *    install 都去撞一遍那个挂掉的端点、每次多付最多 3 秒 —— 恰恰是端点最不该
+ *    被继续敲的时候敲得最凶。按「上次尝试」算，成功时 24 小时内最多一次。
+ *    ⚠️ 失败时不压满 24 小时：maybeAutoUpload 会调 `backoffAutoUploadSlot`，
+ *    把名额退回成「1 小时后可再试」（2026-09-14 用户拍板，见那个函数的注释）。
+ *    事件留在本地不丢（§5.2.2），用户想立刻发有 `telemetry flush` 这条明路。
  *
  * ⚠️ 崩在「写戳」与「真的发」之间 = 这一天不发了。事件留在队列里，无害。
  *    反过来（先发后写戳）在同样的崩溃下会让下一次 install 再发一遍 ——
@@ -1015,6 +1016,53 @@ export function claimAutoUploadSlot(now = Date.now(), intervalMs = AUTO_UPLOAD_I
   } finally {
     // 🔴 必须在返回前释放：`flush()` 马上要取同一把锁，而 `acquire` 禁止同进程重入。
     try { release(); } catch { /* 释放失败不该盖掉上面的返回值 */ }
+  }
+}
+
+/** 自动上报失败后，多久可以再试一次。 */
+export const AUTO_UPLOAD_RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000;
+
+/**
+ * 自动上报**失败**后退回一部分名额：1 小时后允许再试，而不是等满 24 小时。
+ *
+ * 🔴 **为什么要有它**（2026-09-14 用户拍板「按推荐」）：实测从国内到端点一次往返 1.3–1.7 秒，
+ *    旧的 1 秒超时下自动上报几乎从不成功，而每次失败还要把事件压后 24 小时 ——
+ *    生产库一周只收到 3 条事件。超时同日放宽到 3 秒（upload.mjs AUTO_UPLOAD_TIMEOUT_MS）。
+ * 🔴 **不是「失败就完全不占名额」**：端点挂着时那等于每一次 install 都多等 3 秒去撞它，
+ *    正是 claimAutoUploadSlot 注释里要防的形状。1 小时是折中：同一天还能再试几次，
+ *    但不会每条 install 都敲。
+ * 🔴 **只改本次写下的那个戳**（在上报锁下比对）：期间别的进程已经认领过新名额，就不动它。
+ *
+ * 做法：把戳改成 `claimedAt - interval + retry`，于是下一次认领在 `claimedAt + retry` 放行。
+ * 戳仍是「过去的一个时刻」，claimAutoUploadSlot 的时钟回拨判据不受影响。
+ *
+ * @returns {boolean} 是否改了戳
+ */
+export function backoffAutoUploadSlot(
+  claimedAt,
+  intervalMs = AUTO_UPLOAD_INTERVAL_MS,
+  retryMs = AUTO_UPLOAD_RETRY_AFTER_FAILURE_MS,
+) {
+  if (!Number.isFinite(claimedAt)) return false;
+  const p = autoUploadStampPath();
+  let release;
+  try {
+    release = acquire(lockPath());
+  } catch (err) {
+    _lastError = err;
+    return false;   // 拿不到锁就不动：多压一会儿比写坏别人的戳安全
+  }
+  try {
+    let cur;
+    try { cur = Number(readFileSync(p, 'utf8').trim()); } catch { return false; }
+    if (cur !== claimedAt) return false;
+    writeAtomic(p, String(claimedAt - intervalMs + retryMs) + '\n');
+    return true;
+  } catch (err) {
+    _lastError = err;
+    return false;
+  } finally {
+    try { release(); } catch { /* 释放失败不该盖掉返回值 */ }
   }
 }
 

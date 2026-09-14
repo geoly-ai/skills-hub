@@ -26,6 +26,7 @@ import {
   appendDurable,
   noticeShown,
   claimAutoUploadSlot,
+  backoffAutoUploadSlot,
 } from './telemetry.mjs';
 import { acquire, LockBusyError } from './lock.mjs';
 // parseStrict 而非内建 parse：重复 key 会被静默取最后一个
@@ -386,18 +387,21 @@ export const pendingCount = () => readAll().length;
 //    「用户无感」，所以每一处都往最保守的一侧压 ——
 //      · 只有 install，且**成功收尾**（失败的安装不该再替用户付一次网络代价）
 //      · 24 小时最多一次（§5.1.1 说明为什么是 24）
-//      · 超时 1 秒，不是 flush 的 3 秒
+//      · 超时 3 秒；失败后 1 小时可再试（2026-09-14 从「1 秒 + 失败压 24 小时」放宽）
 //      · 完全静默：不打印、不改退出码、不抛错
 //      · 两个否决（`--offline` / `GEOLY_TELEMETRY_UPLOAD=0`）照旧一票否决
 //      · **首次告知没打过就不发**（noticeShown 这道门）
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 自动上报的超时：**1 秒**，不是 flush 默认的 3 秒。
+ * 自动上报的超时：**3 秒**（2026-09-14 从 1 秒放宽，用户拍板「按推荐」）。
  *
- * 显式 flush 是用户主动等的，3 秒可以；自动上报挂在 install 的收尾上，
- * 那 3 秒是**用户没要求、也不知道自己在等**的 3 秒。1 秒是「慢网也够一个
- * 几 KB 的 POST 走完一趟」与「安装最坏被拖多久」之间的取舍。
+ * 🔴 **为什么放宽**：1 秒是按「慢网也够一个几 KB 的 POST」估的，实测是错的 ——
+ *    从国内经代理到端点，一次往返 1.3–1.7 秒（连不碰数据库的健康检查也要这么久）。
+ *    1 秒超时在 1003ms 处 abort，3 秒在 1238ms 发成功。于是自动上报几乎从不成功，
+ *    生产库一周只收到 3 条事件，dashboard 整页没有数据。
+ * ⚠️ **代价**：install 收尾最坏多等 3 秒（旧值是 1 秒），而这 3 秒是用户没要求、
+ *    也不知道自己在等的。节流（成功 24 小时一次、失败 1 小时后可再试）限制了它发生的频率。
  *
  * ⚠️ **它是「网络那一段」的上界，不是「install 多花多久」的上界**
  *    （Codex 2026-09-01 指出，原先这里写成了后者 —— 那是夸大）。
@@ -408,15 +412,23 @@ export const pendingCount = () => readAll().length;
  *    要给 install 一个真正的时延上界，得给这串本地 I/O 也加超时 —— 那是另一件事，
  *    这里不假装已经做了。
  *
- * ⚠️ 1 秒**不产生新的丢事件面**，只是把结果从「发出去了」挪到「没发出去、下次再发」：
+ * ⚠️ 超时**不产生新的丢事件面**，只是把结果从「发出去了」挪到「没发出去、下次再发」：
  *    超时触发 abort → fetch 抛 / ackOk 返回 false → `sending` 原样留在盘上
  *    → 下一轮接着发。哪怕服务端**已经 durable 了**只是 ACK 没赶回来，也只是
  *    重发一次、服务端按 `eid` 判成 duplicate（§5.2.2 的 at-least-once）。
  *    真正的代价见规格 §5.1.1「代价」第 4 条：端点**持续**慢到发不出去时，
  *    卡住的批次不动，而新事件会随换代被淘汰（§5.2.3）—— 那一格本来就存在，
- *    1 秒只是让它更容易被触发。
+ *    超时越短越容易触发它。
  */
-export const AUTO_UPLOAD_TIMEOUT_MS = 1000;
+export const AUTO_UPLOAD_TIMEOUT_MS = 3000;
+
+/**
+ * flush 的哪些结果算「这次自动上报失败了」—— 失败才退回名额（1 小时后可再试）。
+ * `empty`（没东西可发）与 `busy`（别的进程正在发）**不算**：前者没有要补发的，
+ * 后者那个进程会把事件发出去；为它们退回名额只会让 install 多跑几次空转。
+ */
+const NOT_A_FAILURE = new Set(['empty', 'busy', 'offline', 'upload-disabled']);
+const autoUploadFailed = (r) => Boolean(r?.skipped) && !NOT_A_FAILURE.has(r?.reason);
 
 /**
  * install 成功收尾后调用。**绝不抛错、绝不打印、绝不影响退出码。**
@@ -440,9 +452,13 @@ export async function maybeAutoUpload({ fetchImpl, timeoutMs = AUTO_UPLOAD_TIMEO
     //    不依赖谁在什么位置调我。
     if (!noticeShown()) return { ran: false, reason: 'notice-not-shown' };
 
-    if (!claimAutoUploadSlot(now ?? Date.now())) return { ran: false, reason: 'throttled' };
+    const claimedAt = now ?? Date.now();
+    if (!claimAutoUploadSlot(claimedAt)) return { ran: false, reason: 'throttled' };
 
     const result = await flush({ fetchImpl: fetchImpl ?? globalThis.fetch, timeoutMs });
+    // 🔴 失败不压满 24 小时：退回成「1 小时后可再试」（telemetry.mjs backoffAutoUploadSlot）。
+    //    flush 已在返回前释放上报锁，这里能再取到。
+    if (autoUploadFailed(result)) backoffAutoUploadSlot(claimedAt);
     return { ran: true, result };
   } catch (err) {
     // flush 自己已经吞掉一切异常，走到这里只可能是三道门自身出了岔子。
