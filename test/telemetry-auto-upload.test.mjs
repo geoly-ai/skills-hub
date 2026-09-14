@@ -171,7 +171,7 @@ test('🔴 节流：24 小时内只认领一次名额', async () => {
   assert.equal(tm.claimAutoUploadSlot(t0 + tm.AUTO_UPLOAD_INTERVAL_MS + 1), true, '过了 24 小时该再放行');
 });
 
-test('🔴 戳是在**尝试之前**写的 —— 端点挂着也不会每次 install 都去撞', async () => {
+test('🔴 失败后不压满 24 小时：1 小时内不再撞，满 1 小时可以再试', async () => {
   isoTelemetry();
   const { tm, up } = await fresh();
   tm.record({ kind: 'install', result: 'ok' });
@@ -179,17 +179,56 @@ test('🔴 戳是在**尝试之前**写的 —— 端点挂着也不会每次 in
 
   let calls = 0;
   const dead = async () => { calls++; throw new Error('端点挂了'); };
-  const a = await up.maybeAutoUpload({ fetchImpl: dead });
+  const t0 = Date.parse('2026-09-14T00:00:00Z');
+  const a = await up.maybeAutoUpload({ fetchImpl: dead, now: t0 });
   assert.equal(a.ran, true);
   assert.equal(calls, 1);
 
-  // 🔴 判据是「距上次**尝试**」而不是「距上次**成功**」：上一次明明失败了，
-  //    这一次仍然要被挡住。按「上次成功」算的实现会在这里再打一次。
-  const b = await up.maybeAutoUpload({ fetchImpl: dead });
+  // 🔴 端点挂着时不能每次 install 都去撞（那是每次多等 3 秒）：半小时后仍被挡住
+  const b = await up.maybeAutoUpload({ fetchImpl: dead, now: t0 + 30 * 60_000 });
   assert.equal(b.ran, false);
   assert.equal(b.reason, 'throttled');
-  assert.equal(calls, 1, '失败之后 24 小时内不许再撞一次');
+  assert.equal(calls, 1, '失败之后 1 小时内不许再撞一次');
+
+  // 🔴 但也不压满 24 小时（2026-09-14 用户拍板）：满 1 小时就放行
+  const c = await up.maybeAutoUpload({ fetchImpl: dead, now: t0 + tm.AUTO_UPLOAD_RETRY_AFTER_FAILURE_MS + 1 });
+  assert.equal(c.ran, true, '失败后 1 小时还不让再试 —— 又退回成压 24 小时了');
+  assert.equal(calls, 2);
   assert.equal(tm.readAll().length, 1, '没发出去不等于丢了：事件仍在本地');
+});
+
+test('🔴 成功发出去之后照样占满 24 小时，不会被当成失败退回名额', async () => {
+  isoTelemetry();
+  const { tm, up } = await fresh();
+  tm.record({ kind: 'install', result: 'ok' });
+  tm.maybeNoticeUpload(() => {}, up.endpoint());
+
+  let calls = 0;
+  const ok = async (_u, o) => {
+    calls++;
+    const n = JSON.parse(o.body).events.length;
+    return new Response(JSON.stringify({ schema: 'geoly.skills.telemetry-ack/1', accepted: n, duplicate: 0, rejected: 0 }), { status: 200 });
+  };
+  const t0 = Date.parse('2026-09-14T00:00:00Z');
+  const a = await up.maybeAutoUpload({ fetchImpl: ok, now: t0 });
+  assert.equal(a.result.sent, 1);
+
+  tm.record({ kind: 'install', result: 'ok' });
+  const b = await up.maybeAutoUpload({ fetchImpl: ok, now: t0 + tm.AUTO_UPLOAD_RETRY_AFTER_FAILURE_MS + 1 });
+  assert.equal(b.reason, 'throttled', '成功之后 1 小时就又发了 —— 成功被当成了失败');
+  assert.equal(calls, 1);
+});
+
+test('失败后退回名额只改本次写下的戳：期间别的进程认领过，就不动它', async () => {
+  const d = isoTelemetry();
+  const { tm } = await fresh();
+  const t0 = Date.parse('2026-09-14T00:00:00Z');
+  assert.equal(tm.claimAutoUploadSlot(t0), true);
+  // 模拟别的进程在这之后又认领了一次（戳变成了更晚的值）
+  writeFileSync(join(d, 'telemetry', 'auto-upload.last'), String(t0 + 5) + '\n');
+  assert.equal(tm.backoffAutoUploadSlot(t0), false, '改了别人的戳');
+  assert.equal(tm.claimAutoUploadSlot(t0 + tm.AUTO_UPLOAD_RETRY_AFTER_FAILURE_MS + 10), false,
+    '别人的名额被退回了 —— 同一天会多发一次');
 });
 
 test('戳被写坏时只多放行一次，不会退化成「每次 install 都发」', async () => {
@@ -490,7 +529,7 @@ test('🔴 进程在 ACK 之前被真的杀掉：事件一条不丢，下一轮�
   } finally { await close(live); store.close(); }
 });
 
-test('🔴 自动上报用的是 1 秒，不是 flush 的 3 秒', async () => {
+test('🔴 自动上报的超时是 3 秒（2026-09-14 从 1 秒放宽），且确实走的是这个默认值', async () => {
   isoTelemetry();
   const { tm, up } = await fresh();
   tm.record({ kind: 'install', result: 'ok' });
@@ -506,11 +545,11 @@ test('🔴 自动上报用的是 1 秒，不是 flush 的 3 秒', async () => {
 
   assert.equal(r.ran, true);
   assert.equal(r.result.reason, 'error:AbortError');
-  assert.equal(up.AUTO_UPLOAD_TIMEOUT_MS, 1000);
-  // 判据要能把 1 秒和 flush 的 3 秒**区分开** —— 只断言「小于 3 秒」太松，
-  // 只断言「约等于 1 秒」在慢机器上会假红。取 [800ms, 2500ms]。
-  assert.ok(dt >= 800, `不该提前返回：${dt}ms`);
-  assert.ok(dt < 2500, `自动上报用了 ${dt}ms —— 看着像走了 flush 的 3 秒默认值`);
+  assert.equal(up.AUTO_UPLOAD_TIMEOUT_MS, 3000);
+  // 1 秒在实测里连一次往返都不够（端点 1.3–1.7s），所以这里要能抓住「又退回 1 秒」。
+  // 下界 2500ms 区分开旧的 1 秒；上界留足慢机器的余量。
+  assert.ok(dt >= 2500, `超时比 3 秒短得多（${dt}ms）—— 像是退回了旧的 1 秒`);
+  assert.ok(dt < 6000, `自动上报挂了 ${dt}ms —— 超时没生效`);
   assert.equal(tm.readAll().length, 1, '超时不丢事件');
 });
 
