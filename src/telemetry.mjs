@@ -10,6 +10,7 @@ import { homedir, platform, arch, userInfo, hostname } from 'node:os';
 import { writeAtomic, fsyncParentAfter } from './atomic-fs.mjs';
 import { stringify, encodeString, parseStrict } from './canonical-json.mjs';
 import { acquire } from './lock.mjs';
+import { ownVersion } from './version.mjs';
 
 export const KINDS = new Set([
   'install', 'update', 'remove', 'check', 'rollback', 'recover', 'sync-lock',
@@ -445,7 +446,10 @@ export function buildEvent({ kind, artifact, version, client, scope, result, ms,
     at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
     install_id: installId(),
     // 环境变量可被任意注入，所以它也要过 RE_SEMVERISH
-    cli: process.env.GEOLY_CLI_VERSION ?? '0.0.0-m1',
+    // 🔴 缺省取 package.json 的真实版本，不是字面量：早先这里回落 '0.0.0-m1'，
+    //    而从 npm 装下来运行时没人设 GEOLY_CLI_VERSION —— 发布出去的 CLI 一直上报
+    //    `cli: "0.0.0-m1"`（2026-09-14 端到端实测）。与 context.mjs 的版本门同一个来源。
+    cli: process.env.GEOLY_CLI_VERSION ?? ownVersion(),
     os: platform(), arch: arch(), node: process.versions.node,
     kind, result,
   };

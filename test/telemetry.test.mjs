@@ -696,3 +696,19 @@ test('🔴 pubkey 是定长的：长一位短一位都不许过', async () => {
   assert.throws(() => assertValidEvent({ ...base, pubkey: `${'a'.repeat(42)}+` }), /pubkey/,
     'base64（含 + /）不是 base64url');
 });
+
+// 🔴 发布出去的 CLI 没有人设 GEOLY_CLI_VERSION —— 缺省分支才是生产路径（记忆：缺省分支从来没被测过）。
+//    早先这里回落硬编码的 '0.0.0-m1'，于是从 npm 装下来的 CLI 一直上报错的版本号（2026-09-14 实测）。
+test('🔴 没设 GEOLY_CLI_VERSION 时，事件的 cli 就是 package.json 的版本号', async () => {
+  iso();
+  delete process.env.GEOLY_CLI_VERSION;
+  const { readFileSync: rf } = await import('node:fs');
+  const pkg = JSON.parse(rf(new URL('../package.json', import.meta.url), 'utf8'));
+  const tm = await fresh();
+  const ev = tm.buildEvent({ kind: 'install', result: 'ok' });
+  assert.equal(ev.cli, pkg.version);
+  assert.notEqual(ev.cli, '0.0.0-m1', '又回落到了编出来的版本号');
+  // 与版本门取的是同一个来源
+  const { ownVersion } = await import('../src/commands/context.mjs');
+  assert.equal(ev.cli, ownVersion());
+});

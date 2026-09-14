@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { UsageError, UnsupportedError } from '../exit-codes.mjs';
 import { SCAN_CEILINGS } from '../target.mjs';
+import { ownVersion } from '../version.mjs';
 
 /** §2 那张表。`arg: true` = 后面跟一个值。 */
 const GLOBAL_FLAGS = Object.freeze({
@@ -226,18 +227,9 @@ export function uintArg(name, val) {
  * 🔴 读不到就**抛**，不要退回一个假版本号：一个编出来的版本号会让
  *    版本门做出错误判定，而那正是这道门要防的事。
  */
-let cachedVersion;
-export function ownVersion() {
-  if (cachedVersion === undefined) {
-    const p = new URL('../../package.json', import.meta.url);
-    const v = JSON.parse(readFileSync(p, 'utf8')).version;
-    if (typeof v !== 'string' || v === '') {
-      throw new Error('读不出本 CLI 的版本号（package.json 的 version 不是非空字符串）');
-    }
-    cachedVersion = v;
-  }
-  return cachedVersion;
-}
+// 实现搬到 src/version.mjs：埋点的 `cli` 字段要取同一个值（见那个文件的注释）。
+// 这里保留导出，调用方与测试不用改。
+export { ownVersion };
 
 export function makeContext(globals, deps = {}) {
   const env = deps.env ?? process.env;
