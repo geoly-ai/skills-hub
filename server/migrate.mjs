@@ -263,6 +263,37 @@ try {
     process.exit(1);
   }
 
+  // ── 应用角色的权限矩阵（规格 §4.4）──────────────────────────────────────
+  //
+  // 🔴 运行时连 `telemetry_app`（GEOLY_TELEMETRY_DATABASE_URL），不连 owner：owner 对自己的表
+  //    有全部权限，「审计只增不改」在 owner 连接下约束不住。角色本身由人建（带密码，不进仓库）；
+  //    这里只在它**存在时**重授一遍，保证以后迁移新建的表不会漏授权。
+  // 🔴 授权之后**反查**：审计表只许 INSERT。多给一项就中止 —— 「授权语句没报错」证明不了没多给。
+  const [app] = await sql`select 1 as ok from pg_roles where rolname = 'telemetry_app'`;
+  if (!app) {
+    console.error('⚠️ 没有 telemetry_app 角色：运行时仍会用 owner 连接，审计表的只增约束不成立（见 §4.4）');
+  } else {
+    await sql`grant usage on schema public to telemetry_app`;
+    await sql`grant select, insert, update, delete on telemetry_events to telemetry_app`;
+    await sql`grant select, insert, update on telemetry_rollup to telemetry_app`;
+    await sql`grant select, update on telemetry_meta to telemetry_app`;
+    await sql`grant select, insert, delete on telemetry_identity, telemetry_delete_nonce, telemetry_delete_tombstone to telemetry_app`;
+    await sql`revoke select, update, delete, truncate on telemetry_audit from telemetry_app`;
+    await sql`grant insert on telemetry_audit to telemetry_app`;
+    await sql`grant usage on sequence telemetry_audit_id_seq to telemetry_app`;
+    const [ap] = await sql`
+      select has_table_privilege('telemetry_app', 'telemetry_audit', 'INSERT') as i,
+             has_table_privilege('telemetry_app', 'telemetry_audit', 'SELECT') as s,
+             has_table_privilege('telemetry_app', 'telemetry_audit', 'UPDATE') as u,
+             has_table_privilege('telemetry_app', 'telemetry_audit', 'DELETE') as d,
+             has_table_privilege('telemetry_app', 'telemetry_audit', 'TRUNCATE') as t
+    `;
+    if (!ap.i || ap.s || ap.u || ap.d || ap.t) {
+      console.error(`✖ telemetry_app 对审计表的权限不是「只 INSERT」：${JSON.stringify(ap)}`);
+      process.exit(1);
+    }
+  }
+
   const [meta] = await sql`select count(*)::int as n from telemetry_meta`;
   if (meta.n !== 1) {
     console.error(`✖ telemetry_meta 应恰好 1 行，实际 ${meta.n}`);
