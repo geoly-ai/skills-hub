@@ -1,6 +1,6 @@
 {
   "name": "@geoly-ai/skills-hub",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "geoly-ai 的 skill 分发中心 —— 安装、校验、审计",
   "type": "module",
   "bin": {
