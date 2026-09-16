@@ -1,0 +1,25 @@
+{
+  "kind": "layered-arch",
+  "title": "v2 积分系统目标架构",
+  "layers": [
+    { "id": "client", "label": "客户端层", "nodes": [ { "id": "app", "label": "会员 App / 商城前端" }, { "id": "admin", "label": "运营后台" } ] },
+    { "id": "gateway", "label": "接入层", "nodes": [ { "id": "gw", "label": "API 网关" } ] },
+    { "id": "service", "label": "服务层", "nodes": [
+      { "id": "account-service", "label": "账户服务" },
+      { "id": "redeem-service", "label": "兑换服务" },
+      { "id": "rule-engine", "label": "规则引擎服务" }
+    ] },
+    { "id": "data", "label": "数据层", "nodes": [ { "id": "db", "label": "积分数据库（行锁）" }, { "id": "cache", "label": "规则本地缓存" } ] }
+  ],
+  "edges": [
+    { "from": "app", "to": "gw", "label": "HTTPS" },
+    { "from": "admin", "to": "rule-engine", "label": "配置 + 审计" },
+    { "from": "gw", "to": "account-service", "label": "" },
+    { "from": "gw", "to": "redeem-service", "label": "" },
+    { "from": "account-service", "to": "rule-engine", "label": "同步查询规则" },
+    { "from": "redeem-service", "to": "rule-engine", "label": "同步查询规则" },
+    { "from": "rule-engine", "to": "cache", "label": "缓存兜底" },
+    { "from": "account-service", "to": "db", "label": "" },
+    { "from": "redeem-service", "to": "db", "label": "行锁原子扣减" }
+  ]
+}

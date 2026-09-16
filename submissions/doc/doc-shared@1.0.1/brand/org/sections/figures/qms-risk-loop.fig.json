@@ -1,0 +1,108 @@
+{
+  "template": "phases",
+  "title": "风险管理双闭环",
+  "subtitle": "事前：风险登记册滚动管理；事后：止血优先，先恢复业务再查根因",
+  "rows": 2,
+  "row_style": "frame",
+  "card_style": "plain",
+  "row_labels": [
+    "事前 · 风险管理 Risk Management",
+    "事后 · 生产事件管理 Incident Management"
+  ],
+  "gate_label": "产出",
+  "phases": [
+    {
+      "id": "identify",
+      "badge": "①",
+      "name": "识别",
+      "items": [
+        "技术 / 资源 / 范围 / 外部四类"
+      ],
+      "gate": "风险登记册初版",
+      "role": "generic_layer"
+    },
+    {
+      "id": "assess",
+      "badge": "②",
+      "name": "定级",
+      "items": [
+        "概率 × 影响矩阵"
+      ],
+      "gate": "风险等级",
+      "role": "generic_layer"
+    },
+    {
+      "id": "respond",
+      "badge": "③",
+      "name": "应对",
+      "items": [
+        "规避 / 转移 / 减轻 / 接受"
+      ],
+      "gate": "每项指定责任人",
+      "role": "generic_layer"
+    },
+    {
+      "id": "track",
+      "badge": "④",
+      "name": "跟踪",
+      "items": [
+        "周会滚动更新"
+      ],
+      "gate": "登记册更新记录",
+      "role": "generic_layer"
+    },
+    {
+      "id": "detect",
+      "badge": "⑤",
+      "name": "发现与定级",
+      "items": [
+        "监控告警或客户报告，7×24 受理"
+      ],
+      "gate": "P0–P3 定级",
+      "role": "deliverable"
+    },
+    {
+      "id": "stop",
+      "badge": "⑥",
+      "name": "响应与止血",
+      "items": [
+        "回滚 / 热修复 / 降级"
+      ],
+      "gate": "业务恢复",
+      "role": "deliverable"
+    },
+    {
+      "id": "fix",
+      "badge": "⑦",
+      "name": "根因修复",
+      "items": [
+        "修复并回归验证"
+      ],
+      "gate": "缺陷关闭",
+      "role": "deliverable"
+    },
+    {
+      "id": "rca",
+      "badge": "⑧",
+      "name": "RCA 复盘",
+      "items": [
+        "邮件存档，沉淀到知识库"
+      ],
+      "gate": "RCA 报告",
+      "role": "deliverable"
+    }
+  ],
+  "loops": [
+    {
+      "from": "track",
+      "to": "identify",
+      "label": "持续识别"
+    },
+    {
+      "from": "rca",
+      "to": "detect",
+      "label": "改进监控"
+    }
+  ],
+  "legend_style": "text"
+}

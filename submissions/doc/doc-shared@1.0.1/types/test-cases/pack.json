@@ -1,0 +1,177 @@
+{
+  "schema_version": "1",
+  "id": "test-cases",
+  "name": "测试用例",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "测试用例类型包",
+  "audience": "internal",
+  "brand_profile": "internal",
+  "run_root": "~/workspace/docs/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "doc.md",
+  "outline_file": "outline.md",
+  "meta_file": "doc.json",
+  "inputs": [
+    {
+      "id": "input1",
+      "desc": "被测需求清单（关联 PRD 的 REQ 编号）",
+      "required": true
+    },
+    {
+      "id": "input2",
+      "desc": "用例数据源（data/cases.csv 或 data/cases.yaml，见 decisions.md ⑧A）",
+      "required": true
+    }
+  ],
+  "skeleton": [
+    {
+      "id": "control",
+      "title": "文档控制",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "关联 PRD / Spec",
+        "被测版本"
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "用例总览",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "用例总数",
+        "模块分布",
+        "优先级分布（自动统计）"
+      ]
+    },
+    {
+      "id": "module-sections",
+      "title": "用例明细（按模块分节）",
+      "level": 1,
+      "required": false,
+      "must_answer": [
+        "每节：该模块的用例表 + 小计",
+        "模块数量与名称由 data/cases.csv 的\"关联需求\"模块前缀自动生成，每个模块各自成节，标题为模块名"
+      ]
+    },
+    {
+      "id": "coverage-summary",
+      "title": "覆盖小结",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "与 test-plan 需求覆盖矩阵呼应，本节只放摘要结论，明细见 test-plan"
+      ]
+    }
+  ],
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": [
+      {
+        "kind": "test_case",
+        "label": "测试用例",
+        "prefix": "TC-",
+        "pattern": "^TC-[A-Z]+-\\d{2}$",
+        "unique": true,
+        "contiguous": true
+      }
+    ]
+  },
+  "include_allow": [
+    "sections/*.md",
+    "data/*.csv",
+    "data/*.yaml"
+  ],
+  "features": {
+    "code_blocks": true,
+    "landscape": true,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [
+    {
+      "type": "prd",
+      "role": "source_prd",
+      "for_gate": true,
+      "required": true,
+      "desc": "用例关联需求编号的校验来源"
+    },
+    {
+      "type": "test-plan",
+      "role": "references",
+      "for_gate": false,
+      "required": false,
+      "desc": "呼应的测试计划"
+    }
+  ],
+  "gates": {
+    "D2": null
+  },
+  "qa": {
+    "rules_py": "qa_rules.py",
+    "rules_md": "qa-rules.md",
+    "engine_rules": {
+      "include": "all",
+      "exclude": [
+        "L2"
+      ]
+    },
+    "severity_overrides": {},
+    "glossary": "glossary.json",
+    "highlight_limits": {"total": 25, "per_page": 3, "max_length": 40},
+    "key_figures": [
+      {"id": "tested-version", "label": "被测版本", "pattern": "被测版本[：:\\s|]*(?P<value>v?\\d+(?:\\.\\d+)+(?:-[\\w.]+)?)", "normalize": "text", "severity": "提示"},
+      {"id": "case-total", "label": "用例总数", "pattern": "(?:(?<=用例总数：)|(?<=用例总数:)|(?=\\d+\\s*条用例))(?P<value>\\d+)", "normalize": "number", "severity": "提示"},
+      {"id": "req-by-priority", "label": "按优先级需求条数", "pattern": "(?P<value>\\d+)\\s*条\\s*(?P<key>P[0-3])\\s*需求", "normalize": "number", "severity": "提示"}
+    ],
+    "banned_terms": [
+      {
+        "term": "^正常[。．.！!]?$",
+        "regex": true,
+        "severity": "提示",
+        "message": "预期结果使用孤立空泛词，未带限定词",
+        "columns": ["预期结果"]
+      },
+      {
+        "term": "^成功[。．.！!]?$",
+        "regex": true,
+        "severity": "提示",
+        "message": "预期结果使用孤立空泛词，未带限定词",
+        "columns": ["预期结果"]
+      }
+    ]
+  },
+  "hooks": {
+    "pre_render": null,
+    "pre_qa": null,
+    "pre_publish": null,
+    "post_publish": null
+  },
+  "cover": "technical",
+  "filename": "{project}_测试用例_{title}_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {
+    "source": "无对应 lark-doc genre；本包自定",
+    "snapshot": "writing-contract.md",
+    "snapshot_date": "2026-09-15"
+  },
+  "templates": [
+    "templates/doc.md",
+    "skeleton.md"
+  ],
+  "samples": [
+    "samples/membership-points-v2"
+  ]
+}

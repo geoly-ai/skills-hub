@@ -1,0 +1,55 @@
+{
+  "template": "layered-arch",
+  "title": "专业文档生产体系：目标矩阵",
+  "subtitle": "契约层只定规则 · 引擎与文档类型无关 · 类型包描述文档形态 · 售前专属阶段保留",
+  "layers": [
+    {"id": "entry", "frame": "none", "nodes": [
+      {"id": "doc-orchestrator", "label": "doc-orchestrator", "body": "通用入口：判类型 · 收 Brief · 守 D0–D4", "role": "generic_layer", "emphasis": true, "weight": 480},
+      {"id": "presales-orchestrator", "label": "presales-orchestrator", "body": "售前入口（保留，改调引擎）", "role": "business_line", "emphasis": true, "weight": 300},
+      {"id": "presales-stages", "label": "售前专属阶段（原样）", "body": ["discovery · research", "pricing · terms"], "role": "business_line", "dashed": true, "fill": "white", "compact": true, "weight": 260}
+    ]},
+    {"id": "packs", "label": "文档类型包：骨架 · 必备章节 · 质检规则 · 模板 · 封面与命名", "nodes": [
+      {"id": "prd", "label": "PRD", "role": "category"},
+      {"id": "mrd", "label": "MRD", "role": "category"},
+      {"id": "spec", "label": "技术 Spec", "role": "category"},
+      {"id": "test", "label": "测试计划/用例", "role": "category"},
+      {"id": "site", "label": "售前 · 建站", "role": "business_line"},
+      {"id": "reddit", "label": "售前 · Reddit", "role": "business_line"},
+      {"id": "new", "label": "新类型 …", "role": "placeholder", "dashed": true}
+    ]},
+    {"id": "engines", "label": "共享引擎：脚本 + 自测，与文档类型无关", "weight": 860, "nodes": [
+      {"id": "doc-author", "label": "doc-author", "body": ["骨架 → 正文", "数据块"], "role": "generic_layer"},
+      {"id": "doc-figures", "label": "doc-figures", "body": ["Mermaid", "Graphviz · svgkit"], "role": "generic_layer"},
+      {"id": "doc-render", "label": "doc-render", "body": ["PDF · HTML", "飞书 XML"], "role": "generic_layer"},
+      {"id": "doc-qa", "label": "doc-qa", "body": ["通用规则", "类型包规则"], "role": "generic_layer"},
+      {"id": "doc-publish", "label": "doc-publish", "body": ["飞书发布", "回查与归档"], "role": "generic_layer"}
+    ]},
+    {"id": "outputs", "label": "双输出", "beside": "engines", "direction": "column", "weight": 236, "nodes": [
+      {"id": "pdf", "label": "PDF 页码与书签", "role": "deliverable", "compact": true},
+      {"id": "feishu", "label": "飞书文档 + 画板", "role": "deliverable", "compact": true}
+    ]},
+    {"id": "contract", "label": "契约层 doc-shared：只定义规则，数值只出现一次", "frame": "emphasis", "nodes": [
+      {"id": "c1", "label": "DocMark 语法", "fill": "white", "compact": true},
+      {"id": "c2", "label": "doc.json 工件", "fill": "white", "compact": true},
+      {"id": "c3", "label": "阶段门 D0–D4", "fill": "white", "compact": true},
+      {"id": "c4", "label": "品牌 token", "fill": "white", "compact": true},
+      {"id": "c5", "label": "中文排版规则", "fill": "white", "compact": true},
+      {"id": "c6", "label": "类型包接口", "fill": "white", "compact": true}
+    ]}
+  ],
+  "edges": [
+    {"from": "doc-orchestrator", "to": "packs"},
+    {"from": "presales-orchestrator", "to": "packs"},
+    {"from": "presales-orchestrator", "to": "presales-stages"},
+    {"from": "packs", "to": "engines", "label": "类型包参数驱动引擎"},
+    {"from": "engines", "to": "outputs", "role": "deliverable"},
+    {"from": "contract", "to": "engines", "dashed": true, "role": "generic_layer", "label": "开工前必读，只引用不复制"}
+  ],
+  "legend": [
+    {"role": "generic_layer", "label": "紫色：通用层"},
+    {"role": "business_line", "label": "橙色：售前业务线"},
+    {"role": "placeholder", "dashed": true, "label": "虚线框：保留原样或待扩展"},
+    {"role": "deliverable", "label": "绿色：交付物"}
+  ],
+  "legend_style": "text"
+}

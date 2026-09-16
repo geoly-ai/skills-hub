@@ -1,0 +1,23 @@
+{
+  "schema": "geoly.skills.skill/1",
+  "kind": "skill",
+  "namespace": "doc",
+  "name": "doc-qa",
+  "version": "1.0.1",
+  "description": "专业文档生产体系（doc-*）的质检引擎：对 DocMark 正文执行引擎通用规则（include 与占位符、行内代码、图自查与机器检查、表题、代码块、数据块、链接、必备章节、标题层级、编号实体、交叉引用、关键数字一致性、版本一致、绝对化用语、重点高亮用量、中文排版 T1–T12）、类型包 qa_rules.py 规则与业务钩子 pre_qa，合并 render.json 版式问题，产出 qa-result.json 与 qa-report.md 自动区块，并按固定流程做人工检查与 Codex 找茬、证伪两轮。用户要「质检 / 检查 / 审校」PRD、MRD、技术 Spec、API 参考、测试计划、测试用例、测试报告等 doc-* 文档，要跑 D3 质检门、查中文排版问题、解释某条质检规则或 qa-result，或给类型包写 qa_rules.py 时使用。售前方案质检的入口仍是 presales-qa（迁移后内部调用本引擎）；只改一篇飞书文档不需要质检时走 lark-doc。",
+  "license": "MIT",
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "capabilities": [
+    "shell",
+    "network",
+    "external-tool",
+    "writes-repo"
+  ],
+  "replaces": [],
+  "conflicts": []
+}

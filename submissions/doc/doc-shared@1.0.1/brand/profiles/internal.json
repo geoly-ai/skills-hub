@@ -1,0 +1,16 @@
+{
+  "id": "internal",
+  "name": "内部技术文档",
+  "audience": "internal",
+  "cover": "technical",
+  "description": "对内文档（decisions ③A）：同配色与 logo；封面为紧凑标题块 + 文档控制表（编号、版本、状态、作者、评审人、日期），封面后第 1 页为修订记录，页脚标「内部资料」，无营销语。",
+  "header": {"left": "{logo}", "right": "{title}"},
+  "footer": {"left": "{brand} · {classification} · {title} · v{version}", "right": "{page} / {pages}"},
+  "classification": "内部资料",
+  "doc_control_table": true,
+  "revision_page": true,
+  "toc_levels": 2,
+  "h1_page_break": "auto",
+  "quote_style": "「」",
+  "disclaimer": null
+}

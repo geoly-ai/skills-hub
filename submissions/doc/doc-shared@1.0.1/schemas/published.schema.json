@@ -1,0 +1,563 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "doc-shared/published.schema.json",
+  "title": "published.json 发布记录",
+  "description": "写入者：doc-publish（scripts/publish.py）。真发布写运行目录根 published.json 与 out/published/v<版本>/published.json；dry-run 只写 out/published/v<版本>.dry-run/published.json。字段说明见 references/artifacts.md §7。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dry_run",
+    "engine",
+    "doc_type",
+    "title",
+    "version",
+    "date",
+    "published_at",
+    "lark_doc_id",
+    "lark_url",
+    "lark_profile",
+    "lark_folder",
+    "mode",
+    "source_sha256",
+    "gate_d3",
+    "pdf_path",
+    "docx_path",
+    "feishu_xml_path",
+    "render_json_path",
+    "qa_result_path",
+    "qa_report_path",
+    "archive_dir",
+    "archive",
+    "verify",
+    "problems",
+    "warnings",
+    "extra"
+  ],
+  "oneOf": [
+    {
+      "description": "dry-run 新建：有 plan，verify 与 lark_doc_id、lark_url 为 null，归档目录以 .dry-run 结尾",
+      "required": [
+        "plan"
+      ],
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "mode": {
+          "const": "create"
+        },
+        "lark_doc_id": {
+          "type": "null"
+        },
+        "lark_url": {
+          "type": "null"
+        },
+        "verify": {
+          "type": "null"
+        },
+        "archive_dir": {
+          "pattern": "\\.dry-run$"
+        }
+      }
+    },
+    {
+      "description": "dry-run 覆盖：有 plan，lark_doc_id 为覆盖目标，verify 与 lark_url 为 null",
+      "required": [
+        "plan"
+      ],
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "mode": {
+          "const": "overwrite"
+        },
+        "lark_doc_id": {
+          "type": "string"
+        },
+        "lark_url": {
+          "type": "null"
+        },
+        "verify": {
+          "type": "null"
+        },
+        "archive_dir": {
+          "pattern": "\\.dry-run$"
+        }
+      }
+    },
+    {
+      "description": "真发布且回查完成：verify 为对象，有文档 id 与链接，没有 plan",
+      "properties": {
+        "dry_run": {
+          "const": false
+        },
+        "plan": false,
+        "verify": {
+          "type": "object"
+        },
+        "lark_doc_id": {
+          "type": "string"
+        },
+        "lark_url": {
+          "type": "string"
+        },
+        "archive_dir": {
+          "pattern": "(?<!\\.dry-run)$"
+        },
+        "lark_folder": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9]{8,}$"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^[^/]+(/[^/]+)+$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "真发布、已写入飞书但回查未完成（恢复记录）：verify 为 null，problems 至少一条，有文档 id 与链接，没有 plan",
+      "properties": {
+        "dry_run": {
+          "const": false
+        },
+        "plan": false,
+        "verify": {
+          "type": "null"
+        },
+        "problems": {
+          "minItems": 1
+        },
+        "lark_doc_id": {
+          "type": "string"
+        },
+        "lark_url": {
+          "type": "string"
+        },
+        "archive_dir": {
+          "pattern": "(?<!\\.dry-run)$"
+        },
+        "lark_folder": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9]{8,}$"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^[^/]+(/[^/]+)+$"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "doc_type": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9-]*$"
+    },
+    "title": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*$"
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "published_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+    },
+    "lark_doc_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "dry-run 新建时为 null；dry-run 覆盖时为目标 token"
+    },
+    "lark_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "lark_profile": {
+      "enum": [
+        "account1",
+        "account2"
+      ]
+    },
+    "lark_folder": {
+      "type": "object",
+      "required": [
+        "token",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "dry-run 且文件夹待建时为 null"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "「客户或项目/子项目」至少两段；真发布必填"
+        },
+        "created": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "token"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              },
+              "parent_path": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "mode": {
+      "enum": [
+        "create",
+        "overwrite"
+      ]
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gate_d3": {
+      "enum": [
+        "passed",
+        "waived"
+      ]
+    },
+    "pdf_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "docx_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "feishu_xml_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "render_json_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "qa_result_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "qa_report_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "archive_dir": {
+      "type": "string",
+      "pattern": "^out/published/v[0-9A-Za-z][0-9A-Za-z._-]*(\\.dry-run)?$"
+    },
+    "archive": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "role",
+          "source",
+          "path",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "enum": [
+              "pdf",
+              "docx",
+              "feishu_xml",
+              "render_json",
+              "qa_result",
+              "qa_report",
+              "resource"
+            ],
+            "description": "resource = feishu.xml 以 @./ 引用的本地文件，按原相对路径归档"
+          },
+          "source": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "verify": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "whiteboards",
+            "whiteboards_expected",
+            "images",
+            "images_expected",
+            "code",
+            "code_expected",
+            "inline_code",
+            "italic",
+            "del",
+            "asterisks_extra"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "whiteboards": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "whiteboards_expected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "images": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "images_expected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "code": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "code_expected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "inline_code": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "italic": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "del": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "asterisks_extra": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extra": {
+      "type": "object",
+      "description": "pre_publish / post_publish 钩子返回的 extra，引擎原样合并"
+    },
+    "plan": {
+      "type": "object",
+      "description": "只在 dry-run 记录：将执行的写命令与待建文件夹",
+      "required": [
+        "writes",
+        "folders_to_create",
+        "d4_ready"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "writes": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "folders_to_create": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "parent_path": {
+                "type": "string"
+              },
+              "parent_token": {
+                "type": "string",
+                "description": "已有父文件夹 token（根目录为空串），或「<待建:名>」占位"
+              }
+            }
+          }
+        },
+        "d4_ready": {
+          "type": "boolean"
+        },
+        "d4_note": {
+          "type": "string"
+        }
+      }
+    },
+    "meta_canonical_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "元数据文件去掉 lark_folder 后的规范 JSON sha256（见 artifacts.md §3.1）；旧 run-state 无 source_manifest 时用于识别引擎自己的 lark_folder 写回"
+    },
+    "freshness_check": {
+      "enum": [
+        "manifest",
+        "mtime"
+      ],
+      "description": "新鲜度检查方式：manifest = 与 gates.D3.source_manifest 比内容哈希；mtime = 旧 run-state 退回严格修改时间比较"
+    },
+    "recovery_abandoned": {
+      "type": "object",
+      "required": [
+        "evidence",
+        "at"
+      ],
+      "additionalProperties": false,
+      "description": "按 --abandon-recovery 放弃的恢复记录或未决新建（留痕）",
+      "properties": {
+        "previous_doc_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "previous_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "intent": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "at": {
+          "type": "string"
+        }
+      }
+    },
+    "client": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "兼容：售前包装层继续写的旧字段，1f 决定何时迁入 extra"
+    },
+    "line": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "兼容：同上"
+    },
+    "pricing_model_hash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "兼容：同上"
+    }
+  }
+}

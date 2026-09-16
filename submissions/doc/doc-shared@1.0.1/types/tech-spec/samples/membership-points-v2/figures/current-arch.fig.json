@@ -1,0 +1,15 @@
+{
+  "kind": "layered-arch",
+  "title": "v1 积分系统现状架构",
+  "layers": [
+    { "id": "client", "label": "客户端层", "nodes": [ { "id": "app", "label": "会员 App / 商城前端" } ] },
+    { "id": "gateway", "label": "接入层", "nodes": [ { "id": "gw", "label": "API 网关" } ] },
+    { "id": "service", "label": "服务层", "nodes": [ { "id": "points-service", "label": "积分服务（单体，规则硬编码）" } ] },
+    { "id": "data", "label": "数据层", "nodes": [ { "id": "db", "label": "积分数据库" } ] }
+  ],
+  "edges": [
+    { "from": "app", "to": "gw", "label": "HTTPS" },
+    { "from": "gw", "to": "points-service", "label": "" },
+    { "from": "points-service", "to": "db", "label": "查询库存/扣减（非原子）" }
+  ]
+}

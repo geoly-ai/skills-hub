@@ -1,0 +1,23 @@
+{
+  "schema": "geoly.skills.skill/1",
+  "kind": "skill",
+  "namespace": "doc",
+  "name": "doc-render",
+  "version": "1.0.1",
+  "description": "专业文档生产体系（doc-*）的渲染引擎：把 DocMark 正文（doc.md / proposal.md）渲染为品牌 HTML、PDF（Chrome CDP，两遍打印回填目录页码、书签、封面无页眉页脚、页眉页脚与元数据）、飞书 XML 与 Word docx（--docx，读回校验 + LibreOffice 转换核验），并写 out/render.json 版式检查（LY1–LY8）。用户要把 PRD、MRD、技术 Spec、API 参考、测试计划、测试用例、测试报告等 doc-* 文档「出 PDF」「出 Word / docx」「生成飞书版」「渲染」「看版式预览」「检查目录页码、书签、表头、图字号」时使用；doc-orchestrator 在 D3 前调用。只改飞书文档不需要 PDF 时走 lark-doc；售前方案的入口仍是 presales-publish（1f 迁移后内部调用本引擎）。",
+  "license": "MIT",
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "capabilities": [
+    "shell",
+    "network",
+    "external-tool",
+    "writes-repo"
+  ],
+  "replaces": [],
+  "conflicts": []
+}

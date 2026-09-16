@@ -1,0 +1,216 @@
+{
+  "must_fix": 17,
+  "total": 30,
+  "issues": [
+    {
+      "rule": "L1",
+      "severity": "必改",
+      "line": 62,
+      "excerpt": "客户名 {{client}}。",
+      "message": "未解析的 include 或占位符"
+    },
+    {
+      "rule": "L1",
+      "severity": "必改",
+      "line": 64,
+      "excerpt": "[[FORBIDDEN include: internal-cost.json]]",
+      "message": "include 目标不在白名单（只允许 pricing/*.md、terms.md、confirm-list.md、sections/*.md，禁止内部成本文件与路径穿越）"
+    },
+    {
+      "rule": "L1",
+      "severity": "必改",
+      "line": 66,
+      "excerpt": "[[FORBIDDEN include: ../outside.md]]",
+      "message": "include 目标不在白名单（只允许 pricing/*.md、terms.md、confirm-list.md、sections/*.md，禁止内部成本文件与路径穿越）"
+    },
+    {
+      "rule": "L1",
+      "severity": "必改",
+      "line": 68,
+      "excerpt": "[[FORBIDDEN include: sections/internal-plan.md]]",
+      "message": "include 目标不在白名单（只允许 pricing/*.md、terms.md、confirm-list.md、sections/*.md，禁止内部成本文件与路径穿越）"
+    },
+    {
+      "rule": "L1",
+      "severity": "必改",
+      "line": 70,
+      "excerpt": "[[UNRESOLVED include: sections/missing.md]]",
+      "message": "未解析的 include 或占位符"
+    },
+    {
+      "rule": "L2",
+      "severity": "建议",
+      "line": 60,
+      "excerpt": "用 `code` 表示，工期 3~5 周。",
+      "message": "行内代码格式（飞书不使用）"
+    },
+    {
+      "rule": "L2",
+      "severity": "建议",
+      "line": 60,
+      "excerpt": "用 `code` 表示，工期 3~5 周。",
+      "message": "波浪号区间，改用「–」"
+    },
+    {
+      "rule": "L3",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "商务条款",
+      "message": "没有 include terms.md"
+    },
+    {
+      "rule": "L5",
+      "severity": "建议",
+      "line": 0,
+      "excerpt": "联系人",
+      "message": "brief.json 未填 contact.name，联系我们只有公司热线与官网"
+    },
+    {
+      "rule": "A1",
+      "severity": "必改",
+      "line": 31,
+      "excerpt": "手写金额 USD 13,500 未登记。",
+      "message": "金额 USD 13,500 与 pricing/ 产物不精确匹配（正文不应手写报价；第三方费用写入 pricing/allowed-amounts.json）"
+    },
+    {
+      "rule": "A1",
+      "severity": "建议",
+      "line": 35,
+      "excerpt": "工作量 30 人天，额外 45 人天。",
+      "message": "人天数 45 人天 与 pricing/ 产物不精确匹配"
+    },
+    {
+      "rule": "A2",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "A",
+      "message": "方案 A 报价缺少正文范围内的工作项：['W2']"
+    },
+    {
+      "rule": "A2",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "A",
+      "message": "方案 A 报价含正文范围外的工作项：['W9']"
+    },
+    {
+      "rule": "A3",
+      "severity": "建议",
+      "line": 40,
+      "excerpt": "方案 A 的工期与成本约为方案 B 的一半。",
+      "message": "比例表述「一半」与模型比值 0.600 不一致，改用 pricing/ratio.md"
+    },
+    {
+      "rule": "A3",
+      "severity": "建议",
+      "line": 42,
+      "excerpt": "报价约为 3 倍。",
+      "message": "倍数表述「3 倍」与模型 1.67 倍不一致"
+    },
+    {
+      "rule": "C1",
+      "severity": "提示",
+      "line": 1,
+      "excerpt": "v1.9",
+      "message": "文中版本 v1.9 与 brief.json 版本 v2.0 不一致"
+    },
+    {
+      "rule": "C2",
+      "severity": "建议",
+      "line": 16,
+      "excerpt": "首页 3 大模块（见 2.1）。",
+      "message": "「3 大模块（见 2.1）」写 3 个，2.1 节模块表实际 2 行"
+    },
+    {
+      "rule": "C3",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "品牌资产",
+      "message": "需求梳理速览的待确认项「品牌资产」未出现在需求与范围确认单"
+    },
+    {
+      "rule": "B1",
+      "severity": "必改",
+      "line": 44,
+      "excerpt": "本报价仅供参考。",
+      "message": "否定性条款「仅供参考」可能吞掉报价承诺"
+    },
+    {
+      "rule": "F4",
+      "severity": "建议",
+      "line": 50,
+      "excerpt": "改版后转化提升 20%，零成本找回 3/10 曝光。",
+      "message": "量化或效果承诺「零成本」需有实测依据与口径，否则改为预期表述"
+    },
+    {
+      "rule": "F4",
+      "severity": "建议",
+      "line": 50,
+      "excerpt": "改版后转化提升 20%，零成本找回 3/10 曝光。",
+      "message": "量化或效果承诺「找回 3/10」需有实测依据与口径，否则改为预期表述"
+    },
+    {
+      "rule": "F4",
+      "severity": "建议",
+      "line": 50,
+      "excerpt": "改版后转化提升 20%，零成本找回 3/10 曝光。",
+      "message": "量化或效果承诺「提升 20%」需有实测依据与口径，否则改为预期表述"
+    },
+    {
+      "rule": "F2",
+      "severity": "建议",
+      "line": 52,
+      "excerpt": "前端采用 Hydrogen（Remix）。",
+      "message": "Hydrogen 已迁到 React Router 7（2025.7.0 起），不再写基于 Remix"
+    },
+    {
+      "rule": "R2",
+      "severity": "必改",
+      "line": 46,
+      "excerpt": "内部毛利率 30%。",
+      "message": "内部口径或成本泄露：「毛利」"
+    },
+    {
+      "rule": "R2",
+      "severity": "必改",
+      "line": 48,
+      "excerpt": "由 Claude 与 Codex 协作完成。",
+      "message": "内部口径或成本泄露：「Claude」"
+    },
+    {
+      "rule": "R2",
+      "severity": "必改",
+      "line": 48,
+      "excerpt": "由 Claude 与 Codex 协作完成。",
+      "message": "内部口径或成本泄露：「Codex」"
+    },
+    {
+      "rule": "R1",
+      "severity": "必改",
+      "line": 54,
+      "excerpt": "SEO 零风险。",
+      "message": "绝对化用语「零风险」"
+    },
+    {
+      "rule": "R3",
+      "severity": "必改",
+      "line": 56,
+      "excerpt": "我们提供点赞助推服务。",
+      "message": "不可售项「点赞助推」出现在非拒绝语境"
+    },
+    {
+      "rule": "R2",
+      "severity": "必改",
+      "line": 64,
+      "excerpt": "[[FORBIDDEN include: internal-cost.json]]",
+      "message": "内部口径或成本泄露：「internal-cost」"
+    },
+    {
+      "rule": "L4",
+      "severity": "建议",
+      "line": 0,
+      "excerpt": "figures/phases.svg",
+      "message": "figures/phases.svg 缺少 PNG 预览或 figures/review.json 自查记录"
+    }
+  ]
+}

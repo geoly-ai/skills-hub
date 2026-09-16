@@ -1,0 +1,205 @@
+{
+  "schema_version": "1",
+  "id": "test-report",
+  "name": "测试报告",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "测试报告类型包",
+  "audience": "internal",
+  "brand_profile": "internal",
+  "run_root": "~/workspace/docs/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "doc.md",
+  "outline_file": "outline.md",
+  "meta_file": "doc.json",
+  "inputs": [
+    {
+      "id": "input1",
+      "desc": "关联测试计划与测试用例（必须已存在，且准入准出标准与本文档的准出结论口径一致）",
+      "required": true
+    },
+    {
+      "id": "input2",
+      "desc": "实际执行结果数据（data/execution.csv：每条用例的实际执行状态）",
+      "required": true
+    },
+    {
+      "id": "input3",
+      "desc": "缺陷清单（data/defects.csv）",
+      "required": true
+    }
+  ],
+  "skeleton": [
+    {
+      "id": "execution-overview",
+      "title": "执行概况",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "执行周期",
+        "参与人员",
+        "整体执行率"
+      ]
+    },
+    {
+      "id": "case-stats",
+      "title": "用例执行统计",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "按模块 / 优先级的通过",
+        "失败",
+        "阻塞",
+        "未执行数量与占比"
+      ]
+    },
+    {
+      "id": "defect-stats",
+      "title": "缺陷统计",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "缺陷级别分布",
+        "状态分布",
+        "发现趋势（按时间）"
+      ]
+    },
+    {
+      "id": "open-issues",
+      "title": "未通过与遗留问题",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "每条未通过用例或遗留缺陷的原因",
+        "影响",
+        "计划"
+      ]
+    },
+    {
+      "id": "conclusion",
+      "title": "准出结论与依据",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "是否达到测试计划的准出标准",
+        "逐条比对依据"
+      ]
+    },
+    {
+      "id": "risks",
+      "title": "风险与建议",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "上线后需要关注的风险",
+        "监控建议"
+      ]
+    },
+    {
+      "id": "appendix",
+      "title": "附录：明细数据引用",
+      "level": 1,
+      "required": false,
+      "when": "按需",
+      "must_answer": [
+        "完整执行明细与缺陷清单的数据源位置"
+      ],
+      "appendix": true
+    }
+  ],
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": [
+      {
+        "kind": "defect",
+        "label": "缺陷",
+        "prefix": "DEF-",
+        "pattern": "^DEF-\\d{3}$",
+        "unique": true,
+        "contiguous": false
+      }
+    ]
+  },
+  "include_allow": [
+    "sections/*.md",
+    "data/*.csv",
+    "data/*.yaml"
+  ],
+  "features": {
+    "code_blocks": false,
+    "landscape": false,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [
+    {
+      "type": "test-plan",
+      "role": "executes_plan",
+      "for_gate": false,
+      "required": true,
+      "desc": "执行依据的测试计划，准出标准比对来源"
+    },
+    {
+      "type": "test-cases",
+      "role": "reports_on",
+      "for_gate": false,
+      "required": true,
+      "desc": "报告的用例执行结果来源"
+    }
+  ],
+  "gates": {
+    "D2": null
+  },
+  "qa": {
+    "rules_py": "qa_rules.py",
+    "rules_md": "qa-rules.md",
+    "engine_rules": {
+      "include": "all",
+      "exclude": [
+        "L2"
+      ]
+    },
+    "severity_overrides": {},
+    "glossary": "glossary.json",
+    "highlight_limits": {"total": 25, "per_page": 3, "max_length": 40},
+    "key_figures": [
+      {"id": "tested-version", "label": "被测版本", "pattern": "被测版本[：:\\s|]*(?P<value>v?\\d+(?:\\.\\d+)+(?:-[\\w.]+)?)", "normalize": "text", "severity": "提示"},
+      {"id": "pass-rate", "label": "准出用例通过率", "pattern": "(?P<key>P[0-3])\\s*用例通过率\\s*(?:[≥≤<>=]\\s*)?(?P<value>\\d+(?:\\.\\d+)?)\\s*%", "normalize": "number", "severity": "提示"},
+      {"id": "exec-rate", "label": "执行率（已执行/总数）", "pattern": "执行率[：:]?\\s*(?P<value>\\d+\\s*/\\s*\\d+)", "normalize": "text", "severity": "提示"},
+      {"id": "verdict", "label": "准出结论", "pattern": "结论[：:]\\s*(?P<value>不建议发布|有条件发布|建议发布)", "normalize": "text", "severity": "提示"}
+    ],
+    "banned_terms": []
+  },
+  "hooks": {
+    "pre_render": null,
+    "pre_qa": null,
+    "pre_publish": null,
+    "post_publish": null
+  },
+  "cover": "technical",
+  "filename": "{project}_测试报告_{title}_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {
+    "source": "无对应 lark-doc genre；本包自定，design.md §5.7 已给出二期候选的六个必备要素（执行概况、用例执行统计、缺陷统计、未通过与遗留问题、准出结论与依据、风险与建议），本包据此展开骨架",
+    "snapshot": "writing-contract.md",
+    "snapshot_date": "2026-09-15"
+  },
+  "templates": [
+    "templates/doc.md",
+    "skeleton.md",
+    "templates/figures/defect-trend.mmd"
+  ],
+  "samples": [
+    "samples/membership-points-v2"
+  ]
+}

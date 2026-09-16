@@ -1,0 +1,35 @@
+{
+  "type": "api-reference",
+  "title": "会员积分系统 v2",
+  "project": "membership-points-v2",
+  "subtitle": "API 参考",
+  "version": "1.0",
+  "status": "approved",
+  "audience": "internal",
+  "brand": "internal",
+  "language": "zh-CN",
+  "owner": "王敏（研发）",
+  "reviewers": [
+    "李强（架构组）"
+  ],
+  "related_docs": [
+    {
+      "type": "tech-spec",
+      "role": "source_spec",
+      "title": "会员积分系统 v2 技术方案设计",
+      "path": "../../../tech-spec/samples/membership-points-v2/doc.json"
+    }
+  ],
+  "revision_history": [
+    {
+      "version": "v1.0",
+      "date": "2026-08-10",
+      "author": "王敏",
+      "summary": "初版，覆盖账户、获取、兑换、规则查询、运营调整五组接口"
+    }
+  ],
+  "lark_folder": {
+    "pending_reason": "样张不发布，尚未申请飞书目录 token",
+    "path": "内部产品文档/会员积分系统 v2/API 参考"
+  }
+}

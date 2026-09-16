@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "doc-shared/schemas/trace-matrix.schema.json",
+  "title": "out/trace-matrix.json（跨文档追踪矩阵，scripts/trace_matrix.py 写出；字段说明见 references/artifacts.md §9）",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "engine", "root_run_dir", "labels", "docs", "links", "requirements", "cases", "defects", "summary", "gaps", "skipped_checks", "warnings"],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "generated_at": {"type": "string", "minLength": 1},
+    "engine": {"type": "object", "additionalProperties": false, "required": ["name", "version"],
+               "properties": {"name": {"type": "string"}, "version": {"type": "string"}}},
+    "root_run_dir": {"type": "string", "minLength": 1},
+    "labels": {"type": "object", "additionalProperties": false, "required": ["requirement", "case", "defect"],
+               "description": "显示名，取各类型包 numbering.entities[].label（缺省：需求 / 测试项 / 缺陷），用于片段表头与缺口说明",
+               "properties": {"requirement": {"type": "string", "minLength": 1}, "case": {"type": "string", "minLength": 1}, "defect": {"type": "string", "minLength": 1}}},
+    "docs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["prd", "tech-spec", "test-plan", "test-cases", "test-report"],
+      "properties": {
+        "prd": {"$ref": "#/$defs/doc_ref"}, "tech-spec": {"$ref": "#/$defs/doc_ref"}, "test-plan": {"$ref": "#/$defs/doc_ref"},
+        "test-cases": {"$ref": "#/$defs/doc_ref"}, "test-report": {"$ref": "#/$defs/doc_ref"}
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["from_type", "from_run_dir", "to_type", "to_run_dir", "role", "registered_version", "current_version", "match", "resolved"],
+        "properties": {
+          "from_type": {"type": ["string", "null"]}, "from_run_dir": {"type": "string"},
+          "to_type": {"type": ["string", "null"]}, "to_run_dir": {"type": ["string", "null"]},
+          "role": {"type": ["string", "null"]}, "registered_version": {"type": ["string", "null"]},
+          "current_version": {"type": ["string", "null"]}, "match": {"type": ["boolean", "null"]}, "resolved": {"type": "boolean"}
+        }
+      }
+    },
+    "requirements": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "kind", "title", "priority", "prd_section", "design", "cases", "defects", "status"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1}, "kind": {"type": "string"}, "title": {"type": "string"},
+          "priority": {"type": ["string", "null"]},
+          "prd_section": {"type": "object", "additionalProperties": false, "required": ["number", "title", "line"],
+                          "properties": {"number": {"type": ["string", "null"]}, "title": {"type": ["string", "null"]}, "line": {"type": "integer", "minimum": 0}}},
+          "design": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["number", "title", "line"],
+                     "properties": {"number": {"type": ["string", "null"]}, "title": {"type": ["string", "null"]}, "line": {"type": "integer", "minimum": 1}}}},
+          "cases": {"type": "array", "items": {"type": "string"}},
+          "defects": {"type": "array", "items": {"type": "string"}},
+          "status": {"enum": ["uncovered", "not_reported", "not_executed", "partial", "passed", "failed", "blocked"]}
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "title", "priority", "module", "requirements", "result", "defects", "line", "file", "csv_line"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1}, "title": {"type": "string"}, "priority": {"type": ["string", "null"]},
+          "module": {"type": ["string", "null"]}, "requirements": {"type": "array", "items": {"type": "string"}},
+          "result": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/result"}]},
+          "defects": {"type": "array", "items": {"type": "string"}},
+          "line": {"type": "integer", "minimum": 0}, "file": {"type": ["string", "null"]}, "csv_line": {"type": ["integer", "null"]}
+        }
+      }
+    },
+    "defects": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "title", "severity", "status", "cases", "source"],
+        "properties": {
+          "code": {"type": "string"}, "title": {"type": ["string", "null"]}, "severity": {"type": ["string", "null"]},
+          "status": {"type": ["string", "null"]}, "cases": {"type": "array", "items": {"type": "string"}}, "source": {"type": "string"}
+        }
+      }
+    },
+    "summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requirements", "designed", "with_cases", "cases", "cases_linked", "results", "passed", "failed", "blocked", "not_executed", "no_result", "defects", "must_fix", "complete"],
+      "properties": {
+        "requirements": {"type": "integer", "minimum": 1}, "designed": {"type": "integer", "minimum": 0}, "with_cases": {"type": "integer", "minimum": 0},
+        "cases": {"type": "integer", "minimum": 0}, "cases_linked": {"type": "integer", "minimum": 0}, "results": {"type": "integer", "minimum": 0},
+        "passed": {"type": "integer", "minimum": 0}, "failed": {"type": "integer", "minimum": 0}, "blocked": {"type": "integer", "minimum": 0},
+        "not_executed": {"type": "integer", "minimum": 0}, "no_result": {"type": "integer", "minimum": 0}, "defects": {"type": "integer", "minimum": 0},
+        "must_fix": {"type": "integer", "minimum": 0}, "complete": {"type": "boolean"}
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["kind", "severity", "code", "doc_type", "line", "file", "csv_line", "message"],
+        "properties": {
+          "kind": {"enum": ["doc_missing", "req_not_designed", "req_no_cases", "case_unknown_req", "case_no_req", "case_no_result", "result_unknown_case",
+                            "result_invalid_status", "result_conflict", "report_no_execution", "defect_unknown_case", "duplicate_code", "version_mismatch"]},
+          "severity": {"enum": ["必改", "建议", "提示"]},
+          "code": {"type": ["string", "null"]}, "doc_type": {"enum": ["prd", "tech-spec", "test-plan", "test-cases", "test-report"]},
+          "line": {"type": ["integer", "null"]}, "file": {"type": ["string", "null"]}, "csv_line": {"type": ["integer", "null"]},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "skipped_checks": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": false, "required": ["kind", "reason"],
+                "properties": {"kind": {"type": "string"}, "reason": {"type": "string"}}}
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "doc_ref": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "object", "additionalProperties": false, "required": ["run_dir", "title", "version"],
+         "properties": {"run_dir": {"type": "string"}, "title": {"type": ["string", "null"]}, "version": {"type": ["string", "null"]}}}
+      ]
+    },
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "raw_status", "executed_by", "executed_at", "note", "source"],
+      "properties": {
+        "status": {"enum": ["passed", "failed", "blocked", "not_executed", null]},
+        "raw_status": {"type": ["string", "null"]}, "executed_by": {"type": ["string", "null"]}, "executed_at": {"type": ["string", "null"]},
+        "note": {"type": ["string", "null"]}, "source": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "geoly.skills.skill/1",
+  "kind": "skill",
+  "namespace": "doc",
+  "name": "doc-author",
+  "version": "1.0.1",
+  "description": "专业文档生产体系（doc-*）的写作引擎：按类型包把骨架写成正文。从 pack.json skeleton 动态生成 doc.md 骨架与 outline.md（D1 拍板稿），按 must_answer 逐章写 DocMark 正文，数据块（CSV）优先、图先写源再引用、摘要用 summary 块、编号实体与交叉引用、高亮与禁用词限额、中文排版 T1–T12；写作期用 fill_check 查章节完成度与占位符残留、用 lint_draft 在副本上跑质检子集只看本章问题。用户要「写 / 续写 / 改写」PRD、MRD、技术 Spec、API 参考、测试计划、测试用例、测试报告的正文或骨架，要「按类型包生成大纲」「检查哪几章还没写完」「写到一半先查本章排版问题」时使用；整条流程（判型、建目录、守门、渲染、质检、发布）由 doc-orchestrator 串联。只小改一篇已有飞书文档走 lark-doc；售前方案正文仍由 presales-solution 写。",
+  "license": "MIT",
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "capabilities": [
+    "shell",
+    "network",
+    "external-tool",
+    "writes-repo"
+  ],
+  "replaces": [],
+  "conflicts": []
+}

@@ -1,0 +1,42 @@
+{
+  "type": "mrd",
+  "title": "会员积分系统 v2",
+  "project": "membership-points-v2",
+  "subtitle": "市场与机会评估",
+  "version": "1.0",
+  "status": "approved",
+  "audience": "internal",
+  "brand": "internal",
+  "language": "zh-CN",
+  "owner": "陈立（产品）",
+  "reviewers": [
+    "周航（运营）",
+    "financeReview（财务，占位）"
+  ],
+  "related_docs": [
+    {
+      "type": "prd",
+      "role": "references",
+      "title": "会员积分系统 v2 产品需求文档",
+      "path": "../../../prd/samples/membership-points-v2/doc.json"
+    }
+  ],
+  "revision_history": [
+    {
+      "version": "v0.1",
+      "date": "2026-06-10",
+      "author": "陈立",
+      "summary": "初稿，基于 Q2 工单与 BI 数据"
+    },
+    {
+      "version": "v1.0",
+      "date": "2026-06-25",
+      "author": "陈立",
+      "summary": "补充竞争分析与定位，评审通过，作为 PRD 立项依据"
+    }
+  ],
+  "lark_folder": {
+    "pending_reason": "样张不发布，尚未申请飞书目录 token",
+    "path": "内部产品文档/会员积分系统 v2/MRD"
+  }
+}
