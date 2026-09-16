@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "doc-shared/brief.schema.json",
+  "title": "brief.json 建目录前的输入整理",
+  "description": "两个互斥分支（references/artifacts.md §8）：doc_brief 给 doc-orchestrator new_run.py；presales_brief 给售前业务线（字段口径 presales-shared/references/artifacts.md）。售前分支至少含一个售前独有键，doc 分支不允许出现这些键，所以恰好命中一个。两个分支都不设必填：改版时只写要改字段的 brief、售前脚本自测里的片段 brief 都要能通过；必填登记在 <分支>_strict，validate.validate_brief 默认给警告、strict 时算错误。doc 分支各字段的深层约束复用 doc.schema.json（validate.py 语义检查），不在此复制。",
+  "oneOf": [{"$ref": "#/$defs/doc_brief"}, {"$ref": "#/$defs/presales_brief"}],
+  "$defs": {
+    "doc_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "$comment": {"type": "string"},
+        "schema_version": {"const": "1"},
+        "type": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "title": {"type": "string"},
+        "subtitle": {"type": "string"},
+        "project": {"type": "string"},
+        "owner": {"type": "string"},
+        "reviewers": {"type": "array"},
+        "version": {"type": "string"},
+        "date": {"type": "string"},
+        "doc_no": {"type": "string"},
+        "client": {"type": "string"},
+        "cover": {"type": "object"},
+        "contact": {"type": "object"},
+        "related_docs": {"type": "array"},
+        "revision_history": {"type": "array"},
+        "lark_folder": {"type": "object"},
+        "lark_profile": {"type": "string"},
+        "extra": {"type": "object"},
+        "status": {"type": "string"},
+        "audience": {"type": "string"},
+        "brand": {"type": "string"},
+        "language": {"type": "string"},
+        "inputs": {
+          "type": "object",
+          "description": "{类型包 inputs[].id: 文本或本机文件路径}；空串不违反 schema，是否缺项由 new_run.py / advance.py 按类型包判定",
+          "patternProperties": {"^[a-z][a-z0-9_]*$": {"type": "string"}},
+          "additionalProperties": false
+        }
+      }
+    },
+    "doc_brief_strict": {
+      "description": "new_run.py 新建时的 doc 必填（缺项追问 QUESTIONS）",
+      "required": ["title", "project", "owner", "lark_folder"]
+    },
+    "presales_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "至少一个售前独有键（与 doc_brief 互斥的依据）",
+          "anyOf": [
+            {"required": ["line"]}, {"required": ["mode"]}, {"required": ["currency"]}, {"required": ["validity_days"]},
+            {"required": ["goal"]}, {"required": ["deadline"]}, {"required": ["site"]}, {"required": ["reddit"]},
+            {"required": ["overview"]}, {"required": ["sources"]}, {"required": ["client_cn"]}
+          ]
+        },
+        {
+          "description": "业务线与字段段一致：line=site 不得有 reddit 段，line=reddit 不得有 site 段；没写 line 的片段不限",
+          "anyOf": [
+            {"required": ["line"], "properties": {"line": {"const": "site"}, "reddit": false}},
+            {"required": ["line"], "properties": {"line": {"const": "reddit"}, "site": false}},
+            {"properties": {"line": false}}
+          ]
+        }
+      ],
+      "properties": {
+        "$comment": {"type": "string"},
+        "client": {"type": "string"},
+        "client_cn": {"type": "string"},
+        "project": {"type": "string", "description": "项目英文短名（可选；doc-publish 文件名 {project}，1f 迁移时补）"},
+        "line": {"enum": ["site", "reddit"]},
+        "mode": {"enum": ["new", "rfp", "revision"]},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+(\\.\\d+)?$"},
+        "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "language": {"type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$"},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "validity_days": {"type": "integer", "minimum": 1},
+        "cover": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"subtitle": {"type": "string"}, "meta": {"type": "array", "items": {"type": "string"}},
+                         "party_label": {"type": "string", "minLength": 1, "description": "marketing 封面甲方称谓（如「客户」），doc-render 缺省「对象」"},
+                         "badge": {"type": "string", "minLength": 1, "description": "marketing 封面角标（如报价有效期），doc-render 在元信息下方单独成块；飞书封面并入「版本 · 日期」行"}}
+        },
+        "audience": {"type": "string", "description": "客户侧读者描述（自由文本），不是 doc.json 的 internal / external"},
+        "goal": {"type": "string"},
+        "deadline": {"type": "string"},
+        "site": {
+          "type": "object",
+          "description": "建站字段；未列出的补充字段（如 build_path、skus、design_mode）允许",
+          "properties": {
+            "url": {"type": "string"},
+            "platform": {"type": "string"},
+            "project_type": {"type": "string", "description": "greenfield / rebuild / migration 或 presales-site pack.json modes 登记的别名；validate.validate_brief(pack=…) 按 resolve_mode 核对"},
+            "migration": {"type": "boolean"},
+            "dual_plan": {"type": "boolean"},
+            "references": {"type": "array", "items": {"type": "string"}},
+            "ops_team": {"type": "string"},
+            "budget_hint": {"type": "string"},
+            "assets": {"type": "string"}
+          }
+        },
+        "reddit": {
+          "type": "object",
+          "description": "Reddit 字段；未列出的补充字段允许",
+          "properties": {
+            "brand": {"type": "string"},
+            "category": {"type": "string"},
+            "market": {"type": "string"},
+            "subreddits": {"type": "array", "items": {"type": "string"}},
+            "volume": {"type": "string"},
+            "period_months": {"type": "integer", "minimum": 0},
+            "rfp_file": {"type": "string"},
+            "kpi": {"type": "string"}
+          }
+        },
+        "overview": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["dimension", "result", "status"],
+            "additionalProperties": false,
+            "properties": {"dimension": {"type": "string", "minLength": 1}, "result": {"type": "string"}, "status": {"enum": ["已确认", "待确认"]}}
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["what", "where", "date"],
+            "additionalProperties": false,
+            "properties": {"what": {"type": "string", "minLength": 1}, "where": {"type": "string", "minLength": 1}, "date": {"type": "string"}}
+          }
+        },
+        "contact": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"name": {"type": "string"}, "title": {"type": "string"}, "email": {"type": "string"}, "phone": {"type": "string"}}
+        },
+        "lark_profile": {"type": "string", "pattern": "^[a-z0-9_-]+$"},
+        "lark_folder": {"type": "object", "description": "同 doc.schema.json lark_folder（{token, path} 或 {pending_reason, path}）；validate_brief 按 doc.schema 该字段深度校验"}
+      }
+    },
+    "presales_brief_strict": {
+      "description": "售前 brief 业务必填（presales-shared/references/artifacts.md「必填」）：client、line、mode、version、currency、goal；建站加 site.project_type，Reddit 加 reddit.brand、reddit.market。rebuild / migration 须有 site.url 依赖 mode 别名，由售前调研环节核对，不在此登记",
+      "required": ["client", "line", "mode", "version", "currency", "goal"],
+      "anyOf": [
+        {"required": ["site"], "properties": {"line": {"const": "site"}, "site": {"required": ["project_type"]}}},
+        {"required": ["reddit"], "properties": {"line": {"const": "reddit"}, "reddit": {"required": ["brand", "market"]}}}
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+%% 模板占位：数据模型 ER 图，替换实体与关系
+erDiagram
+    ENTITY_A ||--o{ ENTITY_B : "拥有"
+    ENTITY_A {
+        string id PK
+        string field1
+        datetime created_at
+    }
+    ENTITY_B {
+        string id PK
+        string entity_a_id FK
+        string status
+    }

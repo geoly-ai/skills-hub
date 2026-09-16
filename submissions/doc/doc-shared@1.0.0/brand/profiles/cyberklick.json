@@ -1,0 +1,16 @@
+{
+  "id": "cyberklick",
+  "name": "Cyberklick 对外",
+  "audience": "external",
+  "cover": "marketing",
+  "description": "对外文档：沿用售前现有营销封面（淡紫渐变、logo、标题、副标题、元信息行），修透明底 logo 与标题断行。",
+  "header": {"left": "{logo}", "right": "{website}"},
+  "footer": {"left": "{footer_text}", "right": "{page} / {pages}"},
+  "classification": null,
+  "doc_control_table": false,
+  "revision_page": false,
+  "toc_levels": 2,
+  "h1_page_break": "never",
+  "quote_style": "「」",
+  "disclaimer": "{disclaimer}"
+}

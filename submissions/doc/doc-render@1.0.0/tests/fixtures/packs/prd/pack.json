@@ -1,0 +1,88 @@
+{
+  "schema_version": "1",
+  "id": "prd",
+  "name": "产品需求文档（PRD）",
+  "version": "0.1",
+  "status": "draft",
+  "description": "doc-render 自测用 prd 类型包（1e 正式包落位后自测优先用正式包）",
+  "audience": "internal",
+  "brand_profile": "internal",
+  "run_root": "~/workspace/docs/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "doc.md",
+  "outline_file": "outline.md",
+  "meta_file": "doc.json",
+  "inputs": [],
+  "skeleton": [
+    {
+      "id": "summary",
+      "title": "摘要",
+      "level": 1,
+      "required": true
+    }
+  ],
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": [
+      {
+        "kind": "req",
+        "label": "需求",
+        "prefix": "REQ-",
+        "pattern": "REQ-[A-Z]+-\\d{2}",
+        "unique": true,
+        "contiguous": false
+      }
+    ]
+  },
+  "include_allow": [
+    "sections/*.md"
+  ],
+  "include_deny": [
+    "*internal*"
+  ],
+  "features": {
+    "code_blocks": false,
+    "landscape": false,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [],
+  "gates": {
+    "D2": null
+  },
+  "qa": {
+    "rules_py": null,
+    "rules_md": "qa-rules.md",
+    "engine_rules": {
+      "include": "all",
+      "exclude": []
+    },
+    "severity_overrides": {},
+    "glossary": {},
+    "banned_terms": []
+  },
+  "hooks": {
+    "pre_render": null,
+    "pre_qa": null,
+    "pre_publish": null,
+    "post_publish": null
+  },
+  "cover": "technical",
+  "filename": "{project}_PRD_{title}_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {
+    "source": "自定（若对齐 lark-doc genres，写来源文件与版本并存快照）"
+  },
+  "templates": [],
+  "samples": []
+}

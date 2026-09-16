@@ -1,0 +1,19 @@
+%% 模板占位：关键流程时序图，替换参与者与消息
+sequenceDiagram
+    participant Client as 客户端
+    participant Gateway as API 网关
+    participant SvcA as 核心服务 A
+    participant SvcB as 核心服务 B
+    participant DB as 主存储
+
+    Client->>Gateway: 请求
+    Gateway->>SvcA: 转发
+    SvcA->>DB: 读取/校验
+    DB-->>SvcA: 返回
+    alt 校验通过
+        SvcA->>SvcB: 异步通知
+        SvcA-->>Gateway: 成功响应
+    else 校验失败
+        SvcA-->>Gateway: 失败响应（含错误码）
+    end
+    Gateway-->>Client: 返回结果

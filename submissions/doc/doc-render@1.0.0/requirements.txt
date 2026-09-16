@@ -1,0 +1,9 @@
+# doc-render 专用 venv（decisions ⑩A、⑤A）。安装：python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# 2026-09-15 阶段 0 安装，Python 3.14.7（/opt/homebrew/bin/python3）；pypdf 无传递依赖（pip freeze 只有这一行）
+pypdf==6.18.1
+# 2026-09-15 第三波 W3-D1：docx 后端（backend_docx.py）。lxml、typing_extensions 为 python-docx 的传递依赖
+python-docx==1.2.0
+lxml==6.1.3
+typing_extensions==4.16.0
+# 2026-09-15 第三波 W3-G：PDF 视觉回归（scripts/visual_regress.py）逐页像素比较与差异热图
+Pillow==12.3.0

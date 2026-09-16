@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "doc-shared/pack.schema.json",
+  "title": "类型包 pack.json",
+  "description": "字段说明、hooks 约定、qa_rules.py 接口见 references/pack-interface.md。",
+  "type": "object",
+  "required": ["id", "name", "version", "status", "audience", "brand_profile", "run_root", "source_file", "inputs", "skeleton", "numbering", "include_allow", "features", "gates", "qa", "hooks", "cover", "filename"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1"},
+    "id": {"type": "string", "pattern": "^_?[a-z][a-z0-9-]*$"},
+    "name": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+(\\.\\d+)?$", "description": "类型包版本。发布约定（pack-interface.md §6）要求三段式 X.Y.Z 且包目录 CHANGELOG.md 有该版本标题，由 validate.py CLI 检查；schema 仍收两段式以兼容自测夹具"},
+    "status": {"enum": ["planned", "draft", "stable"]},
+    "description": {"type": "string"},
+    "audience": {"enum": ["internal", "external"]},
+    "brand_profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "run_root": {"type": "string", "minLength": 1, "description": "运行目录根，可含 ~ 与 {project} {type} {short} {version}"},
+    "run_dir_pattern": {"type": "string", "description": "运行目录名模板，默认 {type}-{short}-v{version}"},
+    "source_file": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+\\.md$"},
+    "outline_file": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+\\.md$"},
+    "meta_file": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+\\.json$", "description": "文档元数据文件名，默认 doc.json；售前兼容期可声明 brief.json"},
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "desc", "required"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "desc": {"type": "string", "minLength": 1},
+          "required": {"type": "boolean"},
+          "path": {"type": "string", "description": "运行目录内的文件或 glob；D0 检查存在"},
+          "doc_field": {"type": "string", "description": "doc.json 字段路径，如 related_docs 或 extra.evidence；D0 检查非空"}
+        }
+      }
+    },
+    "skeleton": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "required"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+          "title": {"type": "string", "minLength": 1},
+          "level": {"enum": [1, 2, 3]},
+          "required": {"type": "boolean"},
+          "when": {"type": "string", "description": "按需章节的适用条件"},
+          "aliases": {"type": "array", "items": {"type": "string"}},
+          "must_answer": {"type": "array", "items": {"type": "string"}},
+          "appendix": {"type": "boolean"}
+        }
+      }
+    },
+    "numbering": {
+      "type": "object",
+      "required": ["section", "figure", "table"],
+      "additionalProperties": false,
+      "properties": {
+        "section": {"enum": ["decimal", "none"]},
+        "appendix": {"enum": ["alpha", "none"]},
+        "max_depth": {"enum": [1, 2, 3, 4]},
+        "figure": {"type": "string", "description": "图号模板，如「图 {chapter}-{seq}」"},
+        "table": {"type": "string", "description": "表号模板，如「表 {chapter}-{seq}」"},
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "label", "pattern"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+              "label": {"type": "string", "minLength": 1},
+              "prefix": {"type": "string"},
+              "pattern": {"type": "string", "minLength": 1},
+              "unique": {"type": "boolean"},
+              "contiguous": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "include_allow": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "include_deny": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "outputs": {"type": "array", "uniqueItems": true, "items": {"enum": ["docx"]}, "description": "默认附加输出（HTML、PDF、飞书 XML 仍由 render.py 参数控制）。优先级：render.py --docx / --no-docx > 类型包 outputs（字段存在时）> 品牌档案 outputs > 不输出"},
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code_blocks": {"type": "boolean"},
+        "landscape": {"type": "boolean"},
+        "data_blocks": {"type": "boolean"},
+        "summary_block": {"type": "boolean"},
+        "footnotes": {"type": "boolean"},
+        "h1_new_page": {"type": ["boolean", "null"]}, "h1_page_break": {"type": ["string", "null"], "enum": ["always", "auto", "never", null]},
+        "toc": {"type": "boolean"},
+        "table_captions": {"type": "boolean"},
+        "figure_numbers": {"type": "boolean"},
+        "thead_repeat": {"type": "boolean"}
+      }
+    },
+    "stages": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"}},
+    "related": {
+      "type": "array",
+      "description": "本类型需要的关联文档（references/artifacts.md §2.1）",
+      "items": {
+        "type": "object",
+        "required": ["type", "role", "for_gate"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "role": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "for_gate": {"type": "boolean"},
+          "required": {"type": "boolean"},
+          "desc": {"type": "string"}
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "required": ["D2"],
+      "additionalProperties": false,
+      "properties": {
+        "D2": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/command"}]}
+      }
+    },
+    "qa": {
+      "type": "object",
+      "required": ["rules_md"],
+      "additionalProperties": false,
+      "properties": {
+        "rules_py": {"type": ["string", "null"]},
+        "rules_md": {"type": "string", "minLength": 1},
+        "engine_rules": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "include": {"oneOf": [{"const": "all"}, {"type": "array", "items": {"type": "string"}}]},
+            "exclude": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "severity_overrides": {
+          "type": "object",
+          "additionalProperties": {"enum": ["必改", "建议", "提示"]}
+        },
+        "glossary": {
+          "description": "对象 {正写: [异写]}，或包内 JSON 文件的相对路径（内容同对象形态）",
+          "oneOf": [
+            {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+            {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.json$"}
+          ]
+        },
+        "allowed_languages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9+#._-]*$"},
+          "description": "代码块语言白名单（小写比较）。类型包 qa_rules.py 优先读它，读不到时回退脚本内常量；引擎不直接使用。2026-09-15 契约第二轮"
+        },
+        "highlight_limits": {
+          "type": "object",
+          "description": "重点高亮用量阈值（qa-engine.md H1–H3）；缺省 total 25、per_page 3、max_length 40（汉字当量：全角计 1、半角计 0.5）",
+          "additionalProperties": false,
+          "properties": {
+            "total": {"type": "integer", "minimum": 0},
+            "per_page": {"type": "integer", "minimum": 0},
+            "max_length": {"type": "number", "minimum": 1}
+          }
+        },
+        "key_figures": {
+          "type": "array",
+          "description": "关键数字一致性口径（qa-engine.md X4）：pattern 为 Python 正则，命名组 value 取值，可选命名组 key 分组；同组的值必须一致。引擎只比对，不内置口径",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "pattern"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+              "label": {"type": "string", "minLength": 1},
+              "pattern": {"type": "string", "minLength": 1},
+              "normalize": {"enum": ["number", "text"]},
+              "severity": {"enum": ["必改", "建议", "提示"]}
+            }
+          }
+        },
+        "banned_terms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["term", "severity", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "term": {"type": "string", "minLength": 1},
+              "regex": {"type": "boolean"},
+              "severity": {"enum": ["必改", "建议", "提示"]},
+              "message": {"type": "string"},
+              "columns": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pre_render": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/command"}]},
+        "pre_qa": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/command"}]},
+        "pre_publish": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/command"}]},
+        "post_publish": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/command"}]}
+      }
+    },
+    "cover": {"enum": ["marketing", "technical"]},
+    "filename": {"type": "string", "minLength": 1, "description": "PDF 文件名模板，如 {project}_PRD_{title}_v{version}_{yyyymmdd}.pdf"},
+    "writing_contract": {
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {"type": "string"},
+        "snapshot": {"type": "string"},
+        "source_version": {"type": "string"},
+        "snapshot_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}
+      }
+    },
+    "templates": {"type": "array", "items": {"type": "string"}, "description": "包内模板文件（相对包目录，validate 检查存在且按 realpath 在包目录内）；组织级章节不写这里，写 org_sections"},
+    "org_sections": {
+      "type": "array",
+      "description": "本包引用的组织级章节（pack-interface.md §2）。path 相对 doc-shared，必须在 brand/org/sections/ 内（validate 按 realpath 核对且须是文件）；required 为真表示使用本包的文档正文必须 include 该章节：validate 要求基础 skeleton 有同 id 的必备章节，正文是否真有该章由 doc-qa S1 检查（类型包 engine_rules 没开 S1 时不检查）；为假表示可选引用",
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "required"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+          "path": {"type": "string", "pattern": "^brand/org/sections/[^/].*$"},
+          "required": {"type": "boolean"},
+          "desc": {"type": "string"}
+        }
+      }
+    },
+    "triggers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "\\S"}, "description": "判型关键词，口径同 doc-orchestrator/references/type-triggers.json types.<id>（非空字符串）。2026-09-15 detect_type.py 尚未读取本字段，接入前以关键词表为准"},
+    "samples": {"type": "array", "items": {"type": "string"}},
+    "doc_extra_schema": {"type": "object"},
+    "modes": {
+      "type": "object",
+      "description": "项目类型变体（references/pack-interface.md §2.1）：按元数据字段选 mode，对基础 skeleton 打补丁",
+      "required": ["field", "default", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "field": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$", "description": "元数据文件（meta_file）里决定 mode 的点号路径，如 site.project_type"},
+        "default": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+        "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/mode"}}
+      }
+    }
+  },
+  "$defs": {
+    "mode": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+        "name": {"type": "string", "minLength": 1},
+        "desc": {"type": "string"},
+        "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "元数据字段可接受的其他写法，如「0-1」「新建站」"},
+        "skeleton_patch": {
+          "type": "object",
+          "description": "{基础骨架章节 id: 覆盖项}；只能改标题、别名、必答问题",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {"type": "string", "minLength": 1},
+              "aliases": {"type": "array", "items": {"type": "string"}},
+              "must_answer": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "skeleton_insert": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["after", "section"],
+            "additionalProperties": false,
+            "properties": {
+              "after": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+              "section": {
+                "type": "object",
+                "required": ["id", "title", "required"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+                  "title": {"type": "string", "minLength": 1},
+                  "level": {"enum": [1, 2, 3]},
+                  "required": {"type": "boolean"},
+                  "when": {"type": "string"},
+                  "aliases": {"type": "array", "items": {"type": "string"}},
+                  "must_answer": {"type": "array", "items": {"type": "string"}},
+                  "appendix": {"type": "boolean"}
+                }
+              }
+            }
+          }
+        },
+        "skeleton_remove": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"}, "description": "只能删基础骨架里 required 为 false 的章节"},
+        "forbidden_terms": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "该 mode 下客户可见正文（include 展开后、去掉注释等例外区）不得命中的 Python 正则；检查由质检实现，契约只登记，validate 检查正则可编译"},
+        "templates": {"type": "array", "items": {"type": "string"}, "description": "该 mode 专用的包内模板或内容片段（validate 检查存在）"}
+      }
+    },
+    "command": {
+      "type": "object",
+      "required": ["command", "desc"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "desc": {"type": "string", "minLength": 1},
+        "pass_exit_codes": {"type": "array", "items": {"type": "integer"}},
+        "timeout_s": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

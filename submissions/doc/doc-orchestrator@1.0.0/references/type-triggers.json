@@ -1,0 +1,25 @@
+{
+  "_comment": "判型关键词表（doc-orchestrator 自有）。类型 id 必须存在于 doc-shared/types/；类型包 pack.json 目前不能带 triggers（schema 未声明），新增类型时在这里补关键词。handoff 表示命中后转交其他 skill，不在 doc-orchestrator 内建运行目录。越长的词越具体，计分按最长匹配、重叠只算一次。",
+  "types": {
+    "prd": ["PRD", "产品需求文档", "产品需求", "技术 PRD", "功能需求文档", "需求文档", "需求说明书"],
+    "mrd": ["MRD", "市场需求文档", "市场需求", "市场分析", "机会评估", "立项报告", "竞品与市场"],
+    "tech-spec": ["技术方案", "技术设计", "设计文档", "技术 Spec", "Spec", "架构设计", "系统设计", "RFC", "方案设计"],
+    "api-reference": ["接口文档", "API 文档", "API 参考", "接口参考", "接口说明", "OpenAPI", "API"],
+    "test-plan": ["测试计划", "测试策略", "测试方案", "准入准出", "测试范围"],
+    "test-cases": ["测试用例", "用例", "test case", "TestCase", "用例表"],
+    "test-report": ["测试报告", "测试总结", "准出报告", "缺陷统计", "测试结果报告"],
+    "presales-site": ["建站方案", "Shopify 方案", "Shopify", "独立站", "建站"],
+    "presales-reddit": ["Reddit 方案", "Reddit 代运营", "Reddit"]
+  },
+  "handoff": {
+    "presales-orchestrator": {
+      "types": ["presales-site", "presales-reddit"],
+      "keywords": ["售前", "报价", "RFP", "客户方案", "售前方案"],
+      "why": "售前方案含计价、条款、确认单，入口是 presales-orchestrator（内部再调 doc-* 引擎）"
+    },
+    "lark-doc": {
+      "keywords": ["纪要", "周报", "随手记", "改一下飞书文档", "总结这篇文档"],
+      "why": "只读、总结、小改已有飞书文档或轻量文档，不需要类型骨架、质检与 PDF"
+    }
+  }
+}

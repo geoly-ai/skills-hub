@@ -1,0 +1,65 @@
+{
+  "schema_version": "1",
+  "id": "_template",
+  "name": "类型包模板",
+  "version": "0.1.0",
+  "status": "planned",
+  "description": "新类型的起点（references/pack-interface.md「新类型扩展流程」）。复制整个目录为 types/<新 id>/，改 id、name 与下面每一项。",
+  "audience": "internal",
+  "brand_profile": "internal",
+  "run_root": "~/workspace/docs/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "doc.md",
+  "outline_file": "outline.md",
+  "meta_file": "doc.json",
+  "inputs": [
+    {"id": "problem", "desc": "要解决的问题与证据来源", "required": true, "doc_field": "extra.problem"},
+    {"id": "references", "desc": "参考材料（可选）", "required": false, "path": "inputs/*"}
+  ],
+  "skeleton": [
+    {"id": "doc-control", "title": "文档控制与修订记录", "level": 1, "required": true, "must_answer": ["状态、owner、评审人", "关联文档"]},
+    {"id": "summary", "title": "摘要", "level": 1, "required": true, "must_answer": ["一句话问题", "结论或推荐", "主要代价"]},
+    {"id": "body", "title": "正文示例节", "level": 1, "required": false, "when": "按类型改写", "aliases": ["正文"], "must_answer": []},
+    {"id": "open-questions", "title": "未决问题", "level": 1, "required": true, "must_answer": ["每条有 owner 与截止日期"]},
+    {"id": "glossary", "title": "术语表", "level": 1, "required": false, "appendix": true}
+  ],
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": []
+  },
+  "include_allow": ["sections/*.md"],
+  "include_deny": ["*internal*"],
+  "features": {
+    "code_blocks": false,
+    "landscape": false,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [],
+  "gates": {"D2": null},
+  "qa": {
+    "rules_py": "qa_rules.py",
+    "rules_md": "qa-rules.md",
+    "engine_rules": {"include": "all", "exclude": []},
+    "severity_overrides": {},
+    "glossary": {},
+    "banned_terms": []
+  },
+  "hooks": {"pre_render": null, "pre_qa": null, "pre_publish": null, "post_publish": null},
+  "cover": "technical",
+  "filename": "{project}_{name}_{title}_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {"source": "自定（若对齐 lark-doc genres，写来源文件与版本并存快照）"},
+  "templates": ["templates/doc.md", "skeleton.md"],
+  "samples": []
+}

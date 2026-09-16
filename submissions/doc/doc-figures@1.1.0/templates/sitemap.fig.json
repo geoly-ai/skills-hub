@@ -1,0 +1,19 @@
+{
+  "template": "sitemap",
+  "title": "帮助中心信息结构",
+  "subtitle": "两条主线：自助解决问题、联系人工",
+  "root": "帮助中心首页",
+  "lanes": [
+    {"name": "自助主线", "color": "green", "groups": [
+      {"name": "入门指南", "children": ["快速开始", "账户设置"]},
+      {"name": "常见问题", "children": ["登录与安全", "账单与发票", "数据导出"]},
+      {"name": "视频教程", "children": ["基础操作"]},
+      {"name": "更新日志", "children": ["版本说明"]}
+    ]},
+    {"name": "人工主线", "color": "blue", "groups": [
+      {"name": "提交工单", "children": ["问题分类", "附件上传"]},
+      {"name": "在线客服", "children": ["工作时间说明"]},
+      {"name": "社区论坛", "children": ["精选帖子", "发帖规范"]}
+    ]}
+  ]
+}

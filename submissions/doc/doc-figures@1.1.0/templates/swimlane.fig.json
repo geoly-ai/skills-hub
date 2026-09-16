@@ -1,0 +1,28 @@
+{
+  "template": "swimlane",
+  "title": "退款审批流程",
+  "subtitle": "三方协作：申请 → 审核 → 打款；驳回回到申请人",
+  "lanes": [
+    {"id": "user", "label": "申请人", "role": "category"},
+    {"id": "ops", "label": "运营审核", "role": "business_line"},
+    {"id": "fin", "label": "财务系统", "role": "generic_layer"}
+  ],
+  "steps": [
+    {"id": "s", "lane": "user", "label": "发起退款", "kind": "start"},
+    {"id": "fill", "lane": "user", "label": "填写原因与凭证"},
+    {"id": "check", "lane": "ops", "label": "金额 ≤ 500？", "kind": "decision"},
+    {"id": "auto", "lane": "fin", "label": "自动打款", "body": "T+0"},
+    {"id": "manual", "lane": "ops", "label": "人工复核", "body": "24 小时内"},
+    {"id": "pay", "lane": "fin", "label": "原路退回"},
+    {"id": "e", "lane": "user", "label": "收到退款", "kind": "end"}
+  ],
+  "edges": [
+    {"from": "s", "to": "fill"},
+    {"from": "fill", "to": "check"},
+    {"from": "check", "to": "auto", "label": "是"},
+    {"from": "check", "to": "manual", "label": "否"},
+    {"from": "manual", "to": "pay"},
+    {"from": "auto", "to": "e"},
+    {"from": "pay", "to": "e"}
+  ]
+}

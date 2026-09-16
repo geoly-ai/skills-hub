@@ -1,0 +1,18 @@
+{
+  "template": "phases",
+  "title": "交付流程与准出条件",
+  "subtitle": "两行阶梯：行尾连行首；每个环节带准出条件，上一环节不达标下一环节不启动",
+  "rows": 2,
+  "row_labels": ["构建", "发布"],
+  "gate_label": "准出",
+  "phases": [
+    {"id": "dev", "badge": "①", "name": "开发", "items": ["功能实现", "单元测试"], "gate": "代码评审通过后合并"},
+    {"id": "smoke", "badge": "②", "name": "冒烟测试", "items": ["核心链路走通"], "gate": "核心链路全部通过"},
+    {"id": "sit", "badge": "③", "name": "系统测试", "items": ["功能 · 兼容 · 性能"], "gate": "P0 / P1 缺陷清零"},
+    {"id": "uat", "badge": "④", "name": "用户验收", "items": ["验收用例执行"], "gate": "用户签字确认", "tag": "30%"},
+    {"id": "release", "badge": "⑤", "name": "生产发布", "items": ["检查清单", "回滚预案"], "gate": "双人确认发布"},
+    {"id": "verify", "badge": "⑥", "name": "生产验证", "items": ["监控与抽检"], "gate": "关键指标正常", "tag": "30%"},
+    {"id": "care", "badge": "⑦", "name": "保障期", "items": ["缺陷修复"], "gate": "关闭报告"}
+  ],
+  "loops": [{"from": "sit", "to": "dev", "label": "缺陷打回"}]
+}

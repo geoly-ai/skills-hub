@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant App as 会员 App
+    participant Redeem as 兑换服务
+    participant Rule as 规则引擎服务
+    participant DB as 积分数据库（行锁）
+
+    App->>Redeem: 发起兑换请求（含幂等键）
+    Redeem->>Rule: 查询叠加限制与当前规则
+    Rule-->>Redeem: 返回规则（含缓存兜底）
+    Redeem->>DB: 开启事务，SELECT ... FOR UPDATE 锁定账户与库存行
+    alt 积分与库存均充足且不违反叠加限制
+        DB-->>Redeem: 锁定成功
+        Redeem->>DB: 原子扣减积分与库存，生成兑换单
+        DB-->>Redeem: 提交成功
+        Redeem-->>App: 兑换成功
+    else 积分不足
+        DB-->>Redeem: 校验失败
+        Redeem-->>App: 错误码 INSUFFICIENT_BALANCE
+    else 库存不足
+        DB-->>Redeem: 校验失败
+        Redeem-->>App: 错误码 INSUFFICIENT_STOCK
+    else 违反叠加限制
+        Rule-->>Redeem: 规则冲突
+        Redeem-->>App: 错误码 RULE_CONFLICT
+    end

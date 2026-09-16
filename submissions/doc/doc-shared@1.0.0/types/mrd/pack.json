@@ -1,0 +1,248 @@
+{
+  "schema_version": "1",
+  "id": "mrd",
+  "name": "市场需求文档（MRD）",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "市场需求文档（MRD）类型包",
+  "audience": "internal",
+  "brand_profile": "internal",
+  "run_root": "~/workspace/docs/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "doc.md",
+  "outline_file": "outline.md",
+  "meta_file": "doc.json",
+  "inputs": [
+    {
+      "id": "input1",
+      "desc": "市场规模或增速数据（含来源与年份）",
+      "required": true
+    },
+    {
+      "id": "input2",
+      "desc": "目标用户细分初稿",
+      "required": true
+    },
+    {
+      "id": "input3",
+      "desc": "竞品清单（至少 2 家）",
+      "required": true
+    },
+    {
+      "id": "input4",
+      "desc": "商业目标或立项背景说明",
+      "required": true
+    }
+  ],
+  "skeleton": [
+    {
+      "id": "market",
+      "title": "市场概况",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "规模与增速（来源与年份）",
+        "趋势"
+      ]
+    },
+    {
+      "id": "segments",
+      "title": "目标用户与细分",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "细分",
+        "画像",
+        "痛点证据"
+      ]
+    },
+    {
+      "id": "competition",
+      "title": "竞争分析",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "竞品矩阵（维度 × 竞品，● ◐ ○ 附依据）",
+        "差异化机会"
+      ]
+    },
+    {
+      "id": "demand",
+      "title": "用户需求与优先级",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "需求清单 MR-序",
+        "来源",
+        "优先级"
+      ]
+    },
+    {
+      "id": "positioning",
+      "title": "定位与价值主张",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "一句话定位",
+        "与竞品的差异"
+      ]
+    },
+    {
+      "id": "business-model",
+      "title": "商业模式与定价假设",
+      "level": 1,
+      "required": false,
+      "when": "按需",
+      "must_answer": [
+        "假设与验证方式"
+      ]
+    },
+    {
+      "id": "go-to-market",
+      "title": "进入策略与里程碑",
+      "level": 1,
+      "required": false,
+      "when": "按需",
+      "must_answer": [
+        "渠道",
+        "节奏"
+      ]
+    },
+    {
+      "id": "risks",
+      "title": "风险与假设",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "关键假设与验证计划"
+      ]
+    },
+    {
+      "id": "sources",
+      "title": "数据来源",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "每个数字的来源",
+        "日期"
+      ]
+    }
+  ],
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": [
+      {
+        "kind": "market_requirement",
+        "label": "市场需求",
+        "prefix": "MR-",
+        "pattern": "^MR-\\d{3}$",
+        "unique": true,
+        "contiguous": true
+      }
+    ]
+  },
+  "include_allow": [
+    "sections/*.md",
+    "data/*.csv",
+    "data/*.yaml"
+  ],
+  "features": {
+    "code_blocks": false,
+    "landscape": false,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [],
+  "gates": {
+    "D2": null
+  },
+  "qa": {
+    "rules_py": "qa_rules.py",
+    "rules_md": "qa-rules.md",
+    "engine_rules": {
+      "include": "all",
+      "exclude": [
+        "L2"
+      ]
+    },
+    "severity_overrides": {},
+    "glossary": "glossary.json",
+    "highlight_limits": {"total": 25, "per_page": 3, "max_length": 40},
+    "key_figures": [
+      {"id": "invest-days", "label": "投入人天", "pattern": "(?P<value>\\d+(?:\\.\\d+)?)\\s*人天", "normalize": "number", "severity": "提示"},
+      {"id": "market-size", "label": "市场规模（亿）", "pattern": "市场规模[^\\d\\n]{0,12}?(?P<value>\\d+(?:\\.\\d+)?)\\s*亿", "normalize": "number", "severity": "提示"},
+      {"id": "growth", "label": "同比增速（%）", "pattern": "增速[^\\d\\n]{0,6}?(?P<value>\\d+(?:\\.\\d+)?)\\s*%", "normalize": "number", "severity": "提示"},
+      {"id": "interviews", "label": "访谈人数", "pattern": "访谈[^\\d\\n]{0,6}?(?P<value>\\d+)\\s*位", "normalize": "number", "severity": "提示"}
+    ],
+    "banned_terms": [
+      {
+        "term": "颠覆",
+        "regex": false,
+        "severity": "必改",
+        "message": "市场文档使用夸大或绝对化营销用语"
+      },
+      {
+        "term": "独家",
+        "regex": false,
+        "severity": "必改",
+        "message": "市场文档使用夸大或绝对化营销用语"
+      },
+      {
+        "term": "唯一",
+        "regex": false,
+        "severity": "必改",
+        "message": "市场文档使用夸大或绝对化营销用语"
+      },
+      {
+        "term": "革命性",
+        "regex": false,
+        "severity": "必改",
+        "message": "市场文档使用夸大或绝对化营销用语"
+      },
+      {
+        "term": "遥遥领先",
+        "regex": false,
+        "severity": "必改",
+        "message": "市场文档使用夸大或绝对化营销用语"
+      },
+      {
+        "term": "第一",
+        "regex": false,
+        "severity": "必改",
+        "message": "市场文档使用夸大或绝对化营销用语"
+      }
+    ]
+  },
+  "hooks": {
+    "pre_render": null,
+    "pre_qa": null,
+    "pre_publish": null,
+    "post_publish": null
+  },
+  "cover": "technical",
+  "filename": "{project}_MRD_{title}_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {
+    "source": "无对应 lark-doc genre；本包自定，参考 route-report.md / business-analysis.md 的通用报告体裁但不作为快照来源",
+    "snapshot": "writing-contract.md",
+    "snapshot_date": "2026-09-15"
+  },
+  "templates": [
+    "templates/doc.md",
+    "skeleton.md",
+    "templates/figures/positioning.mmd"
+  ],
+  "samples": [
+    "samples/membership-points-v2"
+  ]
+}

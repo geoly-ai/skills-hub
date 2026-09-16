@@ -1,0 +1,138 @@
+{
+  "template": "layered-arch",
+  "title": "订单平台目标架构",
+  "subtitle": "自上而下：接入 → 服务 → 数据；虚线为只读依赖",
+  "layers": [
+    {
+      "id": "client",
+      "label": "客户端层：用户直接使用的入口",
+      "nodes": [
+        {
+          "id": "web",
+          "label": "Web 商城",
+          "body": "SSR · 多语言",
+          "role": "category"
+        },
+        {
+          "id": "app",
+          "label": "移动 App",
+          "body": "iOS · Android",
+          "role": "category"
+        },
+        {
+          "id": "admin",
+          "label": "运营后台",
+          "body": "配置 · 审计",
+          "role": "business_line"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "label": "接入层：鉴权、限流与路由",
+      "nodes": [
+        {
+          "id": "gw",
+          "label": "API 网关",
+          "body": "OAuth2 · 限流 · 灰度路由",
+          "role": "generic_layer",
+          "emphasis": true
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "label": "服务层：按领域拆分的无状态服务",
+      "nodes": [
+        {
+          "id": "order",
+          "label": "订单服务",
+          "body": "下单 · 状态机",
+          "role": "generic_layer"
+        },
+        {
+          "id": "inventory",
+          "label": "库存服务",
+          "body": "预占 · 释放",
+          "role": "generic_layer"
+        },
+        {
+          "id": "pay",
+          "label": "支付服务",
+          "body": "渠道适配 · 对账",
+          "role": "generic_layer"
+        },
+        {
+          "id": "notify",
+          "label": "通知服务",
+          "body": "待拆分",
+          "role": "placeholder",
+          "dashed": true
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "label": "数据层",
+      "nodes": [
+        {
+          "id": "db",
+          "label": "主库 PostgreSQL",
+          "role": "deliverable"
+        },
+        {
+          "id": "cache",
+          "label": "Redis 缓存",
+          "role": "deliverable"
+        },
+        {
+          "id": "mq",
+          "label": "消息队列",
+          "role": "deliverable"
+        }
+      ]
+    },
+    {
+      "id": "ops",
+      "label": "观测",
+      "beside": "data",
+      "direction": "column",
+      "weight": 260,
+      "nodes": [
+        {
+          "id": "log",
+          "label": "日志与告警",
+          "role": "generic_layer",
+          "compact": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "client",
+      "to": "gw",
+      "label": "HTTPS"
+    },
+    {
+      "from": "gw",
+      "to": "service"
+    },
+    {
+      "from": "order",
+      "to": "inventory",
+      "label": "预占"
+    },
+    {
+      "from": "service",
+      "to": "data"
+    },
+    {
+      "from": "data",
+      "to": "ops",
+      "dashed": true,
+      "role": "generic_layer"
+    }
+  ],
+  "legend": "auto"
+}

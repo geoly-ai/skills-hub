@@ -1,0 +1,13 @@
+{
+  "kind": "coverage-heatmap",
+  "title": "{需求覆盖矩阵热图标题，替换}",
+  "rows": ["{模块 A}", "{模块 B}", "{模块 C}"],
+  "cols": ["P0", "P1", "P2", "P3"],
+  "cells": [
+    { "row": "{模块 A}", "col": "P0", "value": 1.0, "count": 3 },
+    { "row": "{模块 A}", "col": "P1", "value": 0.8, "count": 2 },
+    { "row": "{模块 B}", "col": "P0", "value": 1.0, "count": 1 },
+    { "row": "{模块 C}", "col": "P2", "value": 0.0, "count": 0 }
+  ],
+  "note": "字段为本包自拟：value 取 0–1 表示覆盖率（用于渲染热图色阶，0 用 danger 色，1 用 ok 色，中间线性插值，色阶取自 tokens.json），count 是关联用例数，供 tooltip / 表格并列展示。design.md §4.2 只给出结论「需求覆盖矩阵：svgkit 热图模板 或 数据表」，未给字段，本 schema 是内容侧提案，见 templates/figures/README.md 与 OPEN-QUESTIONS.md。"
+}

@@ -1,0 +1,61 @@
+{
+  "type": "prd",
+  "title": "会员积分系统 v2",
+  "project": "membership-points-v2",
+  "subtitle": "积分获取、兑换、等级与规则引擎重构",
+  "version": "1.2",
+  "status": "approved",
+  "audience": "internal",
+  "brand": "internal",
+  "language": "zh-CN",
+  "owner": "陈立（产品）",
+  "reviewers": [
+    "王敏（研发）",
+    "刘洋（测试）",
+    "周航（运营）"
+  ],
+  "related_docs": [
+    {
+      "type": "mrd",
+      "role": "source_mrd",
+      "title": "会员积分系统 v2 市场与机会评估",
+      "path": "../../../mrd/samples/membership-points-v2/doc.json"
+    },
+    {
+      "type": "tech-spec",
+      "role": "references",
+      "title": "会员积分系统 v2 技术方案设计",
+      "path": "../../../tech-spec/samples/membership-points-v2/doc.json"
+    },
+    {
+      "type": "test-plan",
+      "role": "references",
+      "title": "会员积分系统 v2 测试计划",
+      "path": "../../../test-plan/samples/membership-points-v2/doc.json"
+    }
+  ],
+  "revision_history": [
+    {
+      "version": "v0.1",
+      "date": "2026-07-02",
+      "author": "陈立",
+      "summary": "初稿，覆盖积分获取与兑换"
+    },
+    {
+      "version": "v1.0",
+      "date": "2026-07-20",
+      "author": "陈立",
+      "summary": "补充等级、规则引擎、通知模块，提交评审"
+    },
+    {
+      "version": "v1.2",
+      "date": "2026-08-05",
+      "author": "陈立",
+      "summary": "按评审意见收紧异常路径与防刷需求，评审通过"
+    }
+  ],
+  "lark_folder": {
+    "pending_reason": "样张不发布，尚未申请飞书目录 token",
+    "path": "内部产品文档/会员积分系统 v2/PRD"
+  }
+}

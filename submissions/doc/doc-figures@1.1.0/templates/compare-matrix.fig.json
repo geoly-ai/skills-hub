@@ -1,0 +1,77 @@
+{
+  "template": "compare-matrix",
+  "title": "消息队列选型对比",
+  "subtitle": "按四类能力与运维条件逐项比较；高亮列为推荐方案",
+  "columns": [
+    {
+      "label": "Kafka",
+      "highlight": true
+    },
+    {
+      "label": "RabbitMQ"
+    },
+    {
+      "label": "RocketMQ"
+    },
+    {
+      "label": "云托管队列"
+    }
+  ],
+  "rows": [
+    {
+      "group": "能力",
+      "label": "百万级吞吐",
+      "cells": [
+        "full",
+        "half",
+        "full",
+        "half"
+      ]
+    },
+    {
+      "group": "能力",
+      "label": "事务消息",
+      "cells": [
+        "half",
+        "none",
+        "full",
+        "half"
+      ]
+    },
+    {
+      "group": "能力",
+      "label": "延迟消息",
+      "cells": [
+        "none",
+        "half",
+        "full",
+        "full"
+      ]
+    },
+    {
+      "group": "运维",
+      "label": "团队已有经验",
+      "cells": [
+        "full",
+        "full",
+        "none",
+        "half"
+      ]
+    },
+    {
+      "group": "运维",
+      "label": "月成本估算",
+      "cells": [
+        "自建 3 节点",
+        "自建 2 节点",
+        "自建 4 节点",
+        "按量计费"
+      ]
+    }
+  ],
+  "legend_labels": {
+    "full": "完全满足",
+    "half": "部分满足",
+    "none": "不满足"
+  }
+}

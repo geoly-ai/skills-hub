@@ -1,0 +1,9 @@
+{
+  "_说明": "售前类型包迁移期的 pack.json 覆盖项（1d 提议，交主代理与 1f 决定是否写回 types/presales-*/pack.json）。doc-qa/tests 用它跑 golden 等价比对：只有这组设置下新引擎结果与旧 qa_checks.py 逐项一致。每项理由见 doc-qa/SKILL.md「售前迁移期配置」。",
+  "meta_file": "brief.json",
+  "include_deny": ["*internal*"],
+  "qa": {
+    "engine_rules": {"include": ["L1", "L2", "L4", "C1", "R1"], "exclude": []},
+    "banned_terms": []
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "template": "milestone",
+  "title": "项目里程碑与验收节点",
+  "subtitle": "阶段条宽度按时长比例；菱形为验收节点，徽标为该节点的结算比例",
+  "unit": "周",
+  "phases": [
+    {"id": "p1", "name": "需求与设计", "duration": 3, "items": ["需求评审", "原型确认"]},
+    {"id": "p2", "name": "开发", "duration": 6, "items": ["迭代 1–3", "联调"]},
+    {"id": "p3", "name": "测试与验收", "duration": 3, "items": ["系统测试", "用户验收"]},
+    {"id": "p4", "name": "上线保障", "duration": 2, "items": ["灰度发布", "问题跟踪"]}
+  ],
+  "milestones": [
+    {"at": 0, "label": "启动会", "tag": "40%"},
+    {"after": "p1", "label": "设计冻结"},
+    {"after": "p3", "label": "验收通过", "tag": "30%"},
+    {"after": "p4", "label": "项目关闭", "tag": "30%"}
+  ]
+}
