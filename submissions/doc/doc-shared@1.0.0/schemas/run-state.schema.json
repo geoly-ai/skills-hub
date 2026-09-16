@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "doc-shared/run-state.schema.json",
+  "title": "run-state.json 运行状态",
+  "description": "只由 scripts/run_state.py 写入（引擎脚本在阶段完成时调用），不手改。门逻辑见 references/gates.md。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "doc_type",
+    "mode",
+    "stage",
+    "gates",
+    "history",
+    "updated_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "doc_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "mode": {
+      "enum": [
+        "new",
+        "revision",
+        "import"
+      ]
+    },
+    "base_doc": {
+      "type": "string"
+    },
+    "base_version": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "gates": {
+      "type": "object",
+      "required": [
+        "D0",
+        "D1",
+        "D2",
+        "D3",
+        "D4"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "D0": {
+          "$ref": "#/$defs/gate"
+        },
+        "D1": {
+          "$ref": "#/$defs/gate"
+        },
+        "D2": {
+          "$ref": "#/$defs/gate"
+        },
+        "D3": {
+          "$ref": "#/$defs/gate"
+        },
+        "D4": {
+          "$ref": "#/$defs/gate"
+        }
+      }
+    },
+    "decisions": {
+      "type": "object"
+    },
+    "user_words": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "legacy": {
+      "type": "object",
+      "description": "兼容期保留的旧状态（如售前 G0–G4 原值），只读"
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "at",
+          "action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "$ref": "#/$defs/datetime"
+          },
+          "action": {
+            "enum": [
+              "init",
+              "set-stage",
+              "pass-gate",
+              "fail-gate",
+              "waive-gate",
+              "skip-gate",
+              "reset-gate",
+              "decide"
+            ]
+          },
+          "gate": {
+            "enum": [
+              "D0",
+              "D1",
+              "D2",
+              "D3",
+              "D4"
+            ]
+          },
+          "stage": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "updated_at": {
+      "$ref": "#/$defs/datetime"
+    }
+  },
+  "$defs": {
+    "datetime": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+    },
+    "gate": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "passed",
+            "failed",
+            "skipped",
+            "waived"
+          ]
+        },
+        "at": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/datetime"
+            }
+          ]
+        },
+        "by": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_manifest": {
+          "type": "object",
+          "description": "D3 通过时 run_state.py 写入的源文件清单；D3 回到 pending / failed 时清除。格式见 references/gates.md §6",
+          "required": [
+            "algorithm",
+            "generated_at",
+            "files"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "algorithm": {
+              "const": "sha256"
+            },
+            "generated_at": {
+              "$ref": "#/$defs/datetime"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

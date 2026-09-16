@@ -1,0 +1,61 @@
+{
+  "type": "tech-spec",
+  "title": "会员积分系统 v2",
+  "project": "membership-points-v2",
+  "subtitle": "技术方案设计",
+  "version": "1.1",
+  "status": "approved",
+  "audience": "internal",
+  "brand": "internal",
+  "language": "zh-CN",
+  "owner": "王敏（研发）",
+  "reviewers": [
+    "李强（架构组）",
+    "刘洋（测试）",
+    "陈立（产品）"
+  ],
+  "related_docs": [
+    {
+      "type": "prd",
+      "role": "source_prd",
+      "title": "会员积分系统 v2 产品需求文档",
+      "path": "../../../prd/samples/membership-points-v2/doc.json"
+    },
+    {
+      "type": "api-reference",
+      "role": "references",
+      "title": "会员积分系统 v2 API 参考",
+      "path": "../../../api-reference/samples/membership-points-v2/doc.json"
+    },
+    {
+      "type": "test-plan",
+      "role": "references",
+      "title": "会员积分系统 v2 测试计划",
+      "path": "../../../test-plan/samples/membership-points-v2/doc.json"
+    }
+  ],
+  "revision_history": [
+    {
+      "version": "v0.1",
+      "date": "2026-07-25",
+      "author": "王敏",
+      "summary": "初稿，规则引擎与账户服务方案"
+    },
+    {
+      "version": "v1.0",
+      "date": "2026-08-01",
+      "author": "王敏",
+      "summary": "补充失败模式与回滚，提交架构评审"
+    },
+    {
+      "version": "v1.1",
+      "date": "2026-08-08",
+      "author": "王敏",
+      "summary": "按评审意见收紧并发扣减方案，评审通过"
+    }
+  ],
+  "lark_folder": {
+    "pending_reason": "样张不发布，尚未申请飞书目录 token",
+    "path": "内部产品文档/会员积分系统 v2/Tech Spec"
+  }
+}

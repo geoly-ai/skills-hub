@@ -1,0 +1,20 @@
+{
+  "schema": "geoly.skills.skill/1",
+  "kind": "skill",
+  "namespace": "doc",
+  "name": "doc-publish",
+  "version": "1.1.0",
+  "description": "专业文档生产体系（doc-*）的发布引擎：对已过 D3 的运行目录做发布预检（门状态、qa-result 与 render.json 的 source_sha256 与当前正文一致、源文件与 D3 签门清单一致、飞书排版与资源守卫），执行类型包 pre_publish 检查钩子（沙箱内、禁止调用 lark-cli），把 PDF、docx、feishu.xml、render.json、qa-result.json 按类型包命名规则归档到 out/published/v<版本>/，按「客户或项目文件夹 → 子项目文件夹」从根目录解析或新建飞书落点，首次 create、已有文档 overwrite（默认 dry-run，显式 --apply 才写飞书；写命令全局串行、不自动重试），回查画板、图片、代码块与格式残留，写 published.json 与 run-state 的 D4、publish 阶段。用户要把 PRD、MRD、技术 Spec、API 参考、测试计划、测试用例、测试报告等 doc-* 文档「发布到飞书」「发飞书项目文件夹」「更新已发布的飞书版」「归档发布版本」「过 D4 发布门」时使用；doc-orchestrator 在用户确认 PDF 后调用。只读取或小改一篇已有飞书文档、不需要质检与 PDF 时走 lark-doc；售前方案的入口仍是 presales-publish（1f 迁移后内部调用本引擎）。",
+  "license": "MIT",
+  "clients": [
+    "claude"
+  ],
+  "capabilities": [
+    "shell",
+    "network",
+    "external-tool",
+    "writes-repo"
+  ],
+  "replaces": [],
+  "conflicts": []
+}

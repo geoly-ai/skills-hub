@@ -1,0 +1,19 @@
+{
+  "brand": "易点天下 Cyberklick",
+  "entity": "易点天下（深交所上市，股票代码 301171.SZ）旗下商业智能化数字营销平台",
+  "positioning": "以「营销技术 + 创意服务」助力企业实现商业增长，为电商、游戏、工具应用、教育等行业企业提供定制化的出海、入海及国内解决方案。",
+  "website": "www.cyberklick.com",
+  "hotline": "400-966-8171",
+  "logo": "brand/eclicktech-logo.png",
+  "services": [["出海解决方案", "电商出海、游戏出海、App 出海、泛娱乐出海、品牌出海"], ["国内与入海", "国内营销、入海营销"], ["营销服务", "效果广告、品牌全案、营销咨询、独立站建站、直播电商"], ["技术产品", "CyberMedia 一站式自助智能营销、CyberTargeter 精准投放、CyberGrow 自助化开户充值"]],
+  "site_delivery": {
+    "team": [["产品经理", "1", "需求梳理、信息架构与模块配置逻辑、后台操作手册"], ["项目经理", "1", "进度与风险管理、内外部协调、验收节点"], ["Shopify 开发工程师", "按进度配置", "Theme、Liquid、前端、Metafield 与联调"], ["测试工程师", "1", "功能测试、跨浏览器与真机、结账测试、上线检查"]],
+    "process": "需求梳理 → 信息架构与线框确认 → 设计稿评审 → 开发与联调 → UAT 验收 → 上线与培训",
+    "quality": ["每个里程碑书面确认", "Shopify Theme Check 静态检查", "Desktop 与 Mobile 断点回归", "iOS 与 Android 真机测试", "结账测试单", "上线检查清单", "质保期内缺陷修复"],
+    "docs": "Theme Section 使用手册、Product Metafield 填写规范、上新 SKU Checklist、后台培训"
+  },
+  "cases": {
+    "site": [["Plaud 品牌官网（plaud.ai）", "AI 录音与笔记硬件 · 消费电子 DTC", "定制开发 · 全站 0 到 1；客户提供设计稿", "信息架构实现、主题与前端定制、多产品线 PDP 与落地页、Mobile 适配、上线联调"], ["Sharpa 品牌官网（sharpa.com）", "AI 机器人 · B2B 与品牌站", "定制开发 · 全站 0 到 1；我方设计与开发一体", "UX/UI 设计、全站定制开发、产品与技术叙事页、Mobile、上线"], ["Velotric 经销商 Shopify 店", "E-bike · 经销商渠道", "定制主题开发 + 定制 App", "主题定制、经销商信用积分 App 开发与主题联调、上线"]],
+    "reddit": []
+  }
+}

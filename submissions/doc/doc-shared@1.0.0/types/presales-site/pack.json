@@ -1,0 +1,361 @@
+{
+  "schema_version": "1",
+  "id": "presales-site",
+  "name": "建站售前方案与报价",
+  "version": "1.1.0",
+  "status": "draft",
+  "description": "建站售前方案与报价类型包",
+  "audience": "external",
+  "brand_profile": "cyberklick",
+  "run_root": "~/workspace/presales/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "proposal.md",
+  "outline_file": "outline.md",
+  "meta_file": "brief.json",
+  "inputs": [
+    {
+      "id": "input1",
+      "desc": "brief.json（需求梳理速览各维度的当前梳理结果与状态）",
+      "required": true
+    },
+    {
+      "id": "input2",
+      "desc": "scope.json（报价工作项清单）",
+      "required": true
+    },
+    {
+      "id": "input3",
+      "desc": "discovery-checklist.md 的调研结论",
+      "required": true
+    }
+  ],
+  "skeleton": [
+    {
+      "id": "background",
+      "title": "01 背景与目标",
+      "aliases": ["项目背景与目标"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "客户现状（实测并注明日期）",
+        "需求梳理速览覆盖商业模式",
+        "品牌资产",
+        "渠道与流量",
+        "系统与数据",
+        "运营团队",
+        "目标与约束六维度"
+      ]
+    },
+    {
+      "id": "key-question",
+      "title": "02 关键问题前置",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "客户最担心的一个问题（如\"迁移会不会丢排名\"）的直接答案"
+      ]
+    },
+    {
+      "id": "insight",
+      "title": "03 洞察与研究",
+      "aliases": ["竞品与参考站研究"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "竞品或参考站做得好的点，落到方案哪个模块"
+      ]
+    },
+    {
+      "id": "solution",
+      "title": "04 解法",
+      "aliases": ["信息架构、页面设计与核心价值"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "结构 / 模块 / 内容设计与每点价值"
+      ]
+    },
+    {
+      "id": "delivery",
+      "title": "05 交付与验收",
+      "aliases": ["技术方案"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "交付物",
+        "验收方式",
+        "技术或执行方案"
+      ]
+    },
+    {
+      "id": "post-launch",
+      "title": "06 上线后如何验证",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "指标",
+        "工具",
+        "观察周期"
+      ]
+    },
+    {
+      "id": "pricing",
+      "title": "07 报价",
+      "aliases": ["报价与双方案对比"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "include pricing/ 产物，单价拆解",
+        "有效期",
+        "方案对比"
+      ]
+    },
+    {
+      "id": "implementation",
+      "title": "08 实施计划",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "阶段",
+        "内容",
+        "周期"
+      ]
+    },
+    {
+      "id": "terms",
+      "title": "09 商务条款",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "付款",
+        "不含项",
+        "客户责任",
+        "风险与前置",
+        "补发或 SLA",
+        "不提供声明"
+      ]
+    },
+    {
+      "id": "confirm",
+      "title": "10 需求与范围确认单",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "方案选择",
+        "页面模块清单",
+        "参考站边界",
+        "内容与素材分工",
+        "第三方 App 或会员规则",
+        "上线时间与付款",
+        "范围变更机制"
+      ]
+    },
+    {
+      "id": "why-us",
+      "title": "11 为什么选我们与下一步",
+      "aliases": ["为什么选择我们与下一步", "关于易点天下 Cyberklick 与下一步"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "include sections/company.md",
+        "增值选项",
+        "下一步行动"
+      ]
+    },
+    {
+      "id": "qms",
+      "title": "12 质量管理体系（QMS）",
+      "level": 1,
+      "required": true,
+      "aliases": [
+        "质量管理体系（QMS）",
+        "质量管理体系"
+      ],
+      "must_answer": [
+        "include sections/qms.md（组织级章节，复制自 doc-shared/brand/org/sections/qms.md）",
+        "3 阶段 12 环节质量门",
+        "缺陷分级 SLA",
+        "变更管理",
+        "付款与质量门对齐",
+        "风险管理双闭环",
+        "邮件留痕七节点"
+      ]
+    }
+  ],
+  "modes": {
+    "field": "site.project_type",
+    "default": "rebuild",
+    "items": [
+      {
+        "id": "rebuild",
+        "name": "同店重构",
+        "desc": "已有 Shopify 店，换主题或换架构，保留数据与 URL；默认骨架",
+        "aliases": ["同店重构", "重构"],
+        "templates": ["content/reindex-answer.md"]
+      },
+      {
+        "id": "greenfield",
+        "name": "0-1 新建站",
+        "desc": "无独立站（亚马逊或 1688 起家、工厂转品牌、新品牌出海）；无现站诊断与跳转迁移，多出开店、支付税务、物流、法务、数据建档、分析配置",
+        "aliases": ["0-1", "0-1 新建站", "新建站", "新建"],
+        "skeleton_patch": {
+          "background": {
+            "title": "01 业务与资产盘点",
+            "aliases": ["业务与资产盘点"],
+            "must_answer": [
+              "已有资产盘点（亚马逊 Listing 与评价、社媒与 KOL、VI、产品图）并注明核验日期",
+              "需求梳理速览覆盖商业模式、品牌资产、渠道与流量、系统与数据、运营团队、目标与约束六维度",
+              "0-1 专属工作（开店、支付税务、物流、法务、SKU 建档、VI、分析像素）的分工"
+            ]
+          },
+          "key-question": {
+            "title": "02 从第一天做对 SEO/GEO 地基",
+            "aliases": ["从第一天做对 SEO/GEO 地基"],
+            "must_answer": [
+              "没有历史包袱的优势",
+              "语义 URL、结构化数据、图文分离、robots 与 llms.txt 第一天做对",
+              "不写跳转迁移与重新收录答疑"
+            ]
+          },
+          "insight": {
+            "must_answer": [
+              "竞品拆解作为行业最佳实践基准：好站长什么样，落到方案哪个模块"
+            ]
+          }
+        },
+        "forbidden_terms": ["(?<!\\d)301(?!\\d)"],
+        "templates": ["templates/modes/greenfield.md", "content/seo-foundation-greenfield.md"]
+      },
+      {
+        "id": "migration",
+        "name": "跨平台迁移",
+        "desc": "WooCommerce、Magento 或自建站迁到 Shopify；在重构骨架上增加数据迁移与切换",
+        "aliases": ["跨平台迁移", "迁移"],
+        "skeleton_patch": {
+          "key-question": {
+            "must_answer": [
+              "客户最担心的一个问题的直接答案（常见：迁移会不会影响收录）",
+              "URL 结构变化与全量 301 映射"
+            ]
+          }
+        },
+        "skeleton_insert": [
+          {
+            "after": "solution",
+            "section": {
+              "id": "data-migration",
+              "title": "数据迁移与切换",
+              "level": 1,
+              "required": true,
+              "must_answer": [
+                "迁移范围：商品、客户、订单、评价（Review）、内容、营销资产、SEO 资产逐项写迁 / 不迁 / 部分迁移及原因",
+                "评价（Review）迁移：来源平台与评价 App、条数、图片与晒单、目标评价 App 的导入方式",
+                "客户账户体系结论附官方链接与核验日期",
+                "URL 映射表生成方式、抽检比例、上线后 GSC 监控",
+                "冻结窗口、增量迁移、DNS 切换与回滚预案",
+                "数据迁移工作包（含评价迁移）作为独立行进入开发小计"
+              ]
+            }
+          }
+        ],
+        "templates": ["content/reindex-answer.md"]
+      }
+    ]
+  },
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": []
+  },
+  "include_allow": [
+    "pricing/*.md",
+    "terms.md",
+    "confirm-list.md",
+    "sections/*.md"
+  ],
+  "features": {
+    "code_blocks": false,
+    "landscape": false,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [],
+  "gates": {
+    "D2": {
+      "command": [
+        "{python}",
+        "{skills_dir}/presales-pricing/scripts/price_site.py",
+        "{run_dir}/pricing/site-input.json",
+        "--scope",
+        "{run_dir}/scope.json",
+        "--out",
+        "{run_dir}/pricing"
+      ],
+      "desc": "price_site.py 退出码 0（含 scope.json 核对）",
+      "pass_exit_codes": [
+        0
+      ]
+    }
+  },
+  "qa": {
+    "rules_py": "qa_rules.py",
+    "rules_md": "qa-rules.md",
+    "engine_rules": {
+      "include": ["L1", "L2", "L4", "L6", "L8", "L9", "L10", "C1", "R1", "S2", "S3", "X1", "X2", "X3", "X4", "H1", "H2", "H3", "H4", "T1", "T2", "T4", "T5", "T6", "T7", "T8", "T10", "T11", "T12"],
+      "exclude": []
+    },
+    "severity_overrides": {},
+    "glossary": "glossary.json",
+    "highlight_limits": {"total": 25, "per_page": 3, "max_length": 40},
+    "key_figures": [
+      {"id": "validity", "label": "报价有效期（天）", "pattern": "(?P<value>\\d+)\\s*(?:个)?(?:自然日|日历日|天)内有效", "normalize": "number", "severity": "提示"},
+      {"id": "payment-ratio", "label": "付款比例", "pattern": "(?P<key>首付|预付|中期|尾|验收)款?[^\\d\\n]{0,6}?(?P<value>\\d+(?:\\.\\d+)?)\\s*%", "normalize": "number", "severity": "提示"},
+      {"id": "plan-total", "label": "方案总价", "pattern": "(?P<key>方案\\s*[A-Z])\\s*(?:总价|合计|总计|报价)[^\\d\\n。；]{0,8}?(?:USD|\\$|¥|CNY)\\s?(?P<value>\\d[\\d,]*(?:\\.\\d+)?)", "normalize": "number", "severity": "提示"},
+      {"id": "plan-days", "label": "方案总人天", "pattern": "(?P<key>方案\\s*[A-Z])\\s*(?:合计|总计|总工时|共)[^\\d\\n。；]{0,8}?(?P<value>\\d+(?:\\.\\d+)?)\\s*人天", "normalize": "number", "severity": "提示"}
+    ],
+    "banned_terms": [{"term": "零风险", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "无损迁移", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "确保排名", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "百分百", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "永久有效", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "绝对保证", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}]
+  },
+  "hooks": {
+    "pre_render": {"command": ["{python}", "{skills_dir}/presales-publish/scripts/pre_render_check.py", "{run_dir}"], "desc": "报价有效期：建站取 pricing/site-model.json 且必须 30 天；封面有效期行与之一致"},
+    "pre_qa": null,
+    "pre_publish": {"command": ["{python}", "{skills_dir}/presales-publish/scripts/pre_publish_check.py", "{run_dir}"], "desc": "pricing/*.json 模型哈希（只读、标准库），extra 输出 pricing_model_hash、client、line；缺计价产物或建站有效期不符时 ok=false"},
+    "post_publish": null
+  },
+  "cover": "marketing",
+  "filename": "{project}_建站_方案与报价_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {
+    "source": "无对应 lark-doc genre；本包沿用 presales-shared/references/skeleton.md 与 packs/site/ 的既有写作约定，非本次新增",
+    "snapshot": "writing-contract.md",
+    "snapshot_date": "2026-09-15"
+  },
+  "templates": [
+    "templates/doc.md",
+    "skeleton.md",
+    "templates/figures/sitemap.mmd",
+    "templates/modes/greenfield.md",
+    "content/reindex-answer.md",
+    "content/seo-foundation-greenfield.md",
+    "content/geo-seven-points.md",
+    "content/cro-six-steps.md",
+    "content/validation-metrics.md"
+  ],
+  "org_sections": [
+    {"id": "qms", "path": "brand/org/sections/qms.md", "required": true}
+  ],
+  "samples": [
+    "samples/smokesite"
+  ],
+  "include_deny": [
+    "*internal*"
+  ]
+}

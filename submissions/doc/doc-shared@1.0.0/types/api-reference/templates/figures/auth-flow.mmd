@@ -1,0 +1,10 @@
+%% 模板占位：鉴权流程时序图（可选）。多数 API 参考文档鉴权简单时可省略此图，仅用文字说明。
+sequenceDiagram
+    participant Client as 调用方
+    participant Auth as 鉴权服务
+    participant API as {服务名称}
+
+    Client->>Auth: 请求 access_token（凭证）
+    Auth-->>Client: 返回 access_token（含过期时间）
+    Client->>API: 请求 + Authorization: Bearer {access_token}
+    API-->>Client: 返回结果或 401（token 过期）

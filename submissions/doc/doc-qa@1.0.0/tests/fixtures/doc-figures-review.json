@@ -1,0 +1,72 @@
+{
+ "generated_at": "2026-09-15T13:36:28-04:00",
+ "engine": {
+  "name": "doc-figures",
+  "version": "1.0.0",
+  "mermaid": "11.17.2",
+  "graphviz": "16.1.0 (@hpcc-js/wasm-graphviz 1.29.1)",
+  "chrome": "Chrome/152.0.7977.83"
+ },
+ "figures": [
+  {
+   "file": "figures/flow.svg",
+   "source": "figures/flow.mmd",
+   "engine": "mermaid",
+   "png": "figures/flow.png",
+   "feishu": {
+    "type": "mermaid",
+    "path": "figures/flow.mmd"
+   },
+   "machine": {
+    "checked_at": "2026-09-15T13:36:28-04:00",
+    "engine_version": "1.0.0",
+    "template": null,
+    "diagram": "flowchart",
+    "board_lint_applies": false,
+    "board_lint": [],
+    "whiteboard_check": {
+     "skipped": "--no-wb"
+    },
+    "render_check": {
+     "text_overflow": [],
+     "text_overlaps": [],
+     "outside_canvas": []
+    },
+    "viewbox_width": 254.0,
+    "viewbox_height": 70.0,
+    "min_font_px": 17.0,
+    "min_font_pt": 34.53,
+    "display_width_ratio": 1.0,
+    "suggested_width_ratio": 0.21,
+    "aspect_ratio": 0.276,
+    "mermaid": {
+     "diagram_type": "flowchart-v2",
+     "foreign_objects": 0,
+     "removed_styles": 1,
+     "removed_filters": [
+      "feDropShadow",
+      "feDropShadow"
+     ],
+     "text_overlaps": []
+    },
+    "gantt": null,
+    "notes": [],
+    "issues": [
+     {
+      "rule": "FA1_aspect",
+      "severity": "建议",
+      "message": "宽高比 1:0.28 不在 1:0.35–0.7（流程类图）；图过扁：减少每行节点数或改成多行",
+      "target": ""
+     }
+    ],
+    "must_fix": 0,
+    "ok": true
+   },
+   "human": {
+    "checked_at": "",
+    "checked_by": "",
+    "issues": ""
+   }
+  }
+ ]
+}

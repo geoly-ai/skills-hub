@@ -1,0 +1,14 @@
+digraph deps {
+  rankdir=LR;
+  subgraph cluster_api { label="接入"; gw [label="API 网关"]; }
+  subgraph cluster_svc { label="服务";
+    order [label="订单服务"]; inventory [label="库存服务（预占 / 释放）"]; pay [label="支付服务"];
+  }
+  db [label="主库 PostgreSQL", fillcolor="#E6F4EA", color="#188038"];
+  mq [label="消息队列", fillcolor="#E6F4EA", color="#188038"];
+  gw -> order [label="下单"];
+  order -> inventory [label="同步预占"];
+  order -> pay;
+  order -> mq [label="订单事件", style=dashed];
+  inventory -> db; pay -> db;
+}

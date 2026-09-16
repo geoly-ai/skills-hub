@@ -1,0 +1,22 @@
+erDiagram
+    POINTS_ACCOUNT ||--o{ POINTS_LEDGER : "产生"
+    POINTS_LEDGER }o--|| RULE_SNAPSHOT : "引用生效规则"
+    POINTS_ACCOUNT {
+        string member_id PK
+        int balance
+        datetime updated_at
+    }
+    POINTS_LEDGER {
+        string ledger_id PK
+        string member_id FK
+        int amount
+        string source
+        string rule_snapshot_id FK
+        datetime created_at
+    }
+    RULE_SNAPSHOT {
+        string rule_snapshot_id PK
+        string rule_version
+        json rule_params
+        datetime effective_at
+    }

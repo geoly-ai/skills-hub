@@ -1,0 +1,82 @@
+{
+  "kind": "layered-arch",
+  "title": "{现状架构标题，替换}",
+  "layers": [
+    {
+      "id": "client",
+      "label": "客户端层",
+      "nodes": [
+        {
+          "id": "app",
+          "label": "{App / Web 客户端}"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "label": "接入层",
+      "nodes": [
+        {
+          "id": "api-gw",
+          "label": "{API 网关}"
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "label": "服务层",
+      "nodes": [
+        {
+          "id": "svc-a",
+          "label": "{核心服务 A}"
+        },
+        {
+          "id": "svc-b",
+          "label": "{核心服务 B}"
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "label": "数据层",
+      "nodes": [
+        {
+          "id": "db",
+          "label": "{主存储}"
+        },
+        {
+          "id": "cache",
+          "label": "{缓存，如适用}"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "app",
+      "to": "api-gw",
+      "label": "{调用方式，如 HTTPS}"
+    },
+    {
+      "from": "api-gw",
+      "to": "svc-a",
+      "label": ""
+    },
+    {
+      "from": "svc-a",
+      "to": "svc-b",
+      "label": "{同步/异步}"
+    },
+    {
+      "from": "svc-a",
+      "to": "db",
+      "label": ""
+    },
+    {
+      "from": "svc-b",
+      "to": "cache",
+      "label": ""
+    }
+  ],
+  "note": "字段为本包自拟，按 design.md §4.2 svgkit 分层架构思路：layers 从上到下渲染为水平分层带，每层内 nodes 横向排列，edges 按 from/to 画箭头并可选 label；渲染引擎读取 tokens.json 取配色，不在本文件内写死颜色。见 figures/README.md。"
+}

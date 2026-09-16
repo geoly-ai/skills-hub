@@ -1,0 +1,243 @@
+{
+  "schema_version": "1",
+  "id": "presales-reddit",
+  "name": "Reddit 增长与口碑运营售前方案与报价",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "Reddit 增长与口碑运营售前方案与报价类型包",
+  "audience": "external",
+  "brand_profile": "cyberklick",
+  "run_root": "~/workspace/presales/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "proposal.md",
+  "outline_file": "outline.md",
+  "meta_file": "brief.json",
+  "inputs": [
+    {
+      "id": "input1",
+      "desc": "brief.json（需求梳理速览各维度的当前梳理结果与状态）",
+      "required": true
+    },
+    {
+      "id": "input2",
+      "desc": "cost-model.json 与产能核查参数（subreddits/weeks/posts/comments/accounts）",
+      "required": true
+    }
+  ],
+  "skeleton": [
+    {
+      "id": "background",
+      "title": "01 背景与目标",
+      "aliases": ["为什么现在需要布局 Reddit"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "需求梳理速览覆盖品牌与品类",
+        "目标市场与语言",
+        "目标板块与准入",
+        "交付量与周期",
+        "账号与合规要求",
+        "KPI 与结算方式六维度"
+      ]
+    },
+    {
+      "id": "key-question",
+      "title": "02 关键问题前置",
+      "aliases": ["设计原则"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "客户最担心的问题（如\"会不会被判定为水军\"\"账号会不会被封\"）的直接答案"
+      ]
+    },
+    {
+      "id": "insight",
+      "title": "03 洞察与研究",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "目标板块声量与竞品/品类讨论现状，落到内容策略哪个模块"
+      ]
+    },
+    {
+      "id": "solution",
+      "title": "04 解法",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "内容类型组合",
+        "板块矩阵",
+        "账号矩阵设计与每点价值"
+      ]
+    },
+    {
+      "id": "delivery",
+      "title": "05 交付与验收",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "交付什么（帖子/评论数量与类型）",
+        "验收标准（见 terms.md 验收与补发表）",
+        "执行方案"
+      ]
+    },
+    {
+      "id": "post-launch",
+      "title": "06 上线后如何验证",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "声量",
+        "互动",
+        "情感倾向等指标，观察工具与周期"
+      ]
+    },
+    {
+      "id": "pricing",
+      "title": "07 报价",
+      "aliases": ["套餐与报价"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "include pricing/ 产物：套餐或定制方案报价",
+        "有效期"
+      ]
+    },
+    {
+      "id": "implementation",
+      "title": "08 实施计划",
+      "aliases": ["项目如何落地"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "阶段（板块准入",
+        "内容排期",
+        "投放",
+        "复盘）",
+        "周期"
+      ]
+    },
+    {
+      "id": "terms",
+      "title": "09 商务条款",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "付款",
+        "不含项",
+        "验收与补发规则",
+        "不提供声明（不可售项）"
+      ]
+    },
+    {
+      "id": "confirm",
+      "title": "10 需求与范围确认单",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "套餐或定制方案",
+        "目标板块清单",
+        "内容类型与品牌露出比例",
+        "链接与披露规则",
+        "补发与验收口径",
+        "启动时间与付款",
+        "范围变更机制"
+      ]
+    },
+    {
+      "id": "why-us",
+      "title": "11 为什么选我们与下一步",
+      "aliases": ["为什么选择我们与下一步", "关于易点天下 Cyberklick 与下一步"],
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "include sections/company.md",
+        "增值选项",
+        "下一步行动"
+      ]
+    }
+  ],
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": []
+  },
+  "include_allow": [
+    "pricing/*.md",
+    "terms.md",
+    "confirm-list.md",
+    "sections/*.md"
+  ],
+  "features": {
+    "code_blocks": false,
+    "landscape": false,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [],
+  "gates": {
+    "D2": {
+      "command": [
+        "{python}",
+        "{pack_dir}/scripts/gate_d2.py",
+        "{run_dir}"
+      ],
+      "desc": "price_reddit.py capacity（capacity-input.json）、rfp（pricing/rfp-spec.json 存在时）、package（无 rfp-spec 或有 reddit-packages.md 时）在临时目录运行，全部退出码 0",
+      "pass_exit_codes": [
+        0
+      ]
+    }
+  },
+  "qa": {
+    "rules_py": "qa_rules.py",
+    "rules_md": "qa-rules.md",
+    "engine_rules": {
+      "include": ["L1", "L2", "L4", "L6", "L8", "L9", "L10", "C1", "R1", "S2", "S3", "X1", "X2", "X3", "X4", "H1", "H2", "H3", "H4", "T1", "T2", "T4", "T5", "T6", "T7", "T8", "T10", "T11", "T12", "S1"],
+      "exclude": []
+    },
+    "severity_overrides": {"S1": "提示"},
+    "glossary": "glossary.json",
+    "highlight_limits": {"total": 25, "per_page": 3, "max_length": 40},
+    "key_figures": [
+      {"id": "validity", "label": "报价有效期（天）", "pattern": "(?P<value>\\d+)\\s*(?:个)?(?:自然日|日历日|天)内有效", "normalize": "number", "severity": "提示"},
+      {"id": "payment-ratio", "label": "付款比例", "pattern": "(?P<key>首付|预付|中期|尾|验收)款?[^\\d\\n]{0,6}?(?P<value>\\d+(?:\\.\\d+)?)\\s*%", "normalize": "number", "severity": "提示"},
+      {"id": "plan-total", "label": "方案总价", "pattern": "(?P<key>方案\\s*[A-Z])\\s*(?:总价|合计|总计|报价)[^\\d\\n。；]{0,8}?(?:USD|\\$|¥|CNY)\\s?(?P<value>\\d[\\d,]*(?:\\.\\d+)?)", "normalize": "number", "severity": "提示"},
+      {"id": "plan-days", "label": "方案总人天", "pattern": "(?P<key>方案\\s*[A-Z])\\s*(?:合计|总计|总工时|共)[^\\d\\n。；]{0,8}?(?P<value>\\d+(?:\\.\\d+)?)\\s*人天", "normalize": "number", "severity": "提示"}
+    ],
+    "banned_terms": [{"term": "保证上热门", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "百分百不被发现", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "零封号风险", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}, {"term": "确保转化", "regex": false, "severity": "必改", "message": "出现绝对化承诺用语，属售前红线"}]
+  },
+  "hooks": {
+    "pre_render": {"command": ["{python}", "{skills_dir}/presales-publish/scripts/pre_render_check.py", "{run_dir}"], "desc": "报价有效期：建站取 pricing/site-model.json 且必须 30 天；封面有效期行与之一致"},
+    "pre_qa": null,
+    "pre_publish": {"command": ["{python}", "{skills_dir}/presales-publish/scripts/pre_publish_check.py", "{run_dir}"], "desc": "pricing/*.json 模型哈希（只读、标准库），extra 输出 pricing_model_hash、client、line；缺计价产物或建站有效期不符时 ok=false"},
+    "post_publish": null
+  },
+  "cover": "marketing",
+  "filename": "{project}_Reddit_方案与报价_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {
+    "source": "无对应 lark-doc genre；本包沿用 presales-shared/references/skeleton.md 与 packs/reddit/ 的既有写作约定，非本次新增",
+    "snapshot": "writing-contract.md",
+    "snapshot_date": "2026-09-15"
+  },
+  "templates": [
+    "templates/doc.md",
+    "skeleton.md",
+    "templates/figures/engine-flow.mmd"
+  ],
+  "samples": [
+    "samples/smokereddit"
+  ],
+  "include_deny": [
+    "*internal*"
+  ]
+}

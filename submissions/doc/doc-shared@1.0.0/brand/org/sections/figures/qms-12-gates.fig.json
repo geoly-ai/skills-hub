@@ -1,0 +1,134 @@
+{
+  "template": "phases",
+  "title": "质量管理体系：3 大阶段 · 12 环节 · 12 道质量门",
+  "subtitle": "每个环节一个准出质量门：上一环节不达标，下一环节不启动",
+  "rows": 3,
+  "row_style": "frame",
+  "card_style": "plain",
+  "row_labels": [
+    "阶段一 · 定义 Definition",
+    "阶段二 · 构建与验证 Build & Verify",
+    "阶段三 · 交付与保障 Release & Hypercare"
+  ],
+  "gate_label": "质量门",
+  "phases": [
+    {
+      "badge": "①",
+      "name": "需求与方案",
+      "items": [
+        "Pre-sales Discovery：梳理需求与范围"
+      ],
+      "gate": "客户签署《需求与范围确认单》",
+      "tag": "40%"
+    },
+    {
+      "badge": "②",
+      "name": "立项 Kickoff",
+      "items": [
+        "定里程碑基线与沟通机制（周会 / 日报）"
+      ],
+      "gate": "双方确认里程碑基线与沟通机制"
+    },
+    {
+      "badge": "③",
+      "name": "MRD / PRD",
+      "items": [
+        "编写模块清单与验收标准 DoD"
+      ],
+      "gate": "PRD 评审通过 + 客户确认"
+    },
+    {
+      "badge": "④",
+      "name": "设计稿与客户确认",
+      "items": [
+        "设计稿交客户评审"
+      ],
+      "gate": "客户签字，冻结设计基线"
+    },
+    {
+      "badge": "⑤",
+      "name": "前后端开发",
+      "items": [
+        "feature → develop → main 分支合并"
+      ],
+      "gate": "代码全部经 Code Review 后合并"
+    },
+    {
+      "badge": "⑥",
+      "name": "开发冒烟测试",
+      "items": [
+        "Smoke：浏览 → 加购 → 结账核心链路"
+      ],
+      "gate": "核心链路通过方可转测"
+    },
+    {
+      "badge": "⑦",
+      "name": "内部测试 SIT",
+      "items": [
+        "功能 / 兼容 / 性能 CWV / SEO 专项 / 安全基线"
+      ],
+      "gate": "P0 / P1 缺陷清零"
+    },
+    {
+      "badge": "⑧",
+      "name": "内部产品验收",
+      "items": [
+        "PO 按 PRD + DoD 走查"
+      ],
+      "gate": "签发预验收报告"
+    },
+    {
+      "badge": "⑨",
+      "name": "客户验收 UAT",
+      "items": [
+        "Staging + UAT 用例 + 两轮修复"
+      ],
+      "gate": "客户验收签字",
+      "tag": "30%"
+    },
+    {
+      "badge": "⑩",
+      "name": "生产发布 Go-Live",
+      "items": [
+        "发布检查清单 + 低峰切换 + 回滚预案"
+      ],
+      "gate": "双方签字发布"
+    },
+    {
+      "badge": "⑪",
+      "name": "生产环境验收",
+      "items": [
+        "URL 跳转抽验 / GSC 提交 / 埋点 / CWV 生产验证"
+      ],
+      "gate": "生产验证通过（对应尾款节点）",
+      "tag": "30%"
+    },
+    {
+      "badge": "⑫",
+      "name": "保障期 Hypercare",
+      "items": [
+        "上线后 2–4 周监控 + 缺陷免费修复"
+      ],
+      "gate": "出具项目关闭报告"
+    }
+  ],
+  "legend": [
+    {
+      "role": "generic_layer",
+      "label": "紫色：阶段一"
+    },
+    {
+      "role": "category",
+      "label": "蓝色：阶段二"
+    },
+    {
+      "role": "deliverable",
+      "label": "绿色：阶段三"
+    },
+    {
+      "role": "business_line",
+      "label": "橙色徽标：挂在该质量门上的付款比例"
+    }
+  ],
+  "legend_style": "text"
+}

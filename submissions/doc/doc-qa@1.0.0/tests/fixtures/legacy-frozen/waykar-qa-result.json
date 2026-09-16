@@ -1,0 +1,111 @@
+{
+  "must_fix": 9,
+  "total": 15,
+  "issues": [
+    {
+      "rule": "L3",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "报价",
+      "message": "报价章节没有 include pricing/ 下的脚本产物"
+    },
+    {
+      "rule": "L3",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "商务条款",
+      "message": "没有 include terms.md"
+    },
+    {
+      "rule": "L3",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "确认单",
+      "message": "没有 include confirm-list.md（确认单须由 confirm_list.py 生成）"
+    },
+    {
+      "rule": "L3",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "需求梳理速览",
+      "message": "缺少「需求梳理速览」章节"
+    },
+    {
+      "rule": "L3",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "需求与范围确认单",
+      "message": "缺少「需求与范围确认单」章节"
+    },
+    {
+      "rule": "L5",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "公司介绍",
+      "message": "没有 include sections/company.md（公司定位、服务矩阵、团队与质量保障、案例、联系方式，由 company_section.py 生成）"
+    },
+    {
+      "rule": "L5",
+      "severity": "建议",
+      "line": 0,
+      "excerpt": "联系人",
+      "message": "brief.json 未填 contact.name，联系我们只有公司热线与官网"
+    },
+    {
+      "rule": "A2",
+      "severity": "必改",
+      "line": 0,
+      "excerpt": "scope.json",
+      "message": "缺少 scope.json（正文范围清单，报价与质检共用）"
+    },
+    {
+      "rule": "A3",
+      "severity": "建议",
+      "line": 13,
+      "excerpt": "势     高；工期与成本约为 Headless 的一半；同店换主题 SEO 零风险",
+      "message": "比例表述「一半」与模型比值 0.667 不一致，改用 pricing/ratio.md"
+    },
+    {
+      "rule": "F4",
+      "severity": "建议",
+      "line": 7,
+      "excerpt": "盖                JSON-LD                                        搜索结果里，点击率显著提升",
+      "message": "量化或效果承诺「显著提升」需有实测依据与口径，否则改为预期表述"
+    },
+    {
+      "rule": "F4",
+      "severity": "建议",
+      "line": 9,
+      "excerpt": "修复               sitemap，43 个产品搜索引擎与 AI 都看不见                    验机制，零成本找回 1/3 的产品曝光面",
+      "message": "量化或效果承诺「零成本」需有实测依据与口径，否则改为预期表述"
+    },
+    {
+      "rule": "F4",
+      "severity": "建议",
+      "line": 9,
+      "excerpt": "修复               sitemap，43 个产品搜索引擎与 AI 都看不见                    验机制，零成本找回 1/3 的产品曝光面",
+      "message": "量化或效果承诺「找回 1/3」需有实测依据与口径，否则改为预期表述"
+    },
+    {
+      "rule": "F2",
+      "severity": "建议",
+      "line": 17,
+      "excerpt": "前端框架     Shopify Hydrogen（Remix）或 Next.js           SSR + ISR，SEO 友好、极致性能（LCP < 1.5s 目标）",
+      "message": "Hydrogen 已迁到 React Router 7（2025.7.0 起），不再写基于 Remix"
+    },
+    {
+      "rule": "R1",
+      "severity": "必改",
+      "line": 13,
+      "excerpt": "势     高；工期与成本约为 Headless 的一半；同店换主题 SEO 零风险",
+      "message": "绝对化用语「零风险」"
+    },
+    {
+      "rule": "R1",
+      "severity": "必改",
+      "line": 23,
+      "excerpt": "SEO 影响         同店换主题，URL 不变，零风险                   URL 1:1 保留 + 301，可控无重新收录",
+      "message": "绝对化用语「零风险」"
+    }
+  ]
+}
