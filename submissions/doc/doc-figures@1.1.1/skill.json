@@ -1,0 +1,23 @@
+{
+  "schema": "geoly.skills.skill/1",
+  "kind": "skill",
+  "namespace": "doc",
+  "name": "doc-figures",
+  "version": "1.1.1",
+  "description": "专业文档生产体系（doc-*）的图表引擎：把运行目录 figures/ 下的图源（Mermaid .mmd、Graphviz .dot、svgkit 品牌模板 .fig.json、成品 .svg、位图）渲染成 PDF 用 SVG 与 PNG 预览，Mermaid 源同时交飞书画板；做画板约束 lint、whiteboard-cli 检查、等效最小字号（≥ 7pt）、宽高比、Chrome 实测越界与重叠，写 figures/review.json。模板含分层架构 layered-arch（architecture.svg 风格）、泳道 swimlane、对比矩阵 compare-matrix、里程碑 milestone、覆盖矩阵热图 coverage-heatmap、阶段 / 阶梯 phases、漏斗 funnel、站点结构 sitemap。用户要给 PRD、技术 Spec、测试计划等 doc-* 文档画架构图、流程图、时序 / 状态 / ER / 甘特、质量门阶梯图，要「图出 PDF 高清且飞书可编辑」「检查图字号、越界、画板能不能解析」，或 doc-render 需要图产物时使用。开工前先读 doc-shared（figures-policy.md、layout.md §7、feishu.md §3）。",
+  "license": "MIT",
+  "clients": [
+    "claude",
+    "cursor",
+    "codex",
+    "agents"
+  ],
+  "capabilities": [
+    "shell",
+    "network",
+    "external-tool",
+    "writes-repo"
+  ],
+  "replaces": [],
+  "conflicts": []
+}

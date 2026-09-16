@@ -1,0 +1,288 @@
+{
+  "schema_version": "1",
+  "id": "prd",
+  "name": "产品需求文档（PRD）",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "产品需求文档（PRD）类型包",
+  "audience": "internal",
+  "brand_profile": "internal",
+  "run_root": "~/workspace/docs/{project}",
+  "run_dir_pattern": "{type}-{short}-v{version}",
+  "source_file": "doc.md",
+  "outline_file": "outline.md",
+  "meta_file": "doc.json",
+  "inputs": [
+    {
+      "id": "input1",
+      "desc": "用户问题与证据（研究、行为数据、支持工单，至少一项来源）",
+      "required": true
+    },
+    {
+      "id": "input2",
+      "desc": "目标与可观测指标草案（允许标 [目标值待确认]）",
+      "required": true
+    },
+    {
+      "id": "input3",
+      "desc": "范围边界初稿（做什么 / 明确不做什么）",
+      "required": true
+    },
+    {
+      "id": "input4",
+      "desc": "关联 MRD 或立项材料（如有，填 related_docs）",
+      "required": false
+    }
+  ],
+  "skeleton": [
+    {
+      "id": "background",
+      "title": "背景与用户问题",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "谁",
+        "在什么情境",
+        "遇到什么问题",
+        "证据与来源"
+      ]
+    },
+    {
+      "id": "goals",
+      "title": "目标与指标",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "可观测结果",
+        "指标口径",
+        "来源",
+        "时间窗",
+        "未知值写待确认 owner"
+      ]
+    },
+    {
+      "id": "scope",
+      "title": "范围与非目标",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "做什么",
+        "明确不做什么"
+      ]
+    },
+    {
+      "id": "scenarios",
+      "title": "用户与场景",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "角色",
+        "关键场景",
+        "流程图"
+      ]
+    },
+    {
+      "id": "requirements",
+      "title": "功能需求",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "每条 REQ-模块-序：触发 / 前置 → 可观察结果 → 异常与边界 → 优先级 → 验收标准"
+      ]
+    },
+    {
+      "id": "nfr",
+      "title": "非功能需求",
+      "level": 1,
+      "required": false,
+      "when": "按需",
+      "must_answer": [
+        "性能",
+        "安全",
+        "隐私",
+        "无障碍",
+        "兼容：每项有门槛或写不适用理由"
+      ]
+    },
+    {
+      "id": "data-tracking",
+      "title": "数据与埋点",
+      "level": 1,
+      "required": false,
+      "when": "按需",
+      "must_answer": [
+        "事件",
+        "属性",
+        "口径"
+      ]
+    },
+    {
+      "id": "dependencies",
+      "title": "依赖、风险与开放问题",
+      "level": 1,
+      "required": true,
+      "must_answer": [
+        "每条开放问题有 owner 与截止时间"
+      ]
+    },
+    {
+      "id": "milestones",
+      "title": "里程碑",
+      "level": 1,
+      "required": false,
+      "when": "按需",
+      "must_answer": [
+        "阶段与判据"
+      ]
+    },
+    {
+      "id": "glossary",
+      "title": "附录：术语表",
+      "level": 1,
+      "required": false,
+      "when": "按需",
+      "appendix": true
+    }
+  ],
+  "numbering": {
+    "section": "decimal",
+    "appendix": "alpha",
+    "max_depth": 3,
+    "figure": "图 {chapter}-{seq}",
+    "table": "表 {chapter}-{seq}",
+    "entities": [
+      {
+        "kind": "requirement",
+        "label": "功能需求",
+        "prefix": "REQ-",
+        "pattern": "^REQ-[A-Z]+-\\d{2}$",
+        "unique": true,
+        "contiguous": true
+      }
+    ]
+  },
+  "include_allow": [
+    "sections/*.md",
+    "data/*.csv",
+    "data/*.yaml"
+  ],
+  "features": {
+    "code_blocks": false,
+    "landscape": false,
+    "data_blocks": true,
+    "summary_block": true,
+    "footnotes": true,
+    "h1_new_page": null,
+    "toc": true,
+    "table_captions": true,
+    "figure_numbers": true,
+    "thead_repeat": true
+  },
+  "stages": [],
+  "related": [
+    {
+      "type": "mrd",
+      "role": "source_mrd",
+      "for_gate": false,
+      "required": false,
+      "desc": "立项依据的市场需求文档，如有"
+    }
+  ],
+  "gates": {
+    "D2": null
+  },
+  "qa": {
+    "rules_py": "qa_rules.py",
+    "rules_md": "qa-rules.md",
+    "engine_rules": {
+      "include": "all",
+      "exclude": [
+        "L2"
+      ]
+    },
+    "severity_overrides": {},
+    "glossary": "glossary.json",
+    "highlight_limits": {"total": 25, "per_page": 3, "max_length": 40},
+    "key_figures": [
+      {"id": "gray-days", "label": "灰度观察天数", "pattern": "灰度期?[^\\d\\n。；]{0,10}?(?P<value>\\d+)\\s*天", "normalize": "number", "severity": "提示"},
+      {"id": "req-count", "label": "需求条数", "pattern": "(?:共|全部)\\s*(?P<value>\\d+)\\s*条(?:功能)?需求", "normalize": "number", "severity": "提示"}
+    ],
+    "banned_terms": [
+      {
+        "term": "Redis",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "Kafka",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "MySQL",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "PostgreSQL",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "微服务",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "消息队列",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "Elasticsearch",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "Docker",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      },
+      {
+        "term": "Kubernetes",
+        "regex": false,
+        "severity": "提示",
+        "message": "功能需求正文出现具体技术实现选型词，暗藏实现方案"
+      }
+    ]
+  },
+  "hooks": {
+    "pre_render": null,
+    "pre_qa": null,
+    "pre_publish": null,
+    "post_publish": null
+  },
+  "cover": "technical",
+  "filename": "{project}_PRD_{title}_v{version}_{yyyymmdd}.pdf",
+  "writing_contract": {
+    "source": "lark-doc/references/genres/prd.md",
+    "snapshot": "writing-contract.md",
+    "snapshot_date": "2026-09-15"
+  },
+  "templates": [
+    "templates/doc.md",
+    "skeleton.md",
+    "templates/figures/user-flow.mmd"
+  ],
+  "samples": [
+    "samples/membership-points-v2"
+  ]
+}
