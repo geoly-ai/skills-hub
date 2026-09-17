@@ -465,7 +465,12 @@ jobs:
           #    必须保持**本次运行开始时**的样子，否则 build-inputs 会读到
           #    本次自己刚写的注册（见上面那段长注释）。
           cp /tmp/owners-merged.json registry/owners.json
-          git add artifacts registry/snapshots registry/owners.json submissions
+          # 🔴 `registry/catalog.md` 必须一起提交：它在「建快照」一步与快照同源
+          #    重新生成（build-catalog.mjs），但此前这里的 `git add` 漏了它 ——
+          #    生成在盘上、没进提交，promotion PR 带着旧清单，main 的
+          #    agents-catalog 反漂移门必红（快照 6、7、8 三连红都是这个原因，
+          #    前两次靠手工补生成，这次把漏掉的 add 补上）。
+          git add artifacts registry/snapshots registry/owners.json registry/catalog.md submissions
           git commit -m "promote: 快照 $N（来自 #$PR）"
           git push origin "$branch"
           # push 之后到 PR 创建之间失败的话，分支会留在远端 —— 上面那道门就是
