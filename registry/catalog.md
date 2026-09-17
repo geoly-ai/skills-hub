@@ -5,7 +5,7 @@
 > 权威源是 `registry/snapshots/hub-<N>.json`（已签名对象里的那份清单），
 > 这里只是把它渲染成人和 agent 都能直接读的形状。
 
-快照 **8** · 生成于 `2026-09-17T07:40:18Z` · 仓库 `geoly-ai/skills-hub`
+快照 **9** · 生成于 `2026-09-17T08:17:38Z` · 仓库 `geoly-ai/skills-hub`
 
 ## 怎么装
 
@@ -24,10 +24,11 @@ npx @geoly-ai/skills-hub install pack:<ns>/<name> --clients claude
 ⚠️ **Tier 2 的制品能执行 shell、读凭据或写仓库。** 装之前先看它的 `SKILL.md`；
 agent 不要在没有用户明确同意的情况下装 Tier 2。
 
-## Pack（2）
+## Pack（3）
 
 | id | latest | tier | clients | 说明 |
 |---|---|---|---|---|
+| `pack:doc/doc-matrix@1.0.0` | ✓ | 2 | agents claude codex cursor | 专业文档生产体系（doc-*）矩阵全套 7 个 skill（order 0–6）。它们共用 doc-shared 的契约层（DocMark 语法、D0–D4 门、品牌 token、类型包接口），必须并排安装 —— 单独装… |
 | `pack:plaud-theme/plaud-theme-matrix@0.4.0` | ✓ | 2 | agents claude codex cursor | PLAUD Shopify 主题矩阵全套 10 个 skill（order 0–9）。它们共用 plaud-theme-shared 的契约层（两轴状态机、handoff schema、SyncReach），必须并排安装… |
 | `pack:prompts-map/prompt-map@0.7.0` | ✓ | 2 | agents claude codex cursor | product-card Prompt Map 全套 9 个 skill。它们靠 ../prompt-map-shared/ 的兄弟路径互相引用，必须并排安装 —— 单独装其中一个会得到引用不到 shared 的坏 sk… |
 
