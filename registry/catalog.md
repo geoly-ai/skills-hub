@@ -5,7 +5,7 @@
 > 权威源是 `registry/snapshots/hub-<N>.json`（已签名对象里的那份清单），
 > 这里只是把它渲染成人和 agent 都能直接读的形状。
 
-快照 **6** · 生成于 `2026-09-10T09:45:32Z` · 仓库 `geoly-ai/skills-hub`
+快照 **8** · 生成于 `2026-09-17T07:40:18Z` · 仓库 `geoly-ai/skills-hub`
 
 ## 怎么装
 
@@ -31,10 +31,24 @@ agent 不要在没有用户明确同意的情况下装 Tier 2。
 | `pack:plaud-theme/plaud-theme-matrix@0.4.0` | ✓ | 2 | agents claude codex cursor | PLAUD Shopify 主题矩阵全套 10 个 skill（order 0–9）。它们共用 plaud-theme-shared 的契约层（两轴状态机、handoff schema、SyncReach），必须并排安装… |
 | `pack:prompts-map/prompt-map@0.7.0` | ✓ | 2 | agents claude codex cursor | product-card Prompt Map 全套 9 个 skill。它们靠 ../prompt-map-shared/ 的兄弟路径互相引用，必须并排安装 —— 单独装其中一个会得到引用不到 shared 的坏 sk… |
 
-## Skill（34）
+## Skill（48）
 
 | id | latest | tier | clients | 说明 |
 |---|---|---|---|---|
+| `skill:doc/doc-author@1.0.0` |  | 2 | claude | 专业文档生产体系（doc-*）的写作引擎：按类型包把骨架写成正文。从 pack.json skeleton 动态生成 doc.md 骨架与 outline.md（D1 拍板稿），按 must_answer 逐章写 Doc… |
+| `skill:doc/doc-author@1.0.1` | ✓ | 2 | claude cursor codex agents | 专业文档生产体系（doc-*）的写作引擎：按类型包把骨架写成正文。从 pack.json skeleton 动态生成 doc.md 骨架与 outline.md（D1 拍板稿），按 must_answer 逐章写 Doc… |
+| `skill:doc/doc-figures@1.1.0` |  | 2 | claude | 专业文档生产体系（doc-*）的图表引擎：把运行目录 figures/ 下的图源（Mermaid .mmd、Graphviz .dot、svgkit 品牌模板 .fig.json、成品 .svg、位图）渲染成 PDF 用… |
+| `skill:doc/doc-figures@1.1.1` | ✓ | 2 | claude cursor codex agents | 专业文档生产体系（doc-*）的图表引擎：把运行目录 figures/ 下的图源（Mermaid .mmd、Graphviz .dot、svgkit 品牌模板 .fig.json、成品 .svg、位图）渲染成 PDF 用… |
+| `skill:doc/doc-orchestrator@1.0.0` |  | 2 | claude | 专业文档生产体系（doc-*）的通用入口：用户要写或改任何 doc-* 类型文档——技术 PRD / 产品需求文档、MRD / 市场需求文档、技术方案 / 设计文档 / Spec、API 参考 / 接口文档、测试计划、测… |
+| `skill:doc/doc-orchestrator@1.0.1` | ✓ | 2 | claude cursor codex agents | 专业文档生产体系（doc-*）的通用入口：用户要写或改任何 doc-* 类型文档——技术 PRD / 产品需求文档、MRD / 市场需求文档、技术方案 / 设计文档 / Spec、API 参考 / 接口文档、测试计划、测… |
+| `skill:doc/doc-publish@1.1.0` |  | 2 | claude | 专业文档生产体系（doc-*）的发布引擎：对已过 D3 的运行目录做发布预检（门状态、qa-result 与 render.json 的 source_sha256 与当前正文一致、源文件与 D3 签门清单一致、飞书排版… |
+| `skill:doc/doc-publish@1.1.1` | ✓ | 2 | claude cursor codex agents | 专业文档生产体系（doc-*）的发布引擎：对已过 D3 的运行目录做发布预检（门状态、qa-result 与 render.json 的 source_sha256 与当前正文一致、源文件与 D3 签门清单一致、飞书排版… |
+| `skill:doc/doc-qa@1.0.0` |  | 2 | claude | 专业文档生产体系（doc-*）的质检引擎：对 DocMark 正文执行引擎通用规则（include 与占位符、行内代码、图自查与机器检查、表题、代码块、数据块、链接、必备章节、标题层级、编号实体、交叉引用、关键数字一致性… |
+| `skill:doc/doc-qa@1.0.1` | ✓ | 2 | claude cursor codex agents | 专业文档生产体系（doc-*）的质检引擎：对 DocMark 正文执行引擎通用规则（include 与占位符、行内代码、图自查与机器检查、表题、代码块、数据块、链接、必备章节、标题层级、编号实体、交叉引用、关键数字一致性… |
+| `skill:doc/doc-render@1.0.0` |  | 2 | claude | 专业文档生产体系（doc-*）的渲染引擎：把 DocMark 正文（doc.md / proposal.md）渲染为品牌 HTML、PDF（Chrome CDP，两遍打印回填目录页码、书签、封面无页眉页脚、页眉页脚与元数… |
+| `skill:doc/doc-render@1.0.1` | ✓ | 2 | claude cursor codex agents | 专业文档生产体系（doc-*）的渲染引擎：把 DocMark 正文（doc.md / proposal.md）渲染为品牌 HTML、PDF（Chrome CDP，两遍打印回填目录页码、书签、封面无页眉页脚、页眉页脚与元数… |
+| `skill:doc/doc-shared@1.0.0` |  | 2 | claude | 专业文档生产体系（doc-* 矩阵）的契约层：DocMark 语法、doc.json 与运行工件字段、阶段门 D0–D4、品牌 token 与版式规范、中文排版规则 T1–T12、质检分层、图表引擎路由与画板约束、类型包… |
+| `skill:doc/doc-shared@1.0.1` | ✓ | 2 | claude cursor codex agents | 专业文档生产体系（doc-* 矩阵）的契约层：DocMark 语法、doc.json 与运行工件字段、阶段门 D0–D4、品牌 token 与版式规范、中文排版规则 T1–T12、质检分层、图表引擎路由与画板约束、类型包… |
 | `skill:geoly-ai/codex-thread-migrator@0.1.0` | ✓ | 1 | codex | Find locally retained Codex tasks that disappeared after switching accounts or Providers, inventory and dedupl… |
 | `skill:geoly-ai/skills-hub-install@0.2.0` | ✓ | 2 | claude cursor codex agents | 用 skills-hub CLI 装 skill / pack —— 命令、装到哪一端、复现与离线、装崩了怎么恢复、以及为什么没有 --force。当用户要装 geoly 的 skill、说「装一下 xxx skill」… |
 | `skill:geoly-ai/skills-hub-publish@0.2.0` |  | 2 | claude cursor codex agents | 把 skill 投稿进 geoly skills-hub —— 投稿目录长什么样、skill.json 怎么写、capability 怎么定、要过哪几道门、被拒了怎么改。当用户要发布/投稿一个 skill 到 hub、或… |
