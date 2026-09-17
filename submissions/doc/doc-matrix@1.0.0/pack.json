@@ -1,0 +1,69 @@
+{
+  "schema": "geoly.skills.pack/1",
+  "kind": "pack",
+  "namespace": "doc",
+  "name": "doc-matrix",
+  "version": "1.0.0",
+  "description": "专业文档生产体系（doc-*）矩阵全套 7 个 skill（order 0–6）。它们共用 doc-shared 的契约层（DocMark 语法、D0–D4 门、品牌 token、类型包接口），必须并排安装 —— 单独装其中一个会得到一个读不到契约与兄弟引擎的坏 skill。覆盖 PRD / MRD / 技术 Spec / API 参考 / 测试计划 / 测试用例 / 测试报告的写作、画图、渲染、质检、飞书发布全流程。",
+  "license": "MIT",
+  "members": [
+    {
+      "id": "skill:doc/doc-shared@1.0.1",
+      "tree_digest": "geoly-tree-v1:sha256:36f41ef65d7f5cc27f03c4ded8d78848912e80e603fa7ade404ec63ff2b39f2c",
+      "role": "matrix",
+      "order": 0
+    },
+    {
+      "id": "skill:doc/doc-orchestrator@1.0.1",
+      "tree_digest": "geoly-tree-v1:sha256:9baec104899d9c167b95e6f09b370203a2d4e34d4d4bcca2a4d93f7ac5c8a59e",
+      "role": "matrix",
+      "order": 1
+    },
+    {
+      "id": "skill:doc/doc-author@1.0.1",
+      "tree_digest": "geoly-tree-v1:sha256:554a43d3da64c065bfae1e05457e2117d7c9ada28245ceff7317938657808552",
+      "role": "matrix",
+      "order": 2
+    },
+    {
+      "id": "skill:doc/doc-figures@1.1.1",
+      "tree_digest": "geoly-tree-v1:sha256:b278e2297a52b4ae7b9f5e7cdda1081bf95307ee9cd7595d684a425600a913f1",
+      "role": "matrix",
+      "order": 3
+    },
+    {
+      "id": "skill:doc/doc-render@1.0.1",
+      "tree_digest": "geoly-tree-v1:sha256:1f336c140c927ce82480734a85bfd5fc8419505e911f407f6b363a1255c61fc1",
+      "role": "matrix",
+      "order": 4
+    },
+    {
+      "id": "skill:doc/doc-qa@1.0.1",
+      "tree_digest": "geoly-tree-v1:sha256:99d09afae2828f2eac366f02b75ef6c9955050747c1d11e209953342f87da5a7",
+      "role": "matrix",
+      "order": 5
+    },
+    {
+      "id": "skill:doc/doc-publish@1.1.1",
+      "tree_digest": "geoly-tree-v1:sha256:9e21c36dbae8fdaf7b69f7be7a734f5d00201f040d54036b45b20b8d399cd4fd",
+      "role": "matrix",
+      "order": 6
+    }
+  ],
+  "bundled": [],
+  "conflicts": [],
+  "contract_paths": [
+    "doc-shared/SKILL.md",
+    "doc-shared/references/docmark.md",
+    "doc-shared/references/pack-interface.md",
+    "doc-shared/references/gates.md",
+    "doc-shared/references/qa-engine.md"
+  ],
+  "compatibility": {
+    "previous": null,
+    "kind": "breaking",
+    "breaking_reasons": [
+      "首个版本，没有可比对的前一版"
+    ]
+  }
+}
